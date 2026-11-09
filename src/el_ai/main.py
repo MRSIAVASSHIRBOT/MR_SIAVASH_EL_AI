@@ -11,6 +11,7 @@ from el_ai.config import ConfigurationError, Settings
 from el_ai.integrations.hub import HubClient, HubClientError
 from el_ai.integrations.identity import InstanceIdentityError, load_or_create_client_id
 from el_ai.integrations.secrets import KeyringCredentialStore, SecretStoreError
+from el_ai.integrations.site_gateway import SiteGatewayClient, SiteGatewayError
 from el_ai.telegram.access import AccessController
 from el_ai.telegram.api import TelegramAPIError, TelegramBotAPI
 from el_ai.telegram.router import MessageRouter
@@ -122,6 +123,11 @@ async def run(settings: Settings) -> None:
     )
     router = MessageRouter(access, client_id=client_id)
     hub = _build_hub_client(settings, client_id)
+    site = SiteGatewayClient(
+        settings.site_public_api_base_url,
+        settings.site_public_web_base_url,
+        timeout_seconds=min(settings.request_timeout_seconds, 12),
+    )
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -161,18 +167,37 @@ async def run(settings: Settings) -> None:
                         normalized_text.split(maxsplit=1)[0].split("@", 1)[0].lower()
                         if normalized_text else ""
                     )
-                    if (
+                    if user_id is not None and access.is_owner(user_id):
+                        if command_name in {"/pair", "/hub", "/tasks", "/memory", "/task"}:
+                            response = await _owner_hub_command(
+                                text,
+                                telegram_user_id=user_id,
+                                update_id=update_id if isinstance(update_id, int) else 0,
+                                hub=hub,
+                                settings=settings,
+                            ) or response
+                        elif command_name == "/site":
+                            query = normalized_text.partition(" ")[2].strip()
+                            if not query:
+                                response = "روش استفاده: /site پرسش عمومی درباره سایت"
+                            else:
+                                try:
+                                    result = await site.ask(query)
+                                    response = site.format_answer(result)
+                                except SiteGatewayError:
+                                    response = "درگاه عمومی سایت فعلاً در دسترس نیست؛ کمی بعد دوباره تلاش کن."
+                    elif (
                         user_id is not None
-                        and access.is_owner(user_id)
-                        and command_name in {"/pair", "/hub", "/tasks", "/memory", "/task"}
+                        and not access.is_owner(user_id)
+                        and settings.public_enabled
+                        and normalized_text
+                        and not normalized_text.startswith("/")
                     ):
-                        response = await _owner_hub_command(
-                            text,
-                            telegram_user_id=user_id,
-                            update_id=update_id if isinstance(update_id, int) else 0,
-                            hub=hub,
-                            settings=settings,
-                        ) or response
+                        try:
+                            result = await site.ask(normalized_text)
+                            response = site.format_answer(result)
+                        except SiteGatewayError:
+                            response = "دستیار عمومی سایت فعلاً در دسترس نیست؛ کمی بعد دوباره تلاش کن."
                     try:
                         await api.send_message(chat_id, response[:4096])
                     except TelegramAPIError:
@@ -190,6 +215,7 @@ async def run(settings: Settings) -> None:
     finally:
         if hub is not None:
             await hub.close()
+        await site.close()
         await api.close()
         LOGGER.info("Telegram polling stopped")
 
