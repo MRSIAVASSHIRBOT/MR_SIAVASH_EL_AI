@@ -81,11 +81,17 @@ class HubClient:
             "refresh_expires_at": self._expiry(result.get("refresh_expires_in")),
             "scopes": result.get("scopes", []),
         }
-        self._store.save(self.client_id, credentials)
+        try:
+            self._store.save(self.client_id, credentials)
+        except Exception as exc:
+            raise HubClientError("Could not store Hub credentials in the operating-system vault") from exc
         return {"client_id": self.client_id, "scopes": credentials["scopes"]}
 
     async def _access_token(self, telegram_user_id: int) -> str:
-        credentials = self._store.load(self.client_id)
+        try:
+            credentials = self._store.load(self.client_id)
+        except Exception as exc:
+            raise HubClientError("Could not read Hub credentials from the operating-system vault") from exc
         if credentials is None:
             raise HubNotPairedError("This EL_AI installation is not paired with the Hub")
         access_token = credentials.get("access_token")
@@ -122,7 +128,10 @@ class HubClient:
             raise HubClientError("Hub did not return a refreshed access credential")
         credentials["access_token"] = new_access
         credentials["access_expires_at"] = self._expiry(refreshed.get("expires_in"))
-        self._store.save(self.client_id, credentials)
+        try:
+            self._store.save(self.client_id, credentials)
+        except Exception as exc:
+            raise HubClientError("Could not rotate Hub credentials in the operating-system vault") from exc
         return new_access
 
     async def _authorized(
