@@ -13,6 +13,10 @@ from el_ai.integrations.secrets import KeyringCredentialStore
 class HubClientError(RuntimeError):
     """Sanitized Hub integration failure."""
 
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
 
 class HubNotPairedError(HubClientError):
     """Raised when this bot installation has no active paired credential."""
@@ -29,8 +33,15 @@ class HubClient:
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         parsed = urlsplit(base_url)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-            raise ValueError("Hub API URL must use HTTP or HTTPS")
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("Hub API URL must be a clean HTTP(S) base URL")
         if parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
             raise ValueError("Non-loopback Hub API URLs must use HTTPS")
         self.client_id = client_id
@@ -47,7 +58,10 @@ class HubClient:
             response.raise_for_status()
             result = response.json()
         except httpx.HTTPStatusError as exc:
-            raise HubClientError(f"Hub rejected the request (HTTP {exc.response.status_code})") from exc
+            raise HubClientError(
+                f"Hub rejected the request (HTTP {exc.response.status_code})",
+                status_code=exc.response.status_code,
+            ) from exc
         except (httpx.HTTPError, ValueError) as exc:
             raise HubClientError("Hub API request failed") from exc
         if not isinstance(result, dict):
