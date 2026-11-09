@@ -1,20 +1,31 @@
 """Small, secret-safe asynchronous Telegram Bot API client."""
+
 from __future__ import annotations
+
 import re
 from typing import Any
+
 import httpx
+
 
 class TelegramAPIError(RuntimeError):
     """Sanitized Telegram API failure; never contains token or response body."""
 
+
 class TelegramBotAPI:
-    def __init__(self, token: str, *, timeout_seconds: int = 35,
-                 transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(
+        self,
+        token: str,
+        *,
+        timeout_seconds: int = 35,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
         if not re.fullmatch(r"[0-9]+:[A-Za-z0-9_-]{10,}", token):
             raise ValueError("Telegram bot token is missing or malformed")
         self._client = httpx.AsyncClient(
             base_url=f"https://api.telegram.org/bot{token}/",
-            timeout=httpx.Timeout(timeout_seconds), transport=transport,
+            timeout=httpx.Timeout(timeout_seconds),
+            transport=transport,
         )
 
     async def call(self, method: str, payload: dict[str, Any]) -> Any:
@@ -37,7 +48,8 @@ class TelegramBotAPI:
 
     async def get_updates(self, *, offset: int | None, timeout: int) -> list[dict[str, Any]]:
         payload: dict[str, Any] = {"timeout": timeout, "allowed_updates": ["message"]}
-        if offset is not None: payload["offset"] = offset
+        if offset is not None:
+            payload["offset"] = offset
         result = await self.call("getUpdates", payload)
         if not isinstance(result, list):
             raise TelegramAPIError("Telegram returned an invalid update collection")
