@@ -85,3 +85,18 @@ def test_public_gateway_requires_https_for_remote_urls():
             "https://user:password@gateway.example",
             "https://example.github.io/site",
         )
+
+
+
+@pytest.mark.asyncio
+async def test_public_gateway_rejects_oversized_user_message_without_network_call():
+    client = SiteGatewayClient(
+        "https://gateway.example",
+        "https://example.github.io/site",
+        transport=httpx.MockTransport(
+            lambda _request: pytest.fail("Oversized message must not reach the Gateway")
+        ),
+    )
+    with pytest.raises(ValueError, match="1200"):
+        await client.ask("x" * 1201)
+    await client.close()
