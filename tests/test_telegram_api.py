@@ -34,6 +34,7 @@ async def test_provider_error_does_not_leak_response_body_or_token():
         await api.call("getMe", {})
     assert "abcdefghijklmnop" not in str(error.value)
     assert "secret-token-invalid" not in str(error.value)
+    assert error.value.__context__ is None
     await api.close()
 
 
