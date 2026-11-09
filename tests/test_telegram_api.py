@@ -14,7 +14,7 @@ async def test_get_updates_and_send_message_use_bot_api():
             return httpx.Response(200, json={"ok": True, "result": [{"update_id": 7}]})
         return httpx.Response(200, json={"ok": True, "result": {"message_id": 99}})
 
-    api = TelegramBotAPI("123:secret", transport=httpx.MockTransport(handler))
+    api = TelegramBotAPI("123:abcdefghijklmnop", transport=httpx.MockTransport(handler))
     updates = await api.get_updates(offset=8, timeout=10)
     sent = await api.send_message(900, "hello")
     assert updates == [{"update_id": 7}]
@@ -29,10 +29,10 @@ async def test_provider_error_does_not_leak_response_body_or_token():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, text="secret-token-invalid")
 
-    api = TelegramBotAPI("123:secret-token", transport=httpx.MockTransport(handler))
+    api = TelegramBotAPI("123:abcdefghijklmnop", transport=httpx.MockTransport(handler))
     with pytest.raises(TelegramAPIError) as error:
         await api.call("getMe", {})
-    assert "secret-token" not in str(error.value)
+    assert "abcdefghijklmnop" not in str(error.value)
     assert "secret-token-invalid" not in str(error.value)
     await api.close()
 
