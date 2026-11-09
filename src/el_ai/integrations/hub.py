@@ -31,6 +31,7 @@ class HubClient:
         *,
         timeout_seconds: float = 8.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        allow_remote: bool = False,
     ) -> None:
         parsed = urlsplit(base_url)
         if (
@@ -42,8 +43,9 @@ class HubClient:
             or parsed.fragment
         ):
             raise ValueError("Hub API URL must be a clean HTTP(S) base URL")
-        if parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-            raise ValueError("Non-loopback Hub API URLs must use HTTPS")
+        is_loopback = parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+        if not is_loopback and (parsed.scheme != "https" or not allow_remote):
+            raise ValueError("Remote Hub URLs require HTTPS and explicit opt-in")
         self.client_id = client_id
         self._store = credential_store
         self._client = httpx.AsyncClient(
@@ -84,6 +86,8 @@ class HubClient:
                 "client_id": self.client_id,
             },
         )
+        if result.get("client_id") != self.client_id:
+            raise HubClientError("Hub pairing response is bound to a different client")
         access_token = result.get("access_token")
         refresh_token = result.get("refresh_token")
         if not isinstance(access_token, str) or not isinstance(refresh_token, str):
