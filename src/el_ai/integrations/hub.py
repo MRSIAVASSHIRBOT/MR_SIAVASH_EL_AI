@@ -162,32 +162,53 @@ class HubClient:
         payload: dict[str, object] | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, object]:
+        async def send(token: str) -> dict[str, object]:
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "X-Telegram-User-Id": str(telegram_user_id),
+            }
+            if idempotency_key is not None:
+                headers["Idempotency-Key"] = idempotency_key
+            try:
+                request_kwargs = {"headers": headers}
+                if payload is not None:
+                    request_kwargs["json"] = payload
+                response = await self._client.request(
+                    method, path.lstrip("/"), **request_kwargs
+                )
+                response.raise_for_status()
+                result = response.json()
+            except httpx.HTTPStatusError as exc:
+                raise HubClientError(
+                    f"Hub rejected the request (HTTP {exc.response.status_code})",
+                    status_code=exc.response.status_code,
+                ) from exc
+            except (httpx.HTTPError, ValueError) as exc:
+                raise HubClientError("Hub API request failed") from exc
+            if not isinstance(result, dict):
+                raise HubClientError("Hub returned an invalid response")
+            return result
+
         token = await self._access_token(telegram_user_id)
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "X-Telegram-User-Id": str(telegram_user_id),
-        }
-        if idempotency_key is not None:
-            headers["Idempotency-Key"] = idempotency_key
         try:
-            request_kwargs = {"headers": headers}
-            if payload is not None:
-                request_kwargs["json"] = payload
-            response = await self._client.request(
-                method, path.lstrip("/"), **request_kwargs
-            )
-            response.raise_for_status()
-            result = response.json()
-        except httpx.HTTPStatusError as exc:
-            raise HubClientError(
-                f"Hub rejected the request (HTTP {exc.response.status_code})",
-                status_code=exc.response.status_code,
-            ) from exc
-        except (httpx.HTTPError, ValueError) as exc:
-            raise HubClientError("Hub API request failed") from exc
-        if not isinstance(result, dict):
-            raise HubClientError("Hub returned an invalid response")
-        return result
+            return await send(token)
+        except HubClientError as exc:
+            if exc.status_code != 401:
+                raise
+            try:
+                credentials = self._store.load(self.client_id)
+                if credentials is None:
+                    raise HubNotPairedError("Hub pairing is no longer available")
+                credentials["access_expires_at"] = (
+                    datetime.now(UTC) - timedelta(seconds=1)
+                ).isoformat()
+                self._store.save(self.client_id, credentials)
+            except HubClientError:
+                raise
+            except Exception as store_exc:
+                raise HubClientError("Could not refresh credentials from the OS vault") from store_exc
+            refreshed_token = await self._access_token(telegram_user_id)
+            return await send(refreshed_token)
 
     async def status(self, telegram_user_id: int) -> dict[str, object]:
         return await self._authorized(
