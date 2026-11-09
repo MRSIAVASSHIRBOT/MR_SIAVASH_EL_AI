@@ -1,0 +1,28 @@
+from el_ai.telegram.access import AccessController
+from el_ai.telegram.router import MessageRouter
+
+
+def _message(text: str, user_id: int = 123, chat_type: str = "private") -> dict:
+    return {"text": text, "from": {"id": user_id}, "chat": {"id": 900, "type": chat_type}}
+
+
+def test_owner_commands_are_separated_from_public_commands():
+    router = MessageRouter(AccessController(frozenset({123}), public_enabled=True, rate_limit=20))
+    assert "دسترسی مالک" in router.route(_message("/owner"))
+    assert router.route(_message("/owner", user_id=456)) is None
+    assert "/owner" not in router.route(_message("/help", user_id=456))
+
+
+def test_group_messages_are_rejected():
+    router = MessageRouter(AccessController(frozenset({123}), public_enabled=True, rate_limit=20))
+    assert router.route(_message("/start", chat_type="group")) is None
+
+
+def test_hub_execution_is_not_claimed_as_available():
+    router = MessageRouter(AccessController(frozenset({123}), public_enabled=False, rate_limit=20))
+    assert "هنوز در حال" in router.route(_message("سلام"))
+
+
+def test_empty_text_is_handled_without_crashing():
+    router = MessageRouter(AccessController(frozenset({123}), public_enabled=False, rate_limit=20))
+    assert "خالی" in router.route(_message("   "))
