@@ -7,7 +7,11 @@ from collections import deque
 
 
 class AccessController:
+    MAX_TRACKED_USERS = 2048
+
     def __init__(self, owner_ids: frozenset[int], *, public_enabled: bool, rate_limit: int) -> None:
+        if rate_limit < 1:
+            raise ValueError("rate_limit must be positive")
         self._owner_ids = owner_ids
         self._public_enabled = public_enabled
         self._rate_limit = rate_limit
@@ -22,14 +26,16 @@ class AccessController:
         if not self.is_owner(user_id) and not self._public_enabled:
             return False
         now = time.monotonic()
-        events = self._events.setdefault(user_id, deque())
+        events = self._events.get(user_id)
+        if events is None:
+            if len(self._events) >= self.MAX_TRACKED_USERS:
+                oldest_user = next(iter(self._events))
+                self._events.pop(oldest_user, None)
+            events = deque()
+            self._events[user_id] = events
         while events and events[0] <= now - 60:
             events.popleft()
         if len(events) >= self._rate_limit:
             return False
         events.append(now)
-        if len(self._events) > 2048:
-            stale = [key for key, values in self._events.items() if not values or values[-1] <= now - 60]
-            for key in stale:
-                self._events.pop(key, None)
         return True
