@@ -6,8 +6,9 @@ from el_ai.telegram.access import AccessController
 
 
 class MessageRouter:
-    def __init__(self, access: AccessController) -> None:
+    def __init__(self, access: AccessController, *, client_id: str | None = None) -> None:
         self._access = access
+        self._client_id = client_id
 
     def route(self, message: dict) -> str | None:
         sender = message.get("from") or {}
@@ -32,10 +33,27 @@ class MessageRouter:
             )
         if command == "/help":
             common = "/start — شروع\n/help — راهنما"
-            return common + ("\n/owner — وضعیت دسترسی مالک" if owner else "")
+            owner_commands = (
+                "\n/owner — وضعیت دسترسی مالک"
+                "\n/pairinfo — شناسه اتصال Hub"
+                "\n/pair CODE — اتصال امن به Hub"
+                "\n/hub — وضعیت اتصال"
+                "\n/tasks — فهرست وظایف"
+                "\n/memory QUERY — جست‌وجوی حافظه"
+                "\n/task TYPE | DESCRIPTION — ثبت وظیفه"
+            )
+            return common + (owner_commands if owner else "")
+        if command == "/pairinfo":
+            if not owner:
+                return None
+            return (
+                f"Telegram ID: {user_id}\n"
+                f"EL_AI Client ID: {self._client_id or 'not initialized'}\n"
+                "این شناسه‌ها را فقط در پنل محلی Hub برای ساخت Pairing Challenge استفاده کن."
+            )
         if command == "/owner":
             return (
-                "دسترسی مالک تأیید شد؛ اتصال خصوصی Hub هنوز در مرحلهٔ امن‌سازی است."
+                "دسترسی مالک تأیید شد. قابلیت‌های خصوصی فقط از طریق مجوزهای فعال Hub قابل استفاده‌اند."
                 if owner
                 else None
             )

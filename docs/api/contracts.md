@@ -1,21 +1,30 @@
 # API and Integration Contracts
 
-## EL_AI internal capability envelope (planned)
+## Hub pairing contract
 
-A future internal capability request should carry:
-- contract version;
-- request and correlation IDs;
-- authenticated paired-client identity;
-- explicit capability name;
-- bounded typed input;
-- idempotency key for side effects;
-- deadline and resource budget.
+The Hub owns Telegram client registration, scopes, token issuance, expiry, revocation and audit.
 
-The Hub must derive user ownership from the authenticated credential, never from a Telegram payload field.
+- Owner creates a challenge bound to a Telegram numeric user ID and a stable EL_AI client UUID.
+- Challenge is random, single-use and expires after five minutes; only its SHA-256 hash is stored.
+- Exchange issues a 15-minute access token and a 30-day refresh token.
+- Hub stores only token hashes. Owner can list and revoke paired clients.
+- EL_AI stores raw credentials only in an OS-backed credential manager.
+- Every paired request includes the bearer access token and `X-Telegram-User-Id`.
+- Dedicated bot scopes are `status:read`, `tasks:read`, `tasks:create`, and `memory:search`.
+- Agent execution and approval decisions are not in the initial scope set.
 
-## Hub API facts verified from current source
+## Scoped endpoints
 
-The Hub exposes owner session endpoints under `/auth`, task endpoints under `/tasks`, and dedicated Agent, approval and memory routes. Current `/auth/login` issues an owner session; it is not an EL_AI-scoped pairing mechanism. Task routes require a bearer-authenticated owner session and apply Hub policy classification. This is not sufficient for bot integration without a scoped credential boundary.
+- `POST /integrations/telegram/pairing-challenges`: owner-authenticated challenge creation.
+- `POST /integrations/telegram/exchange`: single-use challenge exchange.
+- `POST /integrations/telegram/refresh`: refresh an access token using the paired refresh credential.
+- `GET /integrations/telegram/clients` and `POST /integrations/telegram/clients/{client_id}/revoke`: owner management.
+- `GET /integrations/telegram/status`: requires `status:read`.
+- `GET /integrations/telegram/tasks`: requires `tasks:read`.
+- `POST /integrations/telegram/tasks`: requires `tasks:create` and an idempotency key; Hub PolicyEngine remains authoritative.
+- `POST /integrations/telegram/memory/search`: requires `memory:search` and is owner-scoped.
+
+Telegram credentials do not authenticate against the Hub's general owner-session routes. The Hub derives the owner identity from the paired client record, not from an owner ID supplied by the Telegram request.
 
 ## Website API
 
