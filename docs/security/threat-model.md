@@ -18,7 +18,8 @@ Telegram updates and all user-supplied content are untrusted. Telegram numeric I
 | --- | --- |
 | Public user invokes owner command | Numeric ID allowlist, server-side role check, private-chat-only |
 | Group chat leaks private context | Reject all non-private chats in the first release |
-| Bot token appears in logs/repository | Environment secret, sanitized errors, no request URL logging |
+| Bot token appears in logs/repository | Environment secret, sanitized errors, no request URL logging, secret fields excluded from Settings representations |
+| Token-bearing HTTP exception is exposed | Do not retain HTTP client exceptions as chained contexts |
 | Flooding / resource exhaustion | Per-user bounded rate limiter, request timeouts, bounded polling backoff |
 | Prompt injection in messages | Treat content as data; future tools are capability allowlisted and Hub-policy checked |
 | Replayed or duplicate side effect | Future idempotency key and Hub-side deduplication |
