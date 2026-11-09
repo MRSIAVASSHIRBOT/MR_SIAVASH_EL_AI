@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 class ConfigurationError(ValueError):
@@ -47,7 +47,7 @@ def _owner_ids(raw: str | None) -> frozenset[int]:
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    telegram_bot_token: str
+    telegram_bot_token: str = field(repr=False)
     owner_ids: frozenset[int]
     public_enabled: bool = False
     environment: str = "development"
@@ -55,7 +55,7 @@ class Settings:
     request_timeout_seconds: int = 35
     rate_limit_per_minute: int = 12
     hub_api_base_url: str | None = None
-    hub_scoped_token: str | None = None
+    hub_scoped_token: str | None = field(default=None, repr=False)
     hub_integration_enabled: bool = False
     site_public_api_base_url: str | None = None
 
