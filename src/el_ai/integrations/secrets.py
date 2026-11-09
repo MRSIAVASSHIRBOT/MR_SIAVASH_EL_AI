@@ -53,8 +53,8 @@ class KeyringCredentialStore:
 
     def delete(self, client_id: str) -> None:
         try:
+            if self._backend.get_password(self.SERVICE_NAME, client_id) is None:
+                return
             self._backend.delete_password(self.SERVICE_NAME, client_id)
         except Exception as exc:
-            # Deleting a missing entry is idempotent for the application contract.
-            if exc.__class__.__name__ not in {"PasswordDeleteError", "KeyringError"}:
-                raise SecretStoreError("Could not remove Hub credentials") from exc
+            raise SecretStoreError("Could not remove Hub credentials") from exc
