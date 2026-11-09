@@ -67,10 +67,7 @@ class Settings:
         environment = os.getenv("EL_AI_ENVIRONMENT", "development").strip().lower()
         if environment not in {"development", "test", "production"}:
             raise ConfigurationError("EL_AI_ENVIRONMENT must be development, test, or production")
-        hub_enabled = _boolean("HUB_INTEGRATION_ENABLED", False)
-        hub_url = os.getenv("HUB_API_BASE_URL", "").strip() or None
-        hub_token = os.getenv("HUB_SCOPED_TOKEN", "").strip() or None
-        if hub_enabled:
+        if _boolean("HUB_INTEGRATION_ENABLED", False):
             raise ConfigurationError(
                 "Hub integration is not enabled in this release; owner pairing is not implemented"
             )
@@ -88,8 +85,8 @@ class Settings:
             rate_limit_per_minute=_positive_int(
                 "TELEGRAM_RATE_LIMIT_PER_MINUTE", 12, minimum=1, maximum=60
             ),
-            hub_api_base_url=hub_url,
-            hub_scoped_token=hub_token,
+            hub_api_base_url=os.getenv("HUB_API_BASE_URL", "").strip() or None,
+            hub_scoped_token=os.getenv("HUB_SCOPED_TOKEN", "").strip() or None,
             hub_integration_enabled=False,
             site_public_api_base_url=os.getenv("SITE_PUBLIC_API_BASE_URL", "").strip() or None,
         )
