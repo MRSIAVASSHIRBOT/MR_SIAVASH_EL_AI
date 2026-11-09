@@ -28,7 +28,9 @@ def test_hub_integration_requires_a_base_url(monkeypatch):
 def test_non_loopback_hub_urls_require_https():
     with pytest.raises(ConfigurationError, match="HTTPS"):
         _hub_url("http://example.com:8000")
-    assert _hub_url("https://hub.example.com") == "https://hub.example.com"
+    with pytest.raises(ConfigurationError, match="HUB_ALLOW_REMOTE"):
+        _hub_url("https://hub.example.com")
+    assert _hub_url("https://hub.example.com", allow_remote=True) == "https://hub.example.com"
     assert _hub_url("http://127.0.0.1:8000") == "http://127.0.0.1:8000"
 
 
