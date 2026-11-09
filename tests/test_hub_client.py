@@ -115,9 +115,20 @@ async def test_refresh_expiry_deletes_credentials():
     await client.close()
 
 
-def test_remote_http_hub_url_is_rejected():
+def test_remote_hub_url_requires_explicit_https_opt_in():
     with pytest.raises(ValueError, match="HTTPS"):
         HubClient("http://example.com:8000", "client-5", MemoryStore())
+    with pytest.raises(ValueError, match="explicit opt-in"):
+        HubClient("https://hub.example.com", "client-5", MemoryStore())
+    remote = HubClient(
+        "https://hub.example.com",
+        "client-5",
+        MemoryStore(),
+        allow_remote=True,
+    )
+    assert remote is not None
+    import asyncio
+    asyncio.run(remote.close())
 
 
 def test_secret_store_serializes_credentials_without_exposing_them_in_errors():
