@@ -20,7 +20,7 @@ def test_group_messages_are_rejected():
 
 def test_hub_execution_is_not_claimed_as_available():
     router = MessageRouter(AccessController(frozenset({123}), public_enabled=False, rate_limit=20))
-    assert "هنوز در حال" in router.route(_message("سلام"))
+    assert "برای پرسش از دانش عمومی سایت" in router.route(_message("سلام"))
 
 
 def test_empty_text_is_handled_without_crashing():
@@ -38,3 +38,12 @@ def test_pairing_identity_is_owner_only():
     assert "Telegram ID: 123" in owner_info
     assert "00000000-0000-4000-8000-000000000001" in owner_info
     assert public_info is None
+
+
+
+def test_help_documents_public_site_query_for_owner_and_public_user():
+    router = MessageRouter(
+        AccessController(frozenset({123}), public_enabled=True, rate_limit=20)
+    )
+    assert "/site QUERY" in router.route(_message("/help"))
+    assert "ارسال پرسش متنی" in router.route(_message("/help", user_id=456))

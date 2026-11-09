@@ -1,6 +1,6 @@
 import pytest
 
-from el_ai.config import ConfigurationError, Settings, _hub_url, _owner_ids
+from el_ai.config import ConfigurationError, Settings, _hub_url, _owner_ids, _public_url
 
 
 def test_settings_require_bot_token(monkeypatch):
@@ -47,3 +47,19 @@ def test_settings_repr_redacts_bot_token(monkeypatch):
     monkeypatch.setenv("TELEGRAM_OWNER_IDS", "123")
     representation = repr(Settings.from_env())
     assert token not in representation
+
+
+
+def test_public_site_urls_default_to_the_verified_site_gateway(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abcdefghijklmnop")
+    monkeypatch.setenv("TELEGRAM_OWNER_IDS", "123")
+    settings = Settings.from_env()
+    assert settings.site_public_api_base_url == "https://mr-siavash-ai-gateway.mrsiavashirbot.workers.dev"
+    assert settings.site_public_web_base_url == "https://mrsiavasshirbot.github.io/MR_SIAVASH_AI"
+
+
+def test_public_site_url_rejects_remote_plain_http_and_credentials():
+    with pytest.raises(ConfigurationError, match="HTTPS"):
+        _public_url("http://gateway.example", "https://gateway.example", "SITE_PUBLIC_API_BASE_URL")
+    with pytest.raises(ConfigurationError):
+        _public_url("https://user:password@gateway.example", "https://gateway.example", "SITE_PUBLIC_API_BASE_URL")

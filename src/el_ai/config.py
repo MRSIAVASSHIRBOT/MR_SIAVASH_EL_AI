@@ -47,6 +47,27 @@ def _owner_ids(raw: str | None) -> frozenset[int]:
     return frozenset(values)
 
 
+def _public_url(raw: str | None, default: str, name: str) -> str:
+    value = (raw or default).strip()
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme not in {"https", "http"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ConfigurationError(f"{name} must be a clean HTTP(S) base URL")
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise ConfigurationError(f"{name} contains an invalid port") from exc
+    if parsed.scheme != "https" and parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        raise ConfigurationError(f"{name} must use HTTPS for remote hosts")
+    return value.rstrip("/")
+
+
 def _hub_url(raw: str | None, *, allow_remote: bool = False) -> str | None:
     if not raw or not raw.strip():
         return None
@@ -86,7 +107,8 @@ class Settings:
     hub_api_base_url: str | None = None
     hub_integration_enabled: bool = False
     hub_allow_remote: bool = False
-    site_public_api_base_url: str | None = None
+    site_public_api_base_url: str = "https://mr-siavash-ai-gateway.mrsiavashirbot.workers.dev"
+    site_public_web_base_url: str = "https://mrsiavasshirbot.github.io/MR_SIAVASH_AI"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -119,5 +141,14 @@ class Settings:
             hub_api_base_url=hub_url,
             hub_integration_enabled=hub_enabled,
             hub_allow_remote=hub_allow_remote,
-            site_public_api_base_url=os.getenv("SITE_PUBLIC_API_BASE_URL", "").strip() or None,
+            site_public_api_base_url=_public_url(
+                os.getenv("SITE_PUBLIC_API_BASE_URL"),
+                "https://mr-siavash-ai-gateway.mrsiavashirbot.workers.dev",
+                "SITE_PUBLIC_API_BASE_URL",
+            ),
+            site_public_web_base_url=_public_url(
+                os.getenv("SITE_PUBLIC_WEB_BASE_URL"),
+                "https://mrsiavasshirbot.github.io/MR_SIAVASH_AI",
+                "SITE_PUBLIC_WEB_BASE_URL",
+            ),
         )
