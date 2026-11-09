@@ -144,3 +144,37 @@ def test_secret_store_serializes_credentials_without_exposing_them_in_errors():
     assert "secret-value" not in repr(store)
     store.delete("client-6")
     assert store.load("client-6") is None
+
+
+@pytest.mark.asyncio
+async def test_unauthorized_access_token_is_refreshed_once_and_retried():
+    store = MemoryStore()
+    store.save("client-7", {
+        "access_token": "server-expired-access",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "refresh-secret",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["status:read"],
+    })
+    status_attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal status_attempts
+        if request.url.path.endswith("/refresh"):
+            return httpx.Response(200, json={"access_token": "refreshed-access", "expires_in": 900})
+        status_attempts += 1
+        if status_attempts == 1:
+            return httpx.Response(401, json={"detail": "expired"})
+        return httpx.Response(200, json={"status": "authenticated"})
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-7",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    result = await client.status(123456)
+    assert result["status"] == "authenticated"
+    assert status_attempts == 2
+    assert store.load("client-7")["access_token"] == "refreshed-access"
+    await client.close()
