@@ -32,6 +32,7 @@ async def test_pairing_stores_credentials_and_status_uses_bound_identity():
             return httpx.Response(200, json={
                 "access_token": "access-secret",
                 "refresh_token": "refresh-secret",
+                "client_id": "client-1",
                 "expires_in": 900,
                 "refresh_expires_in": 86400,
                 "scopes": ["status:read"],
