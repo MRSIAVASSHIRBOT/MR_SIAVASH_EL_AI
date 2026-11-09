@@ -138,8 +138,11 @@ class HubClient:
         if idempotency_key is not None:
             headers["Idempotency-Key"] = idempotency_key
         try:
+            request_kwargs = {"headers": headers}
+            if payload is not None:
+                request_kwargs["json"] = payload
             response = await self._client.request(
-                method, path.lstrip("/"), json=payload or {}, headers=headers
+                method, path.lstrip("/"), **request_kwargs
             )
             response.raise_for_status()
             result = response.json()
