@@ -143,12 +143,15 @@ async def run(settings: Settings) -> None:
                     sender = message.get("from") or {}
                     user_id = sender.get("id") if isinstance(sender.get("id"), int) else None
                     text = message.get("text", "")
+                    normalized_text = text.strip() if isinstance(text, str) else ""
+                    command_name = (
+                        normalized_text.split(maxsplit=1)[0].split("@", 1)[0].lower()
+                        if normalized_text else ""
+                    )
                     if (
                         user_id is not None
                         and access.is_owner(user_id)
-                        and isinstance(text, str)
-                        and text.strip().split(maxsplit=1)[0].split("@", 1)[0].lower()
-                        in {"/pair", "/hub", "/tasks", "/memory", "/task"}
+                        and command_name in {"/pair", "/hub", "/tasks", "/memory", "/task"}
                     ):
                         response = await _owner_hub_command(
                             text,
