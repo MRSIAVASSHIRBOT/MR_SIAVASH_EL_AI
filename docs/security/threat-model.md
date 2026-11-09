@@ -2,7 +2,7 @@
 
 ## Assets
 
-- Telegram bot token and future pairing credentials.
+- Telegram bot token and scoped Hub access/refresh credentials.
 - Owner identity and private conversation context.
 - Hub memory, task records, files, Agent runs and audit events.
 - Public user messages and public knowledge responses.
@@ -18,11 +18,12 @@ Telegram updates and all user-supplied content are untrusted. Telegram numeric I
 | --- | --- |
 | Public user invokes owner command | Numeric ID allowlist, server-side role check, private-chat-only |
 | Group chat leaks private context | Reject all non-private chats in the first release |
-| Bot token appears in logs/repository | Environment secret, sanitized errors, no request URL logging |
+| Bot token appears in logs/repository | Environment secret, sanitized errors, no request URL logging, secret fields excluded from Settings representations |
+| Token-bearing HTTP exception is exposed | Do not retain HTTP client exceptions as chained contexts |
 | Flooding / resource exhaustion | Per-user bounded rate limiter, request timeouts, bounded polling backoff |
 | Prompt injection in messages | Treat content as data; future tools are capability allowlisted and Hub-policy checked |
-| Replayed or duplicate side effect | Future idempotency key and Hub-side deduplication |
-| Credential theft | No Hub password/session in this release; future scoped short-lived credential |
+| Replayed or duplicate side effect | Hub-side idempotency keys and task deduplication |
+| Credential theft | OS-backed Keyring storage, short-lived scoped access tokens, Hub-side token hashing, expiry and owner revocation |
 | Cross-user data access | Hub-side ownership checks; no user-supplied owner ID trusted |
 | Ambiguous Telegram send timeout | Do not blindly retry; report outcome as unknown in operational logs |
 | Sensitive data in telemetry | No message body/token logging by default |
@@ -31,5 +32,6 @@ Telegram updates and all user-supplied content are untrusted. Telegram numeric I
 
 - Public mode remains disabled by default.
 - Owner commands require a configured numeric owner ID.
-- Hub integration cannot be enabled through environment flags in this release.
+- Hub integration is disabled by default; client initialization and /pair require HUB_INTEGRATION_ENABLED=true and a valid HUB_API_BASE_URL.
+- Remote Hub URLs require HTTPS and explicit HUB_ALLOW_REMOTE=true.
 - No public webhook, tunnel or production deployment is created by the bootstrap change.
