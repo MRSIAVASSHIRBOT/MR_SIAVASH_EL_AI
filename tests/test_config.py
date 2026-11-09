@@ -22,3 +22,17 @@ def test_hub_integration_cannot_be_enabled_before_pairing(monkeypatch):
     monkeypatch.setenv("HUB_INTEGRATION_ENABLED", "true")
     with pytest.raises(ConfigurationError, match="owner pairing"):
         Settings.from_env()
+
+
+def test_settings_repr_redacts_bot_and_reserved_hub_tokens(monkeypatch):
+    bot_token = "123456:abcdefghijklmnopqrstuvwxyz123456"
+    hub_token = "hub-scoped-test-secret"
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", bot_token)
+    monkeypatch.setenv("TELEGRAM_OWNER_IDS", "123")
+    monkeypatch.setenv("HUB_SCOPED_TOKEN", hub_token)
+
+    settings = Settings.from_env()
+    representation = repr(settings)
+
+    assert bot_token not in representation
+    assert hub_token not in representation
