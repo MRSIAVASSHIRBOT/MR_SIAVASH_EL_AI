@@ -1,6 +1,6 @@
 import pytest
 
-from el_ai.config import ConfigurationError, Settings, _owner_ids
+from el_ai.config import ConfigurationError, Settings, _hub_url, _owner_ids
 
 
 def test_settings_require_bot_token(monkeypatch):
@@ -17,8 +17,23 @@ def test_owner_ids_are_positive_numeric_and_deduplicated():
         _owner_ids("0")
 
 
-def test_hub_integration_cannot_be_enabled_before_pairing(monkeypatch):
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+def test_hub_integration_requires_a_base_url(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abcdefghijklmnop")
     monkeypatch.setenv("HUB_INTEGRATION_ENABLED", "true")
-    with pytest.raises(ConfigurationError, match="owner pairing"):
+    monkeypatch.delenv("HUB_API_BASE_URL", raising=False)
+    with pytest.raises(ConfigurationError, match="HUB_API_BASE_URL"):
         Settings.from_env()
+
+
+def test_non_loopback_hub_urls_require_https():
+    with pytest.raises(ConfigurationError, match="HTTPS"):
+        _hub_url("http://example.com:8000")
+    assert _hub_url("https://hub.example.com") == "https://hub.example.com"
+    assert _hub_url("http://127.0.0.1:8000") == "http://127.0.0.1:8000"
+
+
+def test_hub_url_rejects_credentials_and_query_strings():
+    with pytest.raises(ConfigurationError):
+        _hub_url("https://user:password@hub.example.com")
+    with pytest.raises(ConfigurationError):
+        _hub_url("https://hub.example.com?token=secret")
