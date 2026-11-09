@@ -26,3 +26,15 @@ def test_hub_execution_is_not_claimed_as_available():
 def test_empty_text_is_handled_without_crashing():
     router = MessageRouter(AccessController(frozenset({123}), public_enabled=False, rate_limit=20))
     assert "خالی" in router.route(_message("   "))
+
+
+def test_pairing_identity_is_owner_only():
+    router = MessageRouter(
+        AccessController(frozenset({123}), public_enabled=True, rate_limit=20),
+        client_id="00000000-0000-4000-8000-000000000001",
+    )
+    owner_info = router.route(_message("/pairinfo"))
+    public_info = router.route(_message("/pairinfo", user_id=456))
+    assert "Telegram ID: 123" in owner_info
+    assert "00000000-0000-4000-8000-000000000001" in owner_info
+    assert public_info is None
