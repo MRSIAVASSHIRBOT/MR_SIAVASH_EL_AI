@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
+from urllib.parse import urlsplit
 
 
 class ConfigurationError(ValueError):
@@ -45,6 +47,25 @@ def _owner_ids(raw: str | None) -> frozenset[int]:
     return frozenset(values)
 
 
+def _hub_url(raw: str | None) -> str | None:
+    if not raw or not raw.strip():
+        return None
+    value = raw.strip()
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ConfigurationError("HUB_API_BASE_URL must be a clean HTTP(S) base URL")
+    if parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        raise ConfigurationError("Non-loopback Hub API URLs must use HTTPS")
+    return value.rstrip("/")
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     telegram_bot_token: str
@@ -54,8 +75,8 @@ class Settings:
     poll_timeout_seconds: int = 25
     request_timeout_seconds: int = 35
     rate_limit_per_minute: int = 12
+    state_dir: Path = Path("./data")
     hub_api_base_url: str | None = None
-    hub_scoped_token: str | None = None
     hub_integration_enabled: bool = False
     site_public_api_base_url: str | None = None
 
@@ -67,10 +88,10 @@ class Settings:
         environment = os.getenv("EL_AI_ENVIRONMENT", "development").strip().lower()
         if environment not in {"development", "test", "production"}:
             raise ConfigurationError("EL_AI_ENVIRONMENT must be development, test, or production")
-        if _boolean("HUB_INTEGRATION_ENABLED", False):
-            raise ConfigurationError(
-                "Hub integration is not enabled in this release; owner pairing is not implemented"
-            )
+        hub_enabled = _boolean("HUB_INTEGRATION_ENABLED", False)
+        hub_url = _hub_url(os.getenv("HUB_API_BASE_URL"))
+        if hub_enabled and hub_url is None:
+            raise ConfigurationError("HUB_API_BASE_URL is required when Hub integration is enabled")
         return cls(
             telegram_bot_token=token,
             owner_ids=_owner_ids(os.getenv("TELEGRAM_OWNER_IDS")),
@@ -85,8 +106,8 @@ class Settings:
             rate_limit_per_minute=_positive_int(
                 "TELEGRAM_RATE_LIMIT_PER_MINUTE", 12, minimum=1, maximum=60
             ),
-            hub_api_base_url=os.getenv("HUB_API_BASE_URL", "").strip() or None,
-            hub_scoped_token=os.getenv("HUB_SCOPED_TOKEN", "").strip() or None,
-            hub_integration_enabled=False,
+            state_dir=Path(os.getenv("EL_AI_STATE_DIR", "./data")).expanduser(),
+            hub_api_base_url=hub_url,
+            hub_integration_enabled=hub_enabled,
             site_public_api_base_url=os.getenv("SITE_PUBLIC_API_BASE_URL", "").strip() or None,
         )
