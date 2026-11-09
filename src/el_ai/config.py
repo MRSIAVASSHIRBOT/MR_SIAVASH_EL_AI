@@ -47,7 +47,7 @@ def _owner_ids(raw: str | None) -> frozenset[int]:
     return frozenset(values)
 
 
-def _hub_url(raw: str | None) -> str | None:
+def _hub_url(raw: str | None, *, allow_remote: bool = False) -> str | None:
     if not raw or not raw.strip():
         return None
     value = raw.strip()
@@ -61,8 +61,15 @@ def _hub_url(raw: str | None) -> str | None:
         or parsed.fragment
     ):
         raise ConfigurationError("HUB_API_BASE_URL must be a clean HTTP(S) base URL")
-    if parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-        raise ConfigurationError("Non-loopback Hub API URLs must use HTTPS")
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise ConfigurationError("HUB_API_BASE_URL contains an invalid port") from exc
+    is_loopback = parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+    if not is_loopback and (parsed.scheme != "https" or not allow_remote):
+        raise ConfigurationError(
+            "Remote Hub URLs require HTTPS and explicit HUB_ALLOW_REMOTE=true"
+        )
     return value.rstrip("/")
 
 
@@ -78,6 +85,7 @@ class Settings:
     state_dir: Path = Path("./data")
     hub_api_base_url: str | None = None
     hub_integration_enabled: bool = False
+    hub_allow_remote: bool = False
     site_public_api_base_url: str | None = None
 
     @classmethod
@@ -89,7 +97,8 @@ class Settings:
         if environment not in {"development", "test", "production"}:
             raise ConfigurationError("EL_AI_ENVIRONMENT must be development, test, or production")
         hub_enabled = _boolean("HUB_INTEGRATION_ENABLED", False)
-        hub_url = _hub_url(os.getenv("HUB_API_BASE_URL"))
+        hub_allow_remote = _boolean("HUB_ALLOW_REMOTE", False)
+        hub_url = _hub_url(os.getenv("HUB_API_BASE_URL"), allow_remote=hub_allow_remote)
         if hub_enabled and hub_url is None:
             raise ConfigurationError("HUB_API_BASE_URL is required when Hub integration is enabled")
         return cls(
@@ -109,5 +118,6 @@ class Settings:
             state_dir=Path(os.getenv("EL_AI_STATE_DIR", "./data")).expanduser(),
             hub_api_base_url=hub_url,
             hub_integration_enabled=hub_enabled,
+            hub_allow_remote=hub_allow_remote,
             site_public_api_base_url=os.getenv("SITE_PUBLIC_API_BASE_URL", "").strip() or None,
         )
