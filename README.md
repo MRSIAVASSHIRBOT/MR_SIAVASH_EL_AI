@@ -15,7 +15,7 @@ Advanced Telegram interface for the MR_SIAVASH ecosystem.
 
 ## Current implementation status
 
-The Telegram transport and owner/public separation are implemented. A scoped Hub client and local credential-vault integration are being added in the current feature branch. No bot token has been configured, no live Telegram bot has been connected, and no production deployment has occurred.
+The Telegram transport, private-chat-only owner/public separation, scoped Hub client, stable local client identity, and OS-backed Keyring credential storage are implemented on `main`. Hub access is opt-in: the client is initialized and `/pair` is accepted only when `HUB_INTEGRATION_ENABLED=true` and `HUB_API_BASE_URL` points to a valid local Hub endpoint. Repository CI does not verify a live Telegram connection or production bot deployment; runtime credentials must be supplied locally and never committed.
 
 See `docs/architecture/overview.md`, `docs/security/threat-model.md`, and `docs/roadmap/implementation-plan.md`.
 
