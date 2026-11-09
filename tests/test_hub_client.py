@@ -1,10 +1,9 @@
-import json
 from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
 
-from el_ai.integrations.hub import HubClient, HubClientError, HubNotPairedError
+from el_ai.integrations.hub import HubClient, HubNotPairedError
 
 
 class MemoryStore:
