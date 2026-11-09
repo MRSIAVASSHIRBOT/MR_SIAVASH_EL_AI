@@ -38,3 +38,12 @@ def test_pairing_identity_is_owner_only():
     assert "Telegram ID: 123" in owner_info
     assert "00000000-0000-4000-8000-000000000001" in owner_info
     assert public_info is None
+
+
+
+def test_help_documents_public_site_query_for_owner_and_public_user():
+    router = MessageRouter(
+        AccessController(frozenset({123}), public_enabled=True, rate_limit=20)
+    )
+    assert "/site QUERY" in router.route(_message("/help"))
+    assert "ارسال پرسش متنی" in router.route(_message("/help", user_id=456))
