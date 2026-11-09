@@ -117,6 +117,8 @@ class SiteGatewayClient:
                 json={"message": normalized},
             )
             response.raise_for_status()
+            if len(response.content) > 32_768:
+                raise SiteGatewayError("Public website assistant response exceeded its size limit")
             payload = response.json()
         except (httpx.HTTPError, ValueError):
             raise SiteGatewayError(
