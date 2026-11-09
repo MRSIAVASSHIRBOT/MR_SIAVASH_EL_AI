@@ -19,7 +19,10 @@ class MessageRouter:
         text = message.get("text")
         if not isinstance(text, str):
             return "در نسخهٔ فعلی فقط پیام متنی پشتیبانی می‌شود."
-        command = text.strip().split(maxsplit=1)[0].split("@", 1)[0].lower()
+        normalized = text.strip()
+        if not normalized:
+            return "پیام خالی است؛ لطفاً متن درخواست را ارسال کن."
+        command = normalized.split(maxsplit=1)[0].split("@", 1)[0].lower()
         owner = self._access.is_owner(user_id)
         if command == "/start":
             return (
@@ -31,7 +34,11 @@ class MessageRouter:
             common = "/start — شروع\n/help — راهنما"
             return common + ("\n/owner — وضعیت دسترسی مالک" if owner else "")
         if command == "/owner":
-            return "دسترسی مالک تأیید شد؛ اتصال خصوصی Hub هنوز در مرحلهٔ امن‌سازی است." if owner else None
+            return (
+                "دسترسی مالک تأیید شد؛ اتصال خصوصی Hub هنوز در مرحلهٔ امن‌سازی است."
+                if owner
+                else None
+            )
         if command.startswith("/"):
             return "این دستور در نسخهٔ فعلی فعال نیست. /help را ببین."
         if owner:
