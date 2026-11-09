@@ -21,3 +21,12 @@ def test_rate_limit_is_enforced():
     assert access.allow_message(user_id=123, chat_type="private")
     assert access.allow_message(user_id=123, chat_type="private")
     assert not access.allow_message(user_id=123, chat_type="private")
+
+
+def test_user_tracking_has_a_hard_memory_bound(monkeypatch):
+    monkeypatch.setattr(AccessController, "MAX_TRACKED_USERS", 2)
+    access = AccessController(frozenset(), public_enabled=True, rate_limit=5)
+    assert access.allow_message(user_id=1, chat_type="private")
+    assert access.allow_message(user_id=2, chat_type="private")
+    assert access.allow_message(user_id=3, chat_type="private")
+    assert len(access._events) == 2
