@@ -127,7 +127,10 @@ class HubClient:
         if access_deadline > now + timedelta(seconds=30):
             return access_token
         if refresh_deadline <= now:
-            self._store.delete(self.client_id)
+            try:
+                self._store.delete(self.client_id)
+            except Exception as exc:
+                raise HubClientError("Expired Hub credentials could not be removed from secure storage") from exc
             raise HubNotPairedError("Hub pairing expired; pair this installation again")
         try:
             refreshed = await self._request(
@@ -135,7 +138,13 @@ class HubClient:
                 "/integrations/telegram/refresh",
                 {"refresh_token": refresh_token, "telegram_user_id": telegram_user_id},
             )
-        except HubClientError:
+        except HubClientError as exc:
+            if exc.status_code in {401, 403}:
+                try:
+                    self._store.delete(self.client_id)
+                except Exception as store_exc:
+                    raise HubClientError("Hub credential revocation could not be synchronized") from store_exc
+                raise HubNotPairedError("Hub pairing was revoked or is no longer valid") from exc
             raise
         new_access = refreshed.get("access_token")
         if not isinstance(new_access, str):
@@ -170,7 +179,10 @@ class HubClient:
             response.raise_for_status()
             result = response.json()
         except httpx.HTTPStatusError as exc:
-            raise HubClientError(f"Hub rejected the request (HTTP {exc.response.status_code})") from exc
+            raise HubClientError(
+                f"Hub rejected the request (HTTP {exc.response.status_code})",
+                status_code=exc.response.status_code,
+            ) from exc
         except (httpx.HTTPError, ValueError) as exc:
             raise HubClientError("Hub API request failed") from exc
         if not isinstance(result, dict):
