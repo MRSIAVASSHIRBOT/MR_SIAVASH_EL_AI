@@ -106,7 +106,12 @@ async def run(settings: Settings) -> None:
     if settings.hub_api_base_url:
         try:
             store = KeyringCredentialStore()
-            hub = HubClient(settings.hub_api_base_url, client_id, store)
+            hub = HubClient(
+                settings.hub_api_base_url,
+                client_id,
+                store,
+                allow_remote=settings.hub_allow_remote,
+            )
         except SecretStoreError:
             LOGGER.warning("OS credential store unavailable; Hub integration is disabled")
     stop = asyncio.Event()
