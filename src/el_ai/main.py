@@ -184,6 +184,8 @@ async def run(settings: Settings) -> None:
                                 try:
                                     result = await site.ask(query)
                                     response = site.format_answer(result)
+                                except ValueError:
+                                    response = "پرسش عمومی باید بین ۱ تا ۱۲۰۰ نویسه باشد."
                                 except SiteGatewayError:
                                     response = "درگاه عمومی سایت فعلاً در دسترس نیست؛ کمی بعد دوباره تلاش کن."
                     elif (
@@ -196,6 +198,8 @@ async def run(settings: Settings) -> None:
                         try:
                             result = await site.ask(normalized_text)
                             response = site.format_answer(result)
+                        except ValueError:
+                            response = "پرسش عمومی باید بین ۱ تا ۱۲۰۰ نویسه باشد."
                         except SiteGatewayError:
                             response = "دستیار عمومی سایت فعلاً در دسترس نیست؛ کمی بعد دوباره تلاش کن."
                     try:
