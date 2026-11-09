@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx
@@ -19,7 +20,7 @@ class TelegramBotAPI:
         timeout_seconds: int = 35,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        if not token or "/" in token or len(token) > 256:
+        if not re.fullmatch(r"[0-9]+:[A-Za-z0-9_-]{10,}", token):
             raise ValueError("Telegram bot token is missing or malformed")
         self._client = httpx.AsyncClient(
             base_url=f"https://api.telegram.org/bot{token}/",
