@@ -25,6 +25,23 @@ def _format_result(value: dict[str, object]) -> str:
     return rendered
 
 
+def _build_hub_client(settings: Settings, client_id: str) -> HubClient | None:
+    """Initialize Hub access only after the explicit integration opt-in."""
+    if not settings.hub_integration_enabled or not settings.hub_api_base_url:
+        return None
+    try:
+        store = KeyringCredentialStore()
+        return HubClient(
+            settings.hub_api_base_url,
+            client_id,
+            store,
+            allow_remote=settings.hub_allow_remote,
+        )
+    except SecretStoreError:
+        LOGGER.warning("OS credential store unavailable; Hub integration is disabled")
+        return None
+
+
 async def _owner_hub_command(
     text: str,
     *,
@@ -38,6 +55,8 @@ async def _owner_hub_command(
     argument = parts[1].strip() if len(parts) > 1 else ""
 
     if command == "/pair":
+        if not settings.hub_integration_enabled:
+            return "اتصال Hub غیرفعال است؛ برای فعال‌سازی، HUB_INTEGRATION_ENABLED=true را آگاهانه تنظیم کن."
         if hub is None:
             return "اتصال Hub آماده نیست؛ آدرس محلی Hub یا ذخیره‌ساز امن سیستم در دسترس نیست."
         if not argument:
@@ -102,18 +121,7 @@ async def run(settings: Settings) -> None:
         rate_limit=settings.rate_limit_per_minute,
     )
     router = MessageRouter(access, client_id=client_id)
-    hub: HubClient | None = None
-    if settings.hub_api_base_url:
-        try:
-            store = KeyringCredentialStore()
-            hub = HubClient(
-                settings.hub_api_base_url,
-                client_id,
-                store,
-                allow_remote=settings.hub_allow_remote,
-            )
-        except SecretStoreError:
-            LOGGER.warning("OS credential store unavailable; Hub integration is disabled")
+    hub = _build_hub_client(settings, client_id)
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -168,8 +176,10 @@ async def run(settings: Settings) -> None:
                     try:
                         await api.send_message(chat_id, response[:4096])
                     except TelegramAPIError:
-                        # Do not blindly retry a send with an ambiguous provider outcome.
-                        LOGGER.warning("Telegram reply failed or has unknown outcome; update=%s", update_id)
+                        LOGGER.warning(
+                            "Telegram reply failed or has unknown outcome; update=%s",
+                            update_id,
+                        )
             except TelegramAPIError:
                 LOGGER.warning("Telegram polling request failed; retrying with bounded backoff")
                 try:
@@ -185,7 +195,10 @@ async def run(settings: Settings) -> None:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
     try:
         settings = Settings.from_env()
     except ConfigurationError as exc:

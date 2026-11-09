@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -75,7 +75,7 @@ def _hub_url(raw: str | None, *, allow_remote: bool = False) -> str | None:
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    telegram_bot_token: str
+    telegram_bot_token: str = field(repr=False)
     owner_ids: frozenset[int]
     public_enabled: bool = False
     environment: str = "development"

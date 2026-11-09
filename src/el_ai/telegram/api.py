@@ -35,8 +35,13 @@ class TelegramBotAPI:
             response = await self._client.post(method, json=payload)
             response.raise_for_status()
             data = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            raise TelegramAPIError("Telegram API request failed") from exc
+        except (httpx.HTTPError, ValueError):
+            # HTTPX exceptions retain a request URL containing the bot token.
+            failed = True
+        else:
+            failed = False
+        if failed:
+            raise TelegramAPIError("Telegram API request failed")
         if not isinstance(data, dict) or data.get("ok") is not True:
             raise TelegramAPIError("Telegram API rejected the request")
         return data.get("result")

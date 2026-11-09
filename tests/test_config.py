@@ -39,3 +39,11 @@ def test_hub_url_rejects_credentials_and_query_strings():
         _hub_url("https://user:password@hub.example.com")
     with pytest.raises(ConfigurationError):
         _hub_url("https://hub.example.com?token=secret")
+
+
+def test_settings_repr_redacts_bot_token(monkeypatch):
+    token = "123456:abcdefghijklmnopqrstuvwxyz123456"
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", token)
+    monkeypatch.setenv("TELEGRAM_OWNER_IDS", "123")
+    representation = repr(Settings.from_env())
+    assert token not in representation
