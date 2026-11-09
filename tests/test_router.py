@@ -20,7 +20,7 @@ def test_group_messages_are_rejected():
 
 def test_hub_execution_is_not_claimed_as_available():
     router = MessageRouter(AccessController(frozenset({123}), public_enabled=False, rate_limit=20))
-    assert "هنوز در حال" in router.route(_message("سلام"))
+    assert "برای پرسش از دانش عمومی سایت" in router.route(_message("سلام"))
 
 
 def test_empty_text_is_handled_without_crashing():
