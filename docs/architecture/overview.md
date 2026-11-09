@@ -30,4 +30,4 @@ Telegram update -> structural validation -> private-chat check -> numeric user I
 
 ## Current implementation boundary
 
-The initial implementation provides a minimal long-polling transport, owner/public separation, basic commands and tests. Conversation memory, LLM responses, task creation, Agent control, website API calls and private Hub pairing are intentionally not advertised as implemented.
+The initial implementation provides a minimal long-polling transport, owner/public separation, basic commands and tests. Conversation memory, LLM responses, Agent control and website API calls are not yet implemented. The Hub pairing client and bounded task/memory endpoints are being integrated behind explicit runtime opt-in.
