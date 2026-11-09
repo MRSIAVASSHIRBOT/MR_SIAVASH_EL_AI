@@ -38,11 +38,13 @@ class MessageRouter:
                 "\n/pairinfo — شناسه اتصال Hub"
                 "\n/pair CODE — اتصال امن به Hub"
                 "\n/hub — وضعیت اتصال"
-                "\n/tasks — فهرست وظایف"
+                "\n/tasks — فهرست وظایف این ربات"
                 "\n/memory QUERY — جست‌وجوی حافظه"
                 "\n/task TYPE | DESCRIPTION — ثبت وظیفه"
+                "\n/site QUERY — پرسش عمومی از دانش سایت"
             )
-            return common + (owner_commands if owner else "")
+            public_help = "\nارسال پرسش متنی — دریافت پاسخ از دانش عمومی سایت"
+            return common + (owner_commands if owner else public_help)
         if command == "/pairinfo":
             if not owner:
                 return None
@@ -60,5 +62,5 @@ class MessageRouter:
         if command.startswith("/"):
             return "این دستور در نسخهٔ فعلی فعال نیست. /help را ببین."
         if owner:
-            return "پیامت دریافت شد. موتور مکالمه و اتصال امن به Hub هنوز در حال پیاده‌سازی است."
+            return "پیامت دریافت شد. برای پرسش از دانش عمومی سایت از /site استفاده کن."
         return "دستیار عمومی در حال آماده‌سازی است. فعلاً از /help برای دیدن امکانات فعال استفاده کن."
