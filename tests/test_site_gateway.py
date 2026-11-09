@@ -1,4 +1,5 @@
 import json
+import time
 
 import httpx
 import pytest
@@ -70,7 +71,7 @@ async def test_public_gateway_rate_limit_is_bounded():
             lambda _request: httpx.Response(200, json={"answer": "ok"})
         ),
     )
-    client._request_times = [0.0] * client.MAX_REQUESTS_PER_MINUTE
+    client._request_times = [time.monotonic()] * client.MAX_REQUESTS_PER_MINUTE
     with pytest.raises(SiteGatewayError, match="limit"):
         await client.ask("hello")
     await client.close()
