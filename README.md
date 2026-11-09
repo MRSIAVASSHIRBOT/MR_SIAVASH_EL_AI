@@ -44,3 +44,14 @@ The bot uses long polling for local development. Production webhook deployment i
 ## Safety
 
 Public users cannot access owner commands or private state. All privileged operations must be explicitly allowlisted by capability and authorized by Hub policy. Sensitive or consequential actions require Hub approval. See the security documentation before enabling integrations.
+
+## Owner Telegram commands
+
+- `/pairinfo`: show the numeric Telegram ID and stable EL_AI client UUID needed to create a Hub pairing challenge.
+- `/pair CODE`: exchange a five-minute, one-time Hub pairing code and store the resulting credentials in the OS credential vault.
+- `/hub`: check the paired Hub connection.
+- `/tasks`: list recent Hub tasks.
+- `/memory QUERY`: search the owner's Hub memory.
+- `/task TYPE | DESCRIPTION`: submit a task through Hub policy and idempotency controls.
+
+Pairing is owner-initiated from the Hub. The bot must run in a private Telegram chat. Never send the Hub owner password or access/refresh tokens to Telegram.
