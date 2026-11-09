@@ -40,8 +40,9 @@ The bot uses long polling for local development. Production webhook deployment i
 - `TELEGRAM_PUBLIC_ENABLED`: whether public conversations are enabled (default false).
 - `EL_AI_ENVIRONMENT`: development, test or production.
 - `EL_AI_STATE_DIR`: local state directory containing a non-secret, stable client UUID.
-- `HUB_API_BASE_URL`: local Hub URL (example: `http://127.0.0.1:8000`); non-loopback URLs require HTTPS.
+- `HUB_API_BASE_URL`: local Hub URL (example: `http://127.0.0.1:8000`); remote URLs are rejected by default.
 - `HUB_INTEGRATION_ENABLED`: opt-in for paired Hub commands; defaults to false.
+- `HUB_ALLOW_REMOTE`: defaults to false; enabling remote Hub URLs requires a separate hosting/security decision and HTTPS.
 - `SITE_PUBLIC_API_BASE_URL`: optional public-only MR_SIAVASH_AI Gateway URL.
 
 Hub access and refresh credentials are stored in the operating-system credential manager through Keyring. Never put Hub passwords, access tokens or refresh tokens in `.env`, source control or Telegram messages.
