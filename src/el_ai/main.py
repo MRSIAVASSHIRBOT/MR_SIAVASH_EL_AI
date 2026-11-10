@@ -227,6 +227,7 @@ async def run(settings: Settings) -> None:
             await hub.close()
         await site.close()
         await api.close()
+        LOGGER.info("Telegram polling stopped")
 
 
 def main() -> None:
