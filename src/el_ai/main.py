@@ -13,7 +13,7 @@ from el_ai.integrations.identity import InstanceIdentityError, load_or_create_cl
 from el_ai.integrations.secrets import KeyringCredentialStore, SecretStoreError
 from el_ai.integrations.site_gateway import SiteGatewayClient, SiteGatewayError
 from el_ai.telegram.access import AccessController
-from el_ai.telegram.api import TelegramAPIError, TelegramBotAPI
+from el_ai.telegram.api import TelegramAPIError, TelegramBotAPI, split_telegram_message
 from el_ai.telegram.router import MessageRouter
 
 LOGGER = logging.getLogger("el_ai")
@@ -24,6 +24,12 @@ def _format_result(value: dict[str, object]) -> str:
     if len(rendered) > 3500:
         rendered = rendered[:3500] + "\\n…"
     return rendered
+
+
+async def _send_response(api: TelegramBotAPI, chat_id: int, response: str) -> None:
+    """Deliver the complete response in chunks accepted by the Telegram Bot API."""
+    for chunk in split_telegram_message(response):
+        await api.send_message(chat_id, chunk)
 
 
 def _build_hub_client(settings: Settings, client_id: str) -> HubClient | None:
@@ -203,7 +209,7 @@ async def run(settings: Settings) -> None:
                         except SiteGatewayError:
                             response = "دستیار عمومی سایت فعلاً در دسترس نیست؛ کمی بعد دوباره تلاش کن."
                     try:
-                        await api.send_message(chat_id, response[:4096])
+                        await _send_response(api, chat_id, response)
                     except TelegramAPIError:
                         LOGGER.warning(
                             "Telegram reply failed or has unknown outcome; update=%s",
@@ -221,7 +227,6 @@ async def run(settings: Settings) -> None:
             await hub.close()
         await site.close()
         await api.close()
-        LOGGER.info("Telegram polling stopped")
 
 
 def main() -> None:
