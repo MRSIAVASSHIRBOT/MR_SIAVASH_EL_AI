@@ -71,3 +71,13 @@ def test_split_telegram_message_rejects_invalid_limits():
         split_telegram_message("hello", max_units=0)
     with pytest.raises(ValueError):
         split_telegram_message("hello", max_units=True)
+
+
+def test_split_telegram_message_handles_unbroken_astral_text():
+    text = "😀" * 5000
+
+    chunks = split_telegram_message(text)
+
+    assert len(chunks) > 1
+    assert "".join(chunks) == text
+    assert all(len(chunk.encode("utf-16-le")) // 2 <= 4096 for chunk in chunks)
