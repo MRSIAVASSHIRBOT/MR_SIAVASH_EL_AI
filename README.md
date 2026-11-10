@@ -18,7 +18,7 @@ Advanced Telegram interface for the MR_SIAVASH ecosystem.
 
 The Telegram transport, owner/public separation, scoped Hub client, stable local client identity, OS-backed Keyring storage, and public MR_SIAVASH_AI assistant client are implemented on `main`. Public conversations and Hub access remain opt-in. No bot token has been configured, no live Telegram bot has been connected, and no production bot deployment has occurred.
 
-The production website Gateway currently has no Workers AI binding, so its assistant returns verified knowledge fallback rather than live model inference.
+The production website Gateway currently has an active Workers AI binding and support-retention configuration. Its 100% traffic deployment is Worker version `146709f7-8158-40c8-aa80-b8b0772787f1`, built from MR_SIAVASH_AI commit `971a5e702876a0bc78b19c55b8b0daf358471c5b`; production release smoke run `42801780384` passed on 2026-11-10, including the grounded assistant path. The newer MR_SIAVASH_AI main commit `75acc9ed4e264b0086bb98b220e330ecd8578a97` adds aggregate-only retention telemetry and is not yet deployed, so no successful telemetry event from that version is claimed. This describes the website Gateway only; it does not mean the Telegram bot is connected or deployed.
 
 See docs/architecture/overview.md, docs/security/threat-model.md, and docs/roadmap/implementation-plan.md.
 
