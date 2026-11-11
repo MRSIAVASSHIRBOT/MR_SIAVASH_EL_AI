@@ -20,10 +20,8 @@ LOGGER = logging.getLogger("el_ai")
 
 
 def _format_result(value: dict[str, object]) -> str:
-    rendered = json.dumps(value, ensure_ascii=False, indent=2, default=str)
-    if len(rendered) > 3500:
-        rendered = rendered[:3500] + "\\n…"
-    return rendered
+    """Serialize owner-scoped Hub results without dropping response content."""
+    return json.dumps(value, ensure_ascii=False, indent=2, default=str)
 
 
 async def _send_response(api: TelegramBotAPI, chat_id: int, response: str) -> None:
@@ -71,8 +69,8 @@ async def _owner_hub_command(
         try:
             result = await hub.pair(argument, telegram_user_id)
             return (
-                "اتصال امن با Hub برقرار شد.\\n"
-                f"Client ID: {result['client_id']}\\n"
+                "اتصال امن با Hub برقرار شد.\n"
+                f"Client ID: {result['client_id']}\n"
                 f"Scopes: {', '.join(result.get('scopes', []))}"
             )
         except HubClientError:
