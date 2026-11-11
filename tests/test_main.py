@@ -1,8 +1,9 @@
 import asyncio
+import json
 
 from el_ai.config import Settings
 from el_ai.integrations.secrets import SecretStoreError
-from el_ai.main import _build_hub_client, _owner_hub_command, _send_response
+from el_ai.main import _build_hub_client, _format_result, _owner_hub_command, _send_response
 
 
 def _settings(*, enabled: bool) -> Settings:
@@ -75,3 +76,33 @@ def test_send_response_delivers_every_chunk_without_truncation():
     assert all(chat_id == 123 for chat_id, _ in api.sent)
     assert "".join(text for _, text in api.sent) == response
     assert all(len(text.encode("utf-16-le")) // 2 <= 4096 for _, text in api.sent)
+
+
+def test_format_result_preserves_complete_large_hub_payload():
+    payload = {"items": [{"text": "😀" * 2000}]}
+
+    rendered = _format_result(payload)
+
+    assert json.loads(rendered) == payload
+
+
+def test_pair_command_uses_real_line_breaks():
+    class FakeHub:
+        async def pair(self, code, telegram_user_id):
+            assert code == "test-only-code"
+            assert telegram_user_id == 123
+            return {"client_id": "client-123", "scopes": ["tasks.read", "memory.read"]}
+
+    result = asyncio.run(_owner_hub_command(
+        "/pair test-only-code",
+        telegram_user_id=123,
+        update_id=2,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+    ))
+
+    assert result.splitlines() == [
+        "اتصال امن با Hub برقرار شد.",
+        "Client ID: client-123",
+        "Scopes: tasks.read, memory.read",
+    ]
