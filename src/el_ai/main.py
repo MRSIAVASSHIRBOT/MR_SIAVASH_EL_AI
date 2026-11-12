@@ -178,16 +178,16 @@ async def run(settings: Settings) -> None:
                     update_id = update.get("update_id")
                     message = update.get("message")
                     if not isinstance(message, dict):
-                        offset = _next_update_offset(offset, update_id)
+                        offset = _advance_update_cursor(cursor, offset, update_id)
                         continue
                     chat = message.get("chat") or {}
                     chat_id = chat.get("id")
                     if not isinstance(chat_id, int):
-                        offset = _next_update_offset(offset, update_id)
+                        offset = _advance_update_cursor(cursor, offset, update_id)
                         continue
                     response = router.route(message)
                     if response is None:
-                        offset = _next_update_offset(offset, update_id)
+                        offset = _advance_update_cursor(cursor, offset, update_id)
                         continue
 
                     sender = message.get("from") or {}
@@ -242,7 +242,7 @@ async def run(settings: Settings) -> None:
                         )
                         raise
                     else:
-                        offset = _next_update_offset(offset, update_id)
+                        offset = _advance_update_cursor(cursor, offset, update_id)
             except TelegramAPIError:
                 LOGGER.warning("Telegram polling request failed; retrying with bounded backoff")
                 try:
