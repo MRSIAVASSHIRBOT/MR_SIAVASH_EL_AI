@@ -39,3 +39,5 @@ Telegram updates and all user-supplied content are untrusted. Telegram numeric I
 - Remote Hub URLs require HTTPS and explicit HUB_ALLOW_REMOTE=true.
 - Public Gateway calls use HTTPS, a fixed public API contract, no private context and a bounded request budget.
 - No public webhook, tunnel or production bot deployment is created by the bootstrap change.
+
+The public Gateway client reads response bodies as a stream in bounded 4 KiB chunks and rejects bodies larger than 32 KiB before JSON parsing. `Content-Length` is used only for early rejection; the streaming byte counter remains authoritative when the header is absent or inaccurate.

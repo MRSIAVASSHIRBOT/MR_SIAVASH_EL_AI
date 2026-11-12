@@ -100,3 +100,47 @@ async def test_public_gateway_rejects_oversized_user_message_without_network_cal
     with pytest.raises(ValueError, match="1200"):
         await client.ask("x" * 1201)
     await client.close()
+
+
+
+@pytest.mark.asyncio
+async def test_public_gateway_streams_and_stops_at_the_response_body_limit():
+    class OversizedResponse:
+        headers = {}
+
+        def __init__(self):
+            self.chunks_yielded = 0
+
+        async def aiter_bytes(self, chunk_size):
+            assert chunk_size == 4096
+            self.chunks_yielded += 1
+            yield b"a" * 16_000
+            self.chunks_yielded += 1
+            yield b"b" * 17_000
+            self.chunks_yielded += 1
+            yield b"c"
+
+    response = OversizedResponse()
+    with pytest.raises(SiteGatewayError, match="size limit"):
+        await SiteGatewayClient._read_response_body(response)
+
+    assert response.chunks_yielded == 2
+
+
+@pytest.mark.asyncio
+async def test_public_gateway_rejects_declared_oversized_response_before_reading_body():
+    class UnreadResponse:
+        headers = {"content-length": str(SiteGatewayClient.MAX_RESPONSE_BODY_BYTES + 1)}
+
+        def __init__(self):
+            self.read_started = False
+
+        async def aiter_bytes(self, chunk_size):
+            self.read_started = True
+            yield b'{"answer":"ok"}'
+
+    response = UnreadResponse()
+    with pytest.raises(SiteGatewayError, match="size limit"):
+        await SiteGatewayClient._read_response_body(response)
+
+    assert response.read_started is False
