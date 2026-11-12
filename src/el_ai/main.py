@@ -142,6 +142,12 @@ async def run(settings: Settings) -> None:
 
     offset: int | None = None
     backoff = 1
+
+    def acknowledge_update(update_id: object) -> None:
+        nonlocal offset
+        if isinstance(update_id, int):
+            offset = max(offset or 0, update_id + 1)
+
     try:
         LOGGER.info("Telegram polling started; environment=%s", settings.environment)
         while not stop.is_set():
@@ -150,17 +156,18 @@ async def run(settings: Settings) -> None:
                 backoff = 1
                 for update in updates:
                     update_id = update.get("update_id")
-                    if isinstance(update_id, int):
-                        offset = max(offset or 0, update_id + 1)
                     message = update.get("message")
                     if not isinstance(message, dict):
+                        acknowledge_update(update_id)
                         continue
                     chat = message.get("chat") or {}
                     chat_id = chat.get("id")
                     if not isinstance(chat_id, int):
+                        acknowledge_update(update_id)
                         continue
                     response = router.route(message)
                     if response is None:
+                        acknowledge_update(update_id)
                         continue
 
                     sender = message.get("from") or {}
@@ -213,6 +220,9 @@ async def run(settings: Settings) -> None:
                             "Telegram reply failed or has unknown outcome; update=%s",
                             update_id,
                         )
+                        raise
+                    else:
+                        acknowledge_update(update_id)
             except TelegramAPIError:
                 LOGGER.warning("Telegram polling request failed; retrying with bounded backoff")
                 try:
