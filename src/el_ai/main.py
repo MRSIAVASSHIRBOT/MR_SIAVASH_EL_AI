@@ -19,6 +19,13 @@ from el_ai.telegram.router import MessageRouter
 LOGGER = logging.getLogger("el_ai")
 
 
+def _next_update_offset(offset: int | None, update_id: object) -> int | None:
+    """Return the next Telegram offset after an update has been fully handled."""
+    if isinstance(update_id, int):
+        return max(offset or 0, update_id + 1)
+    return offset
+
+
 def _format_result(value: dict[str, object]) -> str:
     """Serialize owner-scoped Hub results without dropping response content."""
     return json.dumps(value, ensure_ascii=False, indent=2, default=str)
@@ -142,6 +149,7 @@ async def run(settings: Settings) -> None:
 
     offset: int | None = None
     backoff = 1
+
     try:
         LOGGER.info("Telegram polling started; environment=%s", settings.environment)
         while not stop.is_set():
@@ -150,17 +158,18 @@ async def run(settings: Settings) -> None:
                 backoff = 1
                 for update in updates:
                     update_id = update.get("update_id")
-                    if isinstance(update_id, int):
-                        offset = max(offset or 0, update_id + 1)
                     message = update.get("message")
                     if not isinstance(message, dict):
+                        offset = _next_update_offset(offset, update_id)
                         continue
                     chat = message.get("chat") or {}
                     chat_id = chat.get("id")
                     if not isinstance(chat_id, int):
+                        offset = _next_update_offset(offset, update_id)
                         continue
                     response = router.route(message)
                     if response is None:
+                        offset = _next_update_offset(offset, update_id)
                         continue
 
                     sender = message.get("from") or {}
@@ -213,6 +222,9 @@ async def run(settings: Settings) -> None:
                             "Telegram reply failed or has unknown outcome; update=%s",
                             update_id,
                         )
+                        raise
+                    else:
+                        offset = _next_update_offset(offset, update_id)
             except TelegramAPIError:
                 LOGGER.warning("Telegram polling request failed; retrying with bounded backoff")
                 try:
