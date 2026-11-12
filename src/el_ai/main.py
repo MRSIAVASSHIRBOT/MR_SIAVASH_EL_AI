@@ -13,8 +13,8 @@ from el_ai.integrations.identity import InstanceIdentityError, load_or_create_cl
 from el_ai.integrations.secrets import KeyringCredentialStore, SecretStoreError
 from el_ai.integrations.site_gateway import SiteGatewayClient, SiteGatewayError
 from el_ai.telegram.access import AccessController
-from el_ai.telegram.cursor import UpdateCursor, UpdateCursorError
 from el_ai.telegram.api import TelegramAPIError, TelegramBotAPI, split_telegram_message
+from el_ai.telegram.cursor import UpdateCursor, UpdateCursorError
 from el_ai.telegram.router import MessageRouter
 
 LOGGER = logging.getLogger("el_ai")
