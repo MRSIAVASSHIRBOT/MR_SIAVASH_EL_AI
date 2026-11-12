@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from el_ai.telegram.api import TelegramAPIError, TelegramBotAPI
+from el_ai.telegram.api import TelegramAPIError, TelegramBotAPI, split_telegram_message
 
 
 @pytest.mark.asyncio
@@ -38,8 +38,46 @@ async def test_provider_error_does_not_leak_response_body_or_token():
     await api.close()
 
 
-def test_bot_token_is_required_and_malformed_values_rejected():
+@pytest.mark.asyncio
+async def test_send_message_enforces_telegram_utf16_limit():
+    api = TelegramBotAPI("123:abcdefghijklmnop")
+    with pytest.raises(ValueError, match="UTF-16"):
+        await api.send_message(900, "😀" * 2049)
+    await api.close()
+
+
+def test_split_telegram_message_preserves_text_and_respects_utf16_limit():
+    text = "پاسخ ✨ 😀 " * 1200
+
+    chunks = split_telegram_message(text)
+
+    assert len(chunks) > 1
+    assert "".join(chunks) == text
+    assert all(len(chunk.encode("utf-16-le")) // 2 <= 4096 for chunk in chunks)
+
+
+def test_split_telegram_message_prefers_whitespace_boundaries():
+    text = "alpha " * 1000
+
+    chunks = split_telegram_message(text)
+
+    assert len(chunks) > 1
+    assert all(chunk.endswith(" ") for chunk in chunks[:-1])
+    assert "".join(chunks) == text
+
+
+def test_split_telegram_message_rejects_invalid_limits():
     with pytest.raises(ValueError):
-        TelegramBotAPI("")
+        split_telegram_message("hello", max_units=0)
     with pytest.raises(ValueError):
-        TelegramBotAPI("token/with/path")
+        split_telegram_message("hello", max_units=True)
+
+
+def test_split_telegram_message_handles_unbroken_astral_text():
+    text = "😀" * 5000
+
+    chunks = split_telegram_message(text)
+
+    assert len(chunks) > 1
+    assert "".join(chunks) == text
+    assert all(len(chunk.encode("utf-16-le")) // 2 <= 4096 for chunk in chunks)

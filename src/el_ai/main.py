@@ -13,17 +13,21 @@ from el_ai.integrations.identity import InstanceIdentityError, load_or_create_cl
 from el_ai.integrations.secrets import KeyringCredentialStore, SecretStoreError
 from el_ai.integrations.site_gateway import SiteGatewayClient, SiteGatewayError
 from el_ai.telegram.access import AccessController
-from el_ai.telegram.api import TelegramAPIError, TelegramBotAPI
+from el_ai.telegram.api import TelegramAPIError, TelegramBotAPI, split_telegram_message
 from el_ai.telegram.router import MessageRouter
 
 LOGGER = logging.getLogger("el_ai")
 
 
 def _format_result(value: dict[str, object]) -> str:
-    rendered = json.dumps(value, ensure_ascii=False, indent=2, default=str)
-    if len(rendered) > 3500:
-        rendered = rendered[:3500] + "\\n…"
-    return rendered
+    """Serialize owner-scoped Hub results without dropping response content."""
+    return json.dumps(value, ensure_ascii=False, indent=2, default=str)
+
+
+async def _send_response(api: TelegramBotAPI, chat_id: int, response: str) -> None:
+    """Deliver the complete response in chunks accepted by the Telegram Bot API."""
+    for chunk in split_telegram_message(response):
+        await api.send_message(chat_id, chunk)
 
 
 def _build_hub_client(settings: Settings, client_id: str) -> HubClient | None:
@@ -65,8 +69,8 @@ async def _owner_hub_command(
         try:
             result = await hub.pair(argument, telegram_user_id)
             return (
-                "اتصال امن با Hub برقرار شد.\\n"
-                f"Client ID: {result['client_id']}\\n"
+                "اتصال امن با Hub برقرار شد.\n"
+                f"Client ID: {result['client_id']}\n"
                 f"Scopes: {', '.join(result.get('scopes', []))}"
             )
         except HubClientError:
@@ -203,7 +207,7 @@ async def run(settings: Settings) -> None:
                         except SiteGatewayError:
                             response = "دستیار عمومی سایت فعلاً در دسترس نیست؛ کمی بعد دوباره تلاش کن."
                     try:
-                        await api.send_message(chat_id, response[:4096])
+                        await _send_response(api, chat_id, response)
                     except TelegramAPIError:
                         LOGGER.warning(
                             "Telegram reply failed or has unknown outcome; update=%s",
