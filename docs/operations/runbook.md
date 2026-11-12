@@ -16,7 +16,7 @@ Never commit `.env`, bot tokens, Hub credentials or provider keys. Rotate a toke
 
 ## Shutdown and failure
 
-The polling loop handles SIGINT/SIGTERM and uses bounded exponential backoff for Telegram API failures. It does not blindly retry a send whose provider outcome may be ambiguous.
+The polling loop handles SIGINT/SIGTERM and uses bounded exponential backoff for Telegram API failures. Long responses are split into ordered messages that stay within Telegram's 4096 UTF-16 code-unit limit; the complete response text is preserved. The runtime does not blindly retry a send whose provider outcome may be ambiguous, so a failed multi-part delivery can be partial.
 
 ## Production
 

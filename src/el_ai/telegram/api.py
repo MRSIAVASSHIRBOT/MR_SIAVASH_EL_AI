@@ -12,6 +12,47 @@ class TelegramAPIError(RuntimeError):
     """Sanitized Telegram API failure; never contains token or response body."""
 
 
+def _utf16_length(value: str) -> int:
+    """Return the UTF-16 code-unit count used by Telegram message limits."""
+    return len(value.encode("utf-16-le")) // 2
+
+
+def split_telegram_message(text: str, *, max_units: int = 4096) -> list[str]:
+    """Split text into Telegram-safe chunks without dropping or duplicating content."""
+    if not isinstance(text, str):
+        raise TypeError("Telegram message text must be a string")
+    if isinstance(max_units, bool) or not isinstance(max_units, int) or max_units < 1:
+        raise ValueError("Telegram message limit must be a positive integer")
+    if not text:
+        return []
+
+    chunks: list[str] = []
+    start = 0
+    while start < len(text):
+        units = 0
+        end = start
+        last_whitespace_boundary: int | None = None
+        while end < len(text):
+            width = 2 if ord(text[end]) > 0xFFFF else 1
+            if units + width > max_units:
+                break
+            units += width
+            if text[end].isspace():
+                last_whitespace_boundary = end + 1
+            end += 1
+
+        if end == start:
+            raise ValueError("Telegram message limit is too small for the next character")
+        if end < len(text) and last_whitespace_boundary is not None:
+            if last_whitespace_boundary > start:
+                end = last_whitespace_boundary
+
+        chunks.append(text[start:end])
+        start = end
+
+    return chunks
+
+
 class TelegramBotAPI:
     def __init__(
         self,
@@ -56,8 +97,8 @@ class TelegramBotAPI:
         return [item for item in result if isinstance(item, dict)]
 
     async def send_message(self, chat_id: int, text: str) -> Any:
-        if not text or len(text) > 4096:
-            raise ValueError("Telegram message must contain 1 to 4096 characters")
+        if not text or _utf16_length(text) > 4096:
+            raise ValueError("Telegram message must contain 1 to 4096 UTF-16 code units")
         return await self.call("sendMessage", {"chat_id": chat_id, "text": text})
 
     async def close(self) -> None:
