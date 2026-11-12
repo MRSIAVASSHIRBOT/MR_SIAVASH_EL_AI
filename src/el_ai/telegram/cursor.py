@@ -58,7 +58,10 @@ class UpdateCursor:
                 suffix=".tmp",
                 dir=self._path.parent,
             )
-            os.fchmod(descriptor, 0o600)
+            if hasattr(os, "fchmod"):
+                os.fchmod(descriptor, 0o600)
+            else:
+                os.chmod(temporary_path, 0o600)
             with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
                 handle.write(json.dumps({"next_offset": next_offset}) + "\n")
                 handle.flush()
