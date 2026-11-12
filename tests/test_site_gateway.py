@@ -100,3 +100,77 @@ async def test_public_gateway_rejects_oversized_user_message_without_network_cal
     with pytest.raises(ValueError, match="1200"):
         await client.ask("x" * 1201)
     await client.close()
+
+
+
+@pytest.mark.asyncio
+async def test_public_gateway_streams_and_stops_at_the_response_body_limit():
+    class OversizedStream(httpx.AsyncByteStream):
+        def __init__(self):
+            self.raw_chunks_yielded = 0
+
+        async def __aiter__(self):
+            self.raw_chunks_yielded += 1
+            yield b'{"answer":"' + (b"a" * 16_000)
+            self.raw_chunks_yielded += 1
+            yield b"a" * 17_000
+            self.raw_chunks_yielded += 1
+            yield b'"}'
+
+        async def aclose(self):
+            return None
+
+    stream = OversizedStream()
+    client = SiteGatewayClient(
+        "https://gateway.example",
+        "https://example.github.io/site",
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                stream=stream,
+                headers={"Content-Type": "application/json"},
+            )
+        ),
+    )
+
+    with pytest.raises(SiteGatewayError, match="size limit"):
+        await client.ask("hello")
+
+    assert stream.raw_chunks_yielded == 2
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_public_gateway_rejects_declared_oversized_response_before_reading_body():
+    class UnreadStream(httpx.AsyncByteStream):
+        def __init__(self):
+            self.read_started = False
+
+        async def __aiter__(self):
+            self.read_started = True
+            yield b'{"answer":"ok"}'
+
+        async def aclose(self):
+            return None
+
+    stream = UnreadStream()
+    client = SiteGatewayClient(
+        "https://gateway.example",
+        "https://example.github.io/site",
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                stream=stream,
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Length": str(SiteGatewayClient.MAX_RESPONSE_BODY_BYTES + 1),
+                },
+            )
+        ),
+    )
+
+    with pytest.raises(SiteGatewayError, match="size limit"):
+        await client.ask("hello")
+
+    assert stream.read_started is False
+    await client.close()
