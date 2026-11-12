@@ -13,6 +13,7 @@ from el_ai.integrations.identity import InstanceIdentityError, load_or_create_cl
 from el_ai.integrations.secrets import KeyringCredentialStore, SecretStoreError
 from el_ai.integrations.site_gateway import SiteGatewayClient, SiteGatewayError
 from el_ai.telegram.access import AccessController
+from el_ai.telegram.cursor import UpdateCursor, UpdateCursorError
 from el_ai.telegram.api import TelegramAPIError, TelegramBotAPI, split_telegram_message
 from el_ai.telegram.router import MessageRouter
 
@@ -21,9 +22,21 @@ LOGGER = logging.getLogger("el_ai")
 
 def _next_update_offset(offset: int | None, update_id: object) -> int | None:
     """Return the next Telegram offset after an update has been fully handled."""
-    if isinstance(update_id, int):
+    if isinstance(update_id, int) and not isinstance(update_id, bool):
         return max(offset or 0, update_id + 1)
     return offset
+
+
+def _advance_update_cursor(
+    cursor: UpdateCursor,
+    offset: int | None,
+    update_id: object,
+) -> int | None:
+    """Persist an acknowledged update before using its offset on the next poll."""
+    next_offset = _advance_update_cursor(cursor, offset, update_id)
+    if next_offset is not None and next_offset != offset:
+        cursor.save(next_offset)
+    return next_offset
 
 
 def _format_result(value: dict[str, object]) -> str:
@@ -123,6 +136,12 @@ async def run(settings: Settings) -> None:
     except InstanceIdentityError as exc:
         raise SystemExit(str(exc)) from exc
 
+    cursor = UpdateCursor(settings.state_dir / "telegram-update-offset.json")
+    try:
+        offset = cursor.load()
+    except UpdateCursorError as exc:
+        raise SystemExit("Stored Telegram update cursor is invalid or inaccessible") from exc
+
     api = TelegramBotAPI(
         settings.telegram_bot_token,
         timeout_seconds=settings.request_timeout_seconds,
@@ -147,7 +166,6 @@ async def run(settings: Settings) -> None:
         except NotImplementedError:
             pass
 
-    offset: int | None = None
     backoff = 1
 
     try:
