@@ -33,7 +33,7 @@ def _advance_update_cursor(
     update_id: object,
 ) -> int | None:
     """Persist an acknowledged update before using its offset on the next poll."""
-    next_offset = _advance_update_cursor(cursor, offset, update_id)
+    next_offset = _next_update_offset(offset, update_id)
     if next_offset is not None and next_offset != offset:
         cursor.save(next_offset)
     return next_offset
