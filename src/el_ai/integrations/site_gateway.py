@@ -108,6 +108,27 @@ class SiteGatewayClient:
             raise SiteGatewayError("Public assistant request limit reached")
         self._request_times.append(now)
 
+    @classmethod
+    async def _read_response_body(cls, response: httpx.Response) -> bytes:
+        declared_length = response.headers.get("content-length")
+        if (
+            declared_length
+            and declared_length.isdigit()
+            and int(declared_length) > cls.MAX_RESPONSE_BODY_BYTES
+        ):
+            raise SiteGatewayError(
+                "Public website assistant response exceeded its size limit"
+            )
+
+        response_body = bytearray()
+        async for chunk in response.aiter_bytes(chunk_size=4096):
+            if len(response_body) + len(chunk) > cls.MAX_RESPONSE_BODY_BYTES:
+                raise SiteGatewayError(
+                    "Public website assistant response exceeded its size limit"
+                )
+            response_body.extend(chunk)
+        return bytes(response_body)
+
     async def ask(self, message: str) -> PublicAnswer:
         normalized = message.strip()
         if not normalized or len(normalized) > self.MAX_MESSAGE_LENGTH:
@@ -120,24 +141,7 @@ class SiteGatewayClient:
                 json={"message": normalized},
             ) as response:
                 response.raise_for_status()
-                declared_length = response.headers.get("content-length")
-                if (
-                    declared_length
-                    and declared_length.isdigit()
-                    and int(declared_length) > self.MAX_RESPONSE_BODY_BYTES
-                ):
-                    raise SiteGatewayError(
-                        "Public website assistant response exceeded its size limit"
-                    )
-
-                response_body = bytearray()
-                async for chunk in response.aiter_bytes(chunk_size=4096):
-                    if len(response_body) + len(chunk) > self.MAX_RESPONSE_BODY_BYTES:
-                        raise SiteGatewayError(
-                            "Public website assistant response exceeded its size limit"
-                        )
-                    response_body.extend(chunk)
-                payload = json.loads(response_body)
+                payload = json.loads(await self._read_response_body(response))
         except (httpx.HTTPError, ValueError):
             raise SiteGatewayError(
                 "Public website assistant is temporarily unavailable"
