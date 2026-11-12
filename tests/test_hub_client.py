@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -188,4 +189,91 @@ async def test_unauthorized_access_token_is_refreshed_once_and_retried():
     assert result["status"] == "authenticated"
     assert status_attempts == 2
     assert store.load("client-7")["access_token"] == "refreshed-access"
+    await client.close()
+
+
+
+@pytest.mark.asyncio
+async def test_refresh_rotation_persists_and_uses_the_replacement_refresh_token():
+    store = MemoryStore()
+    store.save("client-8", {
+        "access_token": "expired-access",
+        "access_expires_at": (datetime.now(UTC) - timedelta(seconds=1)).isoformat(),
+        "refresh_token": "refresh-one",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["status:read"],
+    })
+    refresh_tokens = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/refresh"):
+            import json
+            payload = json.loads(request.content)
+            refresh_tokens.append(payload["refresh_token"])
+            generation = len(refresh_tokens)
+            return httpx.Response(200, json={
+                "access_token": f"access-{generation}",
+                "expires_in": 900,
+                "refresh_token": f"refresh-{generation + 1}",
+                "refresh_expires_in": 86400,
+            })
+        return httpx.Response(200, json={"status": "authenticated"})
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-8",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    await client.status(123456)
+    first = store.load("client-8")
+    assert first["refresh_token"] == "refresh-2"
+
+    first["access_expires_at"] = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
+    store.save("client-8", first)
+    await client.status(123456)
+
+    assert refresh_tokens == ["refresh-one", "refresh-2"]
+    assert store.load("client-8")["refresh_token"] == "refresh-3"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_expired_access_requests_rotate_refresh_token_once():
+    store = MemoryStore()
+    store.save("client-9", {
+        "access_token": "expired-access",
+        "access_expires_at": (datetime.now(UTC) - timedelta(seconds=1)).isoformat(),
+        "refresh_token": "refresh-one",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["status:read"],
+    })
+    refresh_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal refresh_calls
+        if request.url.path.endswith("/refresh"):
+            refresh_calls += 1
+            return httpx.Response(200, json={
+                "access_token": "access-two",
+                "expires_in": 900,
+                "refresh_token": "refresh-two",
+                "refresh_expires_in": 86400,
+            })
+        return httpx.Response(200, json={"status": "authenticated"})
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-9",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    first, second = await asyncio.gather(
+        client.status(123456),
+        client.status(123456),
+    )
+
+    assert first["status"] == second["status"] == "authenticated"
+    assert refresh_calls == 1
+    assert store.load("client-9")["refresh_token"] == "refresh-two"
     await client.close()
