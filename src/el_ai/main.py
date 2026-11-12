@@ -19,6 +19,13 @@ from el_ai.telegram.router import MessageRouter
 LOGGER = logging.getLogger("el_ai")
 
 
+def _next_update_offset(offset: int | None, update_id: object) -> int | None:
+    """Return the next Telegram offset after an update has been fully handled."""
+    if isinstance(update_id, int):
+        return max(offset or 0, update_id + 1)
+    return offset
+
+
 def _format_result(value: dict[str, object]) -> str:
     """Serialize owner-scoped Hub results without dropping response content."""
     return json.dumps(value, ensure_ascii=False, indent=2, default=str)
@@ -143,11 +150,6 @@ async def run(settings: Settings) -> None:
     offset: int | None = None
     backoff = 1
 
-    def acknowledge_update(update_id: object) -> None:
-        nonlocal offset
-        if isinstance(update_id, int):
-            offset = max(offset or 0, update_id + 1)
-
     try:
         LOGGER.info("Telegram polling started; environment=%s", settings.environment)
         while not stop.is_set():
@@ -158,7 +160,7 @@ async def run(settings: Settings) -> None:
                     update_id = update.get("update_id")
                     message = update.get("message")
                     if not isinstance(message, dict):
-                        acknowledge_update(update_id)
+                        offset = _next_update_offset(offset, update_id)
                         continue
                     chat = message.get("chat") or {}
                     chat_id = chat.get("id")
