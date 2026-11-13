@@ -388,3 +388,35 @@ async def test_authorized_transport_error_does_not_retain_bearer_context():
     assert access_token not in str(captured.value)
     assert "private transport details" not in str(captured.value)
     await client.close()
+
+
+@pytest.mark.parametrize("operation", ["save", "load", "delete"])
+def test_secret_store_errors_do_not_retain_backend_exception_context(operation):
+    from el_ai.integrations.secrets import KeyringCredentialStore, SecretStoreError
+
+    leaked_value = "credential-backend-secret-value"
+
+    class FailingBackend:
+        def set_password(self, service, username, password):
+            raise RuntimeError(f"backend rejected {leaked_value}")
+
+        def get_password(self, service, username):
+            if operation == "load":
+                raise RuntimeError(f"backend exposed {leaked_value}")
+            return "stored-payload"
+
+        def delete_password(self, service, username):
+            raise RuntimeError(f"backend rejected {leaked_value}")
+
+    store = KeyringCredentialStore(FailingBackend())
+    with pytest.raises(SecretStoreError) as captured:
+        if operation == "save":
+            store.save("client-secret-test", {"access_token": leaked_value})
+        elif operation == "load":
+            store.load("client-secret-test")
+        else:
+            store.delete("client-secret-test")
+
+    assert captured.value.__cause__ is None
+    assert captured.value.__context__ is None
+    assert leaked_value not in str(captured.value)
