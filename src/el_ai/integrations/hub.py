@@ -57,17 +57,23 @@ class HubClient:
         )
 
     async def _request(self, method: str, path: str, payload: dict[str, object]) -> dict[str, object]:
+        status_code: int | None = None
+        failed = False
         try:
             response = await self._client.request(method, path.lstrip("/"), json=payload)
             response.raise_for_status()
             result = response.json()
         except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+        except (httpx.HTTPError, ValueError):
+            failed = True
+        if status_code is not None:
             raise HubClientError(
-                f"Hub rejected the request (HTTP {exc.response.status_code})",
-                status_code=exc.response.status_code,
-            ) from exc
-        except (httpx.HTTPError, ValueError) as exc:
-            raise HubClientError("Hub API request failed") from exc
+                f"Hub rejected the request (HTTP {status_code})",
+                status_code=status_code,
+            )
+        if failed:
+            raise HubClientError("Hub API request failed")
         if not isinstance(result, dict):
             raise HubClientError("Hub returned an invalid response")
         return result
@@ -189,6 +195,8 @@ class HubClient:
             }
             if idempotency_key is not None:
                 headers["Idempotency-Key"] = idempotency_key
+            status_code: int | None = None
+            failed = False
             try:
                 request_kwargs = {"headers": headers}
                 if payload is not None:
@@ -199,12 +207,16 @@ class HubClient:
                 response.raise_for_status()
                 result = response.json()
             except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code
+            except (httpx.HTTPError, ValueError):
+                failed = True
+            if status_code is not None:
                 raise HubClientError(
-                    f"Hub rejected the request (HTTP {exc.response.status_code})",
-                    status_code=exc.response.status_code,
-                ) from exc
-            except (httpx.HTTPError, ValueError) as exc:
-                raise HubClientError("Hub API request failed") from exc
+                    f"Hub rejected the request (HTTP {status_code})",
+                    status_code=status_code,
+                )
+            if failed:
+                raise HubClientError("Hub API request failed")
             if not isinstance(result, dict):
                 raise HubClientError("Hub returned an invalid response")
             return result
