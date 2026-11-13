@@ -106,3 +106,31 @@ def test_pair_command_uses_real_line_breaks():
         "Client ID: client-123",
         "Scopes: tasks.read, memory.read",
     ]
+
+
+def test_task_status_command_fetches_only_a_valid_task_identifier():
+    task_id = "12345678-1234-4234-8234-123456789abc"
+
+    class FakeHub:
+        async def get_task(self, telegram_user_id, requested_id):
+            assert telegram_user_id == 123
+            assert requested_id == task_id
+            return {"task_id": task_id, "status": "succeeded"}
+
+    rendered = asyncio.run(_owner_hub_command(
+        f"/taskstatus {task_id}",
+        telegram_user_id=123,
+        update_id=3,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+    ))
+    assert json.loads(rendered) == {"task_id": task_id, "status": "succeeded"}
+
+    invalid = asyncio.run(_owner_hub_command(
+        "/taskstatus not-a-uuid",
+        telegram_user_id=123,
+        update_id=4,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+    ))
+    assert "UUID" in invalid
