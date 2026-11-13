@@ -16,7 +16,7 @@
 - [x] Redact bot credentials from Settings representations and provider exceptions.
 - [ ] Validate Telegram update variants with typed schemas.
 - [ ] Add persistent update cursor and duplicate-update handling.
-- [ ] Add structured metrics without message content.
+- [x] Add structured metrics without message content.
 - [ ] Add webhook receiver after deployment threat review.
 
 ## Milestone 2 — Identity and owner pairing
