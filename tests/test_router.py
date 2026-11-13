@@ -46,4 +46,7 @@ def test_help_documents_public_site_query_for_owner_and_public_user():
         AccessController(frozenset({123}), public_enabled=True, rate_limit=20)
     )
     assert "/site QUERY" in router.route(_message("/help"))
-    assert "ارسال پرسش متنی" in router.route(_message("/help", user_id=456))
+    assert "/taskstatus TASK_ID" in router.route(_message("/help"))
+    public_help = router.route(_message("/help", user_id=456))
+    assert "ارسال پرسش متنی" in public_help
+    assert "/taskstatus" not in public_help
