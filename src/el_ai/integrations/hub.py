@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from uuid import UUID
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
+from uuid import UUID
 
 import httpx
 
