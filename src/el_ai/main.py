@@ -90,8 +90,8 @@ async def _owner_hub_command(
         try:
             result = await hub.pair(argument, telegram_user_id)
             return (
-                "اتصال امن با Hub برقرار شد.\\n"
-                f"Client ID: {result['client_id']}\\n"
+                "اتصال امن با Hub برقرار شد.\n"
+                f"Client ID: {result['client_id']}\n"
                 f"Scopes: {', '.join(result.get('scopes', []))}"
             )
         except HubClientError:
