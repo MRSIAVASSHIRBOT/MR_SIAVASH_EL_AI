@@ -13,6 +13,7 @@ from el_ai.integrations.hub import HubClient, HubClientError
 from el_ai.integrations.identity import InstanceIdentityError, load_or_create_client_id
 from el_ai.integrations.secrets import KeyringCredentialStore, SecretStoreError
 from el_ai.integrations.site_gateway import SiteGatewayClient, SiteGatewayError
+from el_ai.observability import RuntimeMetrics
 from el_ai.telegram.access import AccessController
 from el_ai.telegram.api import TelegramAPIError, TelegramBotAPI, split_telegram_message
 from el_ai.telegram.cursor import UpdateCursor, UpdateCursorError
@@ -175,26 +176,31 @@ async def run(settings: Settings) -> None:
             pass
 
     backoff = 1
+    metrics = RuntimeMetrics()
 
     try:
         LOGGER.info("Telegram polling started; environment=%s", settings.environment)
         while not stop.is_set():
             try:
                 updates = await api.get_updates(offset=offset, timeout=settings.poll_timeout_seconds)
+                metrics.record_poll(len(updates))
                 backoff = 1
                 for update in updates:
                     update_id = update.get("update_id")
                     message = update.get("message")
                     if not isinstance(message, dict):
+                        metrics.record_ignored_update()
                         offset = _advance_update_cursor(cursor, offset, update_id)
                         continue
                     chat = message.get("chat") or {}
                     chat_id = chat.get("id")
                     if not isinstance(chat_id, int):
+                        metrics.record_ignored_update()
                         offset = _advance_update_cursor(cursor, offset, update_id)
                         continue
                     response = router.route(message)
                     if response is None:
+                        metrics.record_ignored_update()
                         offset = _advance_update_cursor(cursor, offset, update_id)
                         continue
 
@@ -250,8 +256,12 @@ async def run(settings: Settings) -> None:
                         )
                         raise
                     else:
+                        metrics.record_reply()
                         offset = _advance_update_cursor(cursor, offset, update_id)
+                metrics.emit(LOGGER)
             except TelegramAPIError:
+                metrics.record_telegram_api_error()
+                metrics.emit(LOGGER)
                 LOGGER.warning("Telegram polling request failed; retrying with bounded backoff")
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=backoff)
@@ -263,6 +273,7 @@ async def run(settings: Settings) -> None:
             await hub.close()
         await site.close()
         await api.close()
+        metrics.emit(LOGGER)
         LOGGER.info("Telegram polling stopped")
 
 
