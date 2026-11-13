@@ -333,3 +333,58 @@ async def test_authorized_http_error_does_not_retain_bearer_context():
     assert captured.value.__context__ is None
     assert access_token not in str(captured.value)
     await client.close()
+
+@pytest.mark.asyncio
+async def test_pairing_transport_error_does_not_retain_pairing_code_context():
+    pairing_code = "one-time-transport-pairing-secret"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert pairing_code.encode() in request.content
+        raise httpx.ConnectError("private transport details", request=request)
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-12",
+        MemoryStore(),
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(HubClientError) as captured:
+        await client.pair(pairing_code, 123456)
+
+    assert captured.value.__cause__ is None
+    assert captured.value.__context__ is None
+    assert pairing_code not in str(captured.value)
+    assert "private transport details" not in str(captured.value)
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_authorized_transport_error_does_not_retain_bearer_context():
+    store = MemoryStore()
+    access_token = "transport-access-token-secret"
+    store.save("client-13", {
+        "access_token": access_token,
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "transport-refresh-token-secret",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["status:read"],
+    })
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["Authorization"] == f"Bearer {access_token}"
+        raise httpx.ConnectError("private transport details", request=request)
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-13",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(HubClientError) as captured:
+        await client.status(123456)
+
+    assert captured.value.__cause__ is None
+    assert captured.value.__context__ is None
+    assert access_token not in str(captured.value)
+    assert "private transport details" not in str(captured.value)
+    await client.close()
