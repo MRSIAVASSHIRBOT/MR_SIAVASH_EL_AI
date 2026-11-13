@@ -1,7 +1,7 @@
 # ADR-0002: Owner-initiated Hub pairing
 
-- Status: Accepted; implementation in Hub PR #336 and EL_AI feature branch
-- Date: 2026-11-09
+- **Status:** Accepted; Hub API and owner controls are on main; EL_AI client is on main; live pairing remains unverified
+- **Date:** 2026-11-09
 
 ## Decision
 
@@ -21,7 +21,11 @@ Required properties:
 
 ## Implementation status
 
-The Hub-side pairing repository, migration, route family and tests are in Hub PR #336. EL_AI's Hub client and OS credential-vault adapter are in branch `feat/hub-pairing-client`. Live pairing remains disabled until both changes are merged, the Hub is running locally and owner-managed Telegram secrets are configured.
+The Hub pairing API, database migration, owner-facing challenge/list/revoke controls, scoped authentication, task and memory routes, idempotent task submission, revocation, token-hash storage and regression tests are merged on Hub `main`. Hub PR [#336](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/pull/336) was merged on 2026-11-09. The later Hub refresh-token hardening is also on `main`: rotated refresh tokens are single-use and reuse is rejected.
+
+EL_AI's scoped Hub client, stable installation identity, OS-backed Keyring credential store, explicit integration opt-in and owner pairing commands are merged on EL_AI `main`. EL_AI PR [#3](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AI/pull/3) introduced the client; PR [#14](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AI/pull/14) added safe persistence of rotated refresh credentials.
+
+Pairing remains opt-in. No live Telegram bot is configured or deployed, and no live end-to-end pairing smoke test has been verified. Live use still requires a running local Hub, owner-initiated pairing and owner-managed Telegram runtime configuration. This documentation does not authorize remote Hub hosting, a public tunnel or production bot deployment.
 
 ## Rejected shortcuts
 
