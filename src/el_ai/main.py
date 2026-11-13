@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import signal
+from uuid import UUID
 
 from el_ai.config import ConfigurationError, Settings
 from el_ai.integrations.hub import HubClient, HubClientError
@@ -96,7 +97,7 @@ async def _owner_hub_command(
         except HubClientError:
             return "اتصال انجام نشد؛ کد ممکن است نامعتبر یا منقضی شده باشد. هیچ اطلاعات محرمانه‌ای ثبت نشده است."
 
-    if command not in {"/hub", "/tasks", "/memory", "/task"}:
+    if command not in {"/hub", "/tasks", "/memory", "/task", "/taskstatus"}:
         return None
     if not settings.hub_integration_enabled:
         return "اتصال Hub هنوز در تنظیمات این اجرا فعال نشده است."
@@ -125,10 +126,17 @@ async def _owner_hub_command(
                     idempotency_key=f"telegram-update-{update_id}",
                 )
             )
+        if command == "/taskstatus":
+            if not argument:
+                return "روش استفاده: /taskstatus TASK_ID"
+            try:
+                task_id = str(UUID(argument))
+            except ValueError:
+                return "شناسه وظیفه باید یک UUID معتبر باشد."
+            return _format_result(await hub.get_task(telegram_user_id, task_id))
     except HubClientError:
         return "درخواست Hub ناموفق بود یا مجوز لازم وجود ندارد. وضعیت اتصال و Scopeها را بررسی کن."
     return None
-
 
 async def run(settings: Settings) -> None:
     try:
@@ -199,7 +207,7 @@ async def run(settings: Settings) -> None:
                         if normalized_text else ""
                     )
                     if user_id is not None and access.is_owner(user_id):
-                        if command_name in {"/pair", "/hub", "/tasks", "/memory", "/task"}:
+                        if command_name in {"/pair", "/hub", "/tasks", "/memory", "/task", "/taskstatus"}:
                             response = await _owner_hub_command(
                                 text,
                                 telegram_user_id=user_id,

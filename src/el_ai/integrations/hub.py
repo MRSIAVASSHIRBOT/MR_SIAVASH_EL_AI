@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
+from uuid import UUID
 
 import httpx
 
@@ -248,6 +249,15 @@ class HubClient:
     async def status(self, telegram_user_id: int) -> dict[str, object]:
         return await self._authorized(
             "GET", "/integrations/telegram/status", telegram_user_id
+        )
+
+    async def get_task(self, telegram_user_id: int, task_id: str) -> dict[str, object]:
+        """Fetch one task through the paired client's existing tasks:read scope."""
+        canonical_id = str(UUID(task_id))
+        return await self._authorized(
+            "GET",
+            f"/integrations/telegram/tasks/{canonical_id}",
+            telegram_user_id,
         )
 
     async def list_tasks(self, telegram_user_id: int) -> dict[str, object]:

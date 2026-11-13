@@ -420,3 +420,44 @@ def test_secret_store_errors_do_not_retain_backend_exception_context(operation):
     assert captured.value.__cause__ is None
     assert captured.value.__context__ is None
     assert leaked_value not in str(captured.value)
+
+
+@pytest.mark.asyncio
+async def test_task_status_uses_scoped_task_endpoint_and_identity_headers():
+    store = MemoryStore()
+    store.save("client-task-status", {
+        "access_token": "task-status-access",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "task-status-refresh",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["tasks:read"],
+    })
+    task_id = "12345678-1234-4234-8234-123456789abc"
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"task_id": task_id, "status": "succeeded"})
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-task-status",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    result = await client.get_task(123456, task_id)
+
+    assert result == {"task_id": task_id, "status": "succeeded"}
+    assert requests[0].method == "GET"
+    assert requests[0].url.path == f"/integrations/telegram/tasks/{task_id}"
+    assert requests[0].headers["Authorization"] == "Bearer task-status-access"
+    assert requests[0].headers["X-Telegram-User-Id"] == "123456"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_task_status_rejects_non_uuid_before_network_request():
+    client = HubClient("http://127.0.0.1:8000", "client-task-invalid", MemoryStore())
+    with pytest.raises(ValueError):
+        await client.get_task(123456, "../private")
+    await client.close()

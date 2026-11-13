@@ -41,6 +41,7 @@ class MessageRouter:
                 "\n/tasks — فهرست وظایف این ربات"
                 "\n/memory QUERY — جست‌وجوی حافظه"
                 "\n/task TYPE | DESCRIPTION — ثبت وظیفه"
+                "\n/taskstatus TASK_ID — مشاهده وضعیت وظیفه ثبت‌شده"
                 "\n/site QUERY — پرسش عمومی از دانش سایت"
             )
             public_help = "\nارسال پرسش متنی — دریافت پاسخ از دانش عمومی سایت"

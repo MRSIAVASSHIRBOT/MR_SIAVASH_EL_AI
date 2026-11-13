@@ -21,6 +21,7 @@ The Hub owns Telegram client registration, scopes, token issuance, expiry, revoc
 - GET /integrations/telegram/clients and POST /integrations/telegram/clients/{client_id}/revoke: owner management.
 - GET /integrations/telegram/status: requires status:read.
 - GET /integrations/telegram/tasks: requires tasks:read and returns only tasks submitted by the exact paired client.
+- GET /integrations/telegram/tasks/{task_id}: requires tasks:read and returns one task only when that exact paired client submitted it; other clients receive the same 404 as an unknown task.
 - POST /integrations/telegram/tasks: requires tasks:create and an idempotency key; Hub PolicyEngine remains authoritative.
 - POST /integrations/telegram/memory/search: requires memory:search and is owner-scoped.
 
