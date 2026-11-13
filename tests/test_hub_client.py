@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
-from el_ai.integrations.hub import HubClient, HubNotPairedError
+from el_ai.integrations.hub import HubClient, HubClientError, HubNotPairedError
 
 
 class MemoryStore:
@@ -276,4 +276,60 @@ async def test_concurrent_expired_access_requests_rotate_refresh_token_once():
     assert first["status"] == second["status"] == "authenticated"
     assert refresh_calls == 1
     assert store.load("client-9")["refresh_token"] == "refresh-two"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_pairing_http_error_does_not_retain_pairing_code_context():
+    pairing_code = "one-time-pairing-code-secret"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert pairing_code.encode() in request.content
+        return httpx.Response(401, json={"detail": "rejected"})
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-10",
+        MemoryStore(),
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(HubClientError) as captured:
+        await client.pair(pairing_code, 123456)
+
+    assert captured.value.status_code == 401
+    assert captured.value.__cause__ is None
+    assert captured.value.__context__ is None
+    assert pairing_code not in str(captured.value)
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_authorized_http_error_does_not_retain_bearer_context():
+    store = MemoryStore()
+    access_token = "access-token-secret"
+    store.save("client-11", {
+        "access_token": access_token,
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "refresh-token-secret",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["status:read"],
+    })
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["Authorization"] == f"Bearer {access_token}"
+        return httpx.Response(403, json={"detail": "rejected"})
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-11",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(HubClientError) as captured:
+        await client.status(123456)
+
+    assert captured.value.status_code == 403
+    assert captured.value.__cause__ is None
+    assert captured.value.__context__ is None
+    assert access_token not in str(captured.value)
     await client.close()
