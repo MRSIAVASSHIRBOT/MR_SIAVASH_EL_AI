@@ -90,19 +90,11 @@ async def _owner_hub_command(
         try:
             result = await hub.pair(argument, telegram_user_id)
             return (
-                "اتصال امن با Hub برقرار شد.\n"
-                f"Client ID: {result['client_id']}\n"
+                "اتصال امن با Hub برقرار شد.\\n"
+                f"Client ID: {result['client_id']}\\n"
                 f"Scopes: {', '.join(result.get('scopes', []))}"
             )
-            if command == "/taskstatus":
-            if not argument:
-                return "روش استفاده: /taskstatus TASK_ID"
-            try:
-                task_id = str(UUID(argument))
-            except ValueError:
-                return "شناسه وظیفه باید یک UUID معتبر باشد."
-            return _format_result(await hub.get_task(telegram_user_id, task_id))
-    except HubClientError:
+        except HubClientError:
             return "اتصال انجام نشد؛ کد ممکن است نامعتبر یا منقضی شده باشد. هیچ اطلاعات محرمانه‌ای ثبت نشده است."
 
     if command not in {"/hub", "/tasks", "/memory", "/task", "/taskstatus"}:
@@ -134,10 +126,17 @@ async def _owner_hub_command(
                     idempotency_key=f"telegram-update-{update_id}",
                 )
             )
+        if command == "/taskstatus":
+            if not argument:
+                return "روش استفاده: /taskstatus TASK_ID"
+            try:
+                task_id = str(UUID(argument))
+            except ValueError:
+                return "شناسه وظیفه باید یک UUID معتبر باشد."
+            return _format_result(await hub.get_task(telegram_user_id, task_id))
     except HubClientError:
         return "درخواست Hub ناموفق بود یا مجوز لازم وجود ندارد. وضعیت اتصال و Scopeها را بررسی کن."
     return None
-
 
 async def run(settings: Settings) -> None:
     try:
