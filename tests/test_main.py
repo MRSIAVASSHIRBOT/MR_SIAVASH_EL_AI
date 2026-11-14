@@ -9,6 +9,7 @@ from el_ai.main import (
     _format_result,
     _owner_hub_command,
     _runtime_health_response,
+    OWNER_HUB_COMMANDS,
     _send_response,
 )
 from el_ai.observability import RuntimeMetrics
@@ -275,3 +276,66 @@ def test_task_cancel_command_uses_valid_uuid_and_explains_pending_only_policy():
         settings=_settings(enabled=True),
     ))
     assert "UUID" in invalid
+
+
+def test_tasks_command_filters_by_status_and_keeps_filter_in_next_page():
+    class FakeHub:
+        async def list_tasks(self, telegram_user_id, *, cursor=None, limit=20, status=None):
+            assert telegram_user_id == 123
+            assert cursor == "cursor-current"
+            assert limit == 20
+            assert status == "queued"
+            return {
+                "tasks": [{"task_id": "queued-task", "status": "queued"}],
+                "count": 1,
+                "has_more": True,
+                "next_cursor": "cursor-next",
+            }
+
+    rendered = asyncio.run(_owner_hub_command(
+        "/tasks queued cursor-current",
+        telegram_user_id=123,
+        update_id=35,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+    ))
+    payload, next_page = rendered.split("\n\nصفحه بعد: ", 1)
+    assert json.loads(payload)["tasks"][0]["status"] == "queued"
+    assert next_page == "/tasks queued cursor-next"
+
+
+def test_task_history_command_uses_a_valid_uuid_and_returns_events():
+    task_id = "12345678-1234-4234-8234-123456789abc"
+
+    class FakeHub:
+        async def get_task_history(self, telegram_user_id, requested_id, *, limit=20):
+            assert telegram_user_id == 123
+            assert requested_id == task_id
+            assert limit == 20
+            return {
+                "task_id": task_id,
+                "events": [{"event_type": "task.submitted", "outcome": "queued"}],
+                "count": 1,
+            }
+
+    rendered = asyncio.run(_owner_hub_command(
+        f"/taskhistory {task_id}",
+        telegram_user_id=123,
+        update_id=36,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+    ))
+    assert json.loads(rendered)["events"][0]["event_type"] == "task.submitted"
+
+    invalid = asyncio.run(_owner_hub_command(
+        "/taskhistory not-a-uuid",
+        telegram_user_id=123,
+        update_id=37,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+    ))
+    assert "UUID" in invalid
+
+
+def test_owner_hub_dispatch_allowlist_covers_all_implemented_task_commands():
+    assert {"/tasks", "/taskstatus", "/taskhistory", "/taskresult", "/taskcancel"} <= OWNER_HUB_COMMANDS

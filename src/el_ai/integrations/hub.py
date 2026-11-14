@@ -285,11 +285,20 @@ class HubClient:
         *,
         cursor: str | None = None,
         limit: int = 20,
+        status: str | None = None,
     ) -> dict[str, object]:
-        """List one bounded task-history page for this exact paired client."""
+        """List one bounded, optionally status-filtered page for this paired client."""
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 50:
             raise ValueError("Task page limit must be between 1 and 50")
         params: dict[str, str | int] = {"limit": limit}
+        if status is not None:
+            allowed_statuses = {
+                "queued", "running", "waiting_approval", "succeeded",
+                "failed", "cancelled", "rejected",
+            }
+            if not isinstance(status, str) or status not in allowed_statuses:
+                raise ValueError("Invalid task status filter")
+            params["status"] = status
         if cursor is not None:
             if (
                 not isinstance(cursor, str)
@@ -303,6 +312,23 @@ class HubClient:
         return await self._authorized(
             "GET",
             f"/integrations/telegram/tasks?{urlencode(params)}",
+            telegram_user_id,
+        )
+
+    async def get_task_history(
+        self,
+        telegram_user_id: int,
+        task_id: str,
+        *,
+        limit: int = 20,
+    ) -> dict[str, object]:
+        """Fetch the bounded audit timeline for this paired client's own task."""
+        canonical_id = str(UUID(task_id))
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 50:
+            raise ValueError("Task history limit must be between 1 and 50")
+        return await self._authorized(
+            "GET",
+            f"/integrations/telegram/tasks/{canonical_id}/events?{urlencode({'limit': limit})}",
             telegram_user_id,
         )
 
