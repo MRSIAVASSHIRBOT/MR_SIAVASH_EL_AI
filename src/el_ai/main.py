@@ -46,6 +46,11 @@ def _format_result(value: dict[str, object]) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, default=str)
 
 
+def _runtime_health_response(metrics: RuntimeMetrics) -> str:
+    """Render aggregate polling health without exposing message or identity data."""
+    return _format_result(metrics.snapshot())
+
+
 async def _send_response(api: TelegramBotAPI, chat_id: int, response: str) -> None:
     """Deliver the complete response in chunks accepted by the Telegram Bot API."""
     for chunk in split_telegram_message(response):
@@ -108,7 +113,20 @@ async def _owner_hub_command(
         if command == "/hub":
             return _format_result(await hub.status(telegram_user_id))
         if command == "/tasks":
-            return _format_result(await hub.list_tasks(telegram_user_id))
+            try:
+                result = await hub.list_tasks(
+                    telegram_user_id,
+                    cursor=argument or None,
+                    limit=20,
+                )
+            except ValueError:
+                return "نشانگر صفحهٔ وظایف نامعتبر است؛ برای شروع دوباره /tasks را بدون شناسه اجرا کن."
+            next_cursor = result.get("next_cursor")
+            visible = {key: value for key, value in result.items() if key != "next_cursor"}
+            rendered = _format_result(visible)
+            if result.get("has_more") and isinstance(next_cursor, str) and next_cursor:
+                return rendered + f"\n\nصفحه بعد: /tasks {next_cursor}"
+            return rendered
         if command == "/memory":
             if not argument:
                 return "روش استفاده: /memory عبارت جست‌وجو"
@@ -213,7 +231,9 @@ async def run(settings: Settings) -> None:
                         if normalized_text else ""
                     )
                     if user_id is not None and access.is_owner(user_id):
-                        if command_name in {"/pair", "/hub", "/tasks", "/memory", "/task", "/taskstatus"}:
+                        if command_name == "/health":
+                            response = _runtime_health_response(metrics)
+                        elif command_name in {"/pair", "/hub", "/tasks", "/memory", "/task", "/taskstatus"}:
                             response = await _owner_hub_command(
                                 text,
                                 telegram_user_id=user_id,

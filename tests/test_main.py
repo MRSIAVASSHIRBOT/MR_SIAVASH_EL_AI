@@ -3,7 +3,14 @@ import json
 
 from el_ai.config import Settings
 from el_ai.integrations.secrets import SecretStoreError
-from el_ai.main import _build_hub_client, _format_result, _owner_hub_command, _send_response
+from el_ai.main import (
+    _build_hub_client,
+    _format_result,
+    _owner_hub_command,
+    _runtime_health_response,
+    _send_response,
+)
+from el_ai.observability import RuntimeMetrics
 
 
 def _settings(*, enabled: bool) -> Settings:
@@ -134,3 +141,61 @@ def test_task_status_command_fetches_only_a_valid_task_identifier():
         settings=_settings(enabled=True),
     ))
     assert "UUID" in invalid
+
+
+def test_tasks_command_uses_cursor_and_returns_a_clear_next_page_command():
+    class FakeHub:
+        async def list_tasks(self, telegram_user_id, *, cursor=None, limit=20):
+            assert telegram_user_id == 123
+            assert cursor == "cursor-current"
+            assert limit == 20
+            return {
+                "tasks": [{"task_id": "task-1"}],
+                "count": 1,
+                "has_more": True,
+                "next_cursor": "cursor-next",
+            }
+
+    rendered = asyncio.run(_owner_hub_command(
+        "/tasks cursor-current",
+        telegram_user_id=123,
+        update_id=5,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+    ))
+    payload, next_page = rendered.split("\n\nصفحه بعد: ", 1)
+    assert json.loads(payload) == {
+        "tasks": [{"task_id": "task-1"}],
+        "count": 1,
+        "has_more": True,
+    }
+    assert next_page == "/tasks cursor-next"
+
+
+def test_tasks_command_handles_invalid_cursor_without_crashing():
+    class FakeHub:
+        async def list_tasks(self, *_args, **_kwargs):
+            raise ValueError("invalid cursor")
+
+    rendered = asyncio.run(_owner_hub_command(
+        "/tasks invalid",
+        telegram_user_id=123,
+        update_id=6,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+    ))
+    assert "نشانگر صفحه" in rendered
+
+
+def test_runtime_health_response_contains_only_aggregate_polling_state():
+    metrics = RuntimeMetrics()
+    metrics.record_poll(3)
+    metrics.record_reply()
+
+    payload = json.loads(_runtime_health_response(metrics))
+
+    assert payload["polling_status"] == "healthy"
+    assert payload["polls"] == 1
+    assert payload["updates_received"] == 3
+    assert payload["replies_sent"] == 1
+    assert not {"message", "chat_id", "user_id", "update_id", "access_token"} & payload.keys()

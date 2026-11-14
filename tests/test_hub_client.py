@@ -461,3 +461,51 @@ async def test_task_status_rejects_non_uuid_before_network_request():
     with pytest.raises(ValueError):
         await client.get_task(123456, "../private")
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_task_list_requests_the_requested_bounded_page_and_preserves_cursor():
+    store = MemoryStore()
+    store.save("client-task-pages", {
+        "access_token": "task-pages-access",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "task-pages-refresh",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["tasks:read"],
+    })
+    cursor = "MjAyNi0xMS0xNFQwMDowMDowMCswMDowMAoxMjM0NTY3OC0xMjM0LTQyMzQtODIzNC0xMjM0NTY3ODlhYmM"
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={"tasks": [], "count": 0, "has_more": False, "next_cursor": None},
+        )
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-task-pages",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    result = await client.list_tasks(123456, cursor=cursor, limit=17)
+
+    assert result["has_more"] is False
+    assert requests[0].method == "GET"
+    assert requests[0].url.path == "/integrations/telegram/tasks"
+    assert requests[0].url.params["limit"] == "17"
+    assert requests[0].url.params["cursor"] == cursor
+    assert requests[0].headers["Authorization"] == "Bearer task-pages-access"
+    assert requests[0].headers["X-Telegram-User-Id"] == "123456"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_task_list_rejects_invalid_cursor_and_limit_before_network_request():
+    client = HubClient("http://127.0.0.1:8000", "client-task-pages-invalid", MemoryStore())
+    with pytest.raises(ValueError):
+        await client.list_tasks(123456, cursor="../private")
+    with pytest.raises(ValueError):
+        await client.list_tasks(123456, limit=51)
+    await client.close()

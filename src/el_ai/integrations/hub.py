@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 from uuid import UUID
 
 import httpx
@@ -260,9 +260,31 @@ class HubClient:
             telegram_user_id,
         )
 
-    async def list_tasks(self, telegram_user_id: int) -> dict[str, object]:
+    async def list_tasks(
+        self,
+        telegram_user_id: int,
+        *,
+        cursor: str | None = None,
+        limit: int = 20,
+    ) -> dict[str, object]:
+        """List one bounded task-history page for this exact paired client."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 50:
+            raise ValueError("Task page limit must be between 1 and 50")
+        params: dict[str, str | int] = {"limit": limit}
+        if cursor is not None:
+            if (
+                not isinstance(cursor, str)
+                or not cursor
+                or len(cursor) > 512
+                or not cursor.isascii()
+                or not cursor.replace("_", "").replace("-", "").isalnum()
+            ):
+                raise ValueError("Invalid task page cursor")
+            params["cursor"] = cursor
         return await self._authorized(
-            "GET", "/integrations/telegram/tasks", telegram_user_id
+            "GET",
+            f"/integrations/telegram/tasks?{urlencode(params)}",
+            telegram_user_id,
         )
 
     async def search_memory(self, telegram_user_id: int, query: str) -> dict[str, object]:
