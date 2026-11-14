@@ -2,6 +2,7 @@ import asyncio
 import json
 
 from el_ai.config import Settings
+from el_ai.integrations.hub import HubClientError
 from el_ai.integrations.secrets import SecretStoreError
 from el_ai.main import (
     _build_hub_client,
@@ -199,3 +200,78 @@ def test_runtime_health_response_contains_only_aggregate_polling_state():
     assert payload["updates_received"] == 3
     assert payload["replies_sent"] == 1
     assert not {"message", "chat_id", "user_id", "update_id", "access_token"} & payload.keys()
+
+
+
+def test_task_result_command_returns_terminal_result_and_handles_pending_state():
+    task_id = "12345678-1234-4234-8234-123456789abc"
+
+    class FakeHub:
+        async def get_task_result(self, telegram_user_id, requested_id):
+            assert telegram_user_id == 123
+            assert requested_id == task_id
+            return {"result": {"message": "done"}}
+
+    rendered = asyncio.run(_owner_hub_command(
+        f"/taskresult {task_id}",
+        telegram_user_id=123,
+        update_id=30,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+    ))
+    assert json.loads(rendered) == {"result": {"message": "done"}}
+
+    class PendingHub:
+        async def get_task_result(self, *_args):
+            from el_ai.integrations.hub import HubClientError
+            raise HubClientError("not ready", status_code=409)
+
+    pending = asyncio.run(_owner_hub_command(
+        f"/taskresult {task_id}",
+        telegram_user_id=123,
+        update_id=31,
+        hub=PendingHub(),
+        settings=_settings(enabled=True),
+    ))
+    assert "هنوز آماده نیست" in pending
+
+
+def test_task_cancel_command_uses_valid_uuid_and_explains_pending_only_policy():
+    task_id = "12345678-1234-4234-8234-123456789abc"
+
+    class FakeHub:
+        async def cancel_task(self, telegram_user_id, requested_id):
+            assert telegram_user_id == 123
+            assert requested_id == task_id
+            return {"task_id": task_id, "status": "cancelled"}
+
+    rendered = asyncio.run(_owner_hub_command(
+        f"/taskcancel {task_id}",
+        telegram_user_id=123,
+        update_id=32,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+    ))
+    assert json.loads(rendered)["status"] == "cancelled"
+
+    class RunningHub:
+        async def cancel_task(self, *_args):
+            raise HubClientError("not cancellable", status_code=409)
+
+    blocked = asyncio.run(_owner_hub_command(
+        f"/taskcancel {task_id}",
+        telegram_user_id=123,
+        update_id=33,
+        hub=RunningHub(),
+        settings=_settings(enabled=True),
+    ))
+    assert "فقط وظایف در صف" in blocked
+
+    invalid = asyncio.run(_owner_hub_command(
+        "/taskcancel not-a-uuid",
+        telegram_user_id=123,
+        update_id=34,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+    ))
+    assert "UUID" in invalid

@@ -103,7 +103,9 @@ async def _owner_hub_command(
         except HubClientError:
             return "اتصال انجام نشد؛ کد ممکن است نامعتبر یا منقضی شده باشد. هیچ اطلاعات محرمانه‌ای ثبت نشده است."
 
-    if command not in {"/hub", "/tasks", "/memory", "/task", "/taskstatus"}:
+    if command not in {
+        "/hub", "/tasks", "/memory", "/task", "/taskstatus", "/taskresult", "/taskcancel"
+    }:
         return None
     if not settings.hub_integration_enabled:
         return "اتصال Hub هنوز در تنظیمات این اجرا فعال نشده است."
@@ -153,6 +155,36 @@ async def _owner_hub_command(
             except ValueError:
                 return "شناسه وظیفه باید یک UUID معتبر باشد."
             return _format_result(await hub.get_task(telegram_user_id, task_id))
+        if command == "/taskresult":
+            if not argument:
+                return "روش استفاده: /taskresult TASK_ID"
+            try:
+                task_id = str(UUID(argument))
+            except ValueError:
+                return "شناسه وظیفه باید یک UUID معتبر باشد."
+            try:
+                return _format_result(await hub.get_task_result(telegram_user_id, task_id))
+            except HubClientError as exc:
+                if exc.status_code == 409:
+                    return "نتیجه هنوز آماده نیست؛ ابتدا وضعیت را با /taskstatus بررسی کن."
+                if exc.status_code == 413:
+                    return "نتیجه از حد مجاز نمایش در تلگرام بزرگ‌تر است."
+                raise
+        if command == "/taskcancel":
+            if not argument:
+                return "روش استفاده: /taskcancel TASK_ID"
+            try:
+                task_id = str(UUID(argument))
+            except ValueError:
+                return "شناسه وظیفه باید یک UUID معتبر باشد."
+            try:
+                return _format_result(await hub.cancel_task(telegram_user_id, task_id))
+            except HubClientError as exc:
+                if exc.status_code == 409:
+                    return "فقط وظایف در صف یا منتظر تأیید قابل لغو هستند؛ وظیفه اجراشده یا نهایی لغو نمی‌شود."
+                if exc.status_code == 404:
+                    return "وظیفه پیدا نشد یا متعلق به این اتصال ربات نیست."
+                raise
     except HubClientError:
         return "درخواست Hub ناموفق بود یا مجوز لازم وجود ندارد. وضعیت اتصال و Scopeها را بررسی کن."
     return None

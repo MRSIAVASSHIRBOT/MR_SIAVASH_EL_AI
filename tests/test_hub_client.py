@@ -509,3 +509,79 @@ async def test_task_list_rejects_invalid_cursor_and_limit_before_network_request
     with pytest.raises(ValueError):
         await client.list_tasks(123456, limit=51)
     await client.close()
+
+
+
+@pytest.mark.asyncio
+async def test_task_result_uses_client_scoped_result_endpoint():
+    store = MemoryStore()
+    store.save("client-task-result", {
+        "access_token": "task-result-access",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "task-result-refresh",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["tasks:read"],
+    })
+    task_id = "12345678-1234-4234-8234-123456789abc"
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"result": {"message": "done"}})
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-task-result",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    result = await client.get_task_result(123456, task_id)
+
+    assert result == {"result": {"message": "done"}}
+    assert requests[0].method == "GET"
+    assert requests[0].url.path == f"/integrations/telegram/tasks/{task_id}/result"
+    assert requests[0].headers["X-Telegram-User-Id"] == "123456"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_task_cancel_posts_to_client_scoped_endpoint():
+    store = MemoryStore()
+    store.save("client-task-cancel", {
+        "access_token": "task-cancel-access",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "task-cancel-refresh",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["tasks:cancel"],
+    })
+    task_id = "12345678-1234-4234-8234-123456789abc"
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"task_id": task_id, "status": "cancelled"})
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-task-cancel",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    result = await client.cancel_task(123456, task_id)
+
+    assert result == {"task_id": task_id, "status": "cancelled"}
+    assert requests[0].method == "POST"
+    assert requests[0].url.path == f"/integrations/telegram/tasks/{task_id}/cancel"
+    assert requests[0].headers["X-Telegram-User-Id"] == "123456"
+    assert requests[0].content == b"{}"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_task_result_and_cancel_reject_invalid_ids_before_network_request():
+    client = HubClient("http://127.0.0.1:8000", "client-task-control-invalid", MemoryStore())
+    with pytest.raises(ValueError):
+        await client.get_task_result(123456, "../private")
+    with pytest.raises(ValueError):
+        await client.cancel_task(123456, "../private")
+    await client.close()

@@ -42,6 +42,8 @@ class MessageRouter:
                 "\n/memory QUERY — جست‌وجوی حافظه"
                 "\n/task TYPE | DESCRIPTION — ثبت وظیفه"
                 "\n/taskstatus TASK_ID — مشاهده وضعیت وظیفه ثبت‌شده"
+                "\n/taskresult TASK_ID — دریافت نتیجه نهایی وظیفه"
+                "\n/taskcancel TASK_ID — لغو وظیفه در صف یا منتظر تأیید"
                 "\n/health — وضعیت و آمار زنده ربات (فقط مالک)"
                 "\n/site QUERY — پرسش عمومی از دانش سایت"
             )

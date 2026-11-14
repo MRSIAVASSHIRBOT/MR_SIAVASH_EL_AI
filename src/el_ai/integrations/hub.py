@@ -260,6 +260,25 @@ class HubClient:
             telegram_user_id,
         )
 
+    async def get_task_result(self, telegram_user_id: int, task_id: str) -> dict[str, object]:
+        """Fetch the bounded terminal result for this paired client's own task."""
+        canonical_id = str(UUID(task_id))
+        return await self._authorized(
+            "GET",
+            f"/integrations/telegram/tasks/{canonical_id}/result",
+            telegram_user_id,
+        )
+
+    async def cancel_task(self, telegram_user_id: int, task_id: str) -> dict[str, object]:
+        """Cancel only a queued or approval-waiting task owned by this paired client."""
+        canonical_id = str(UUID(task_id))
+        return await self._authorized(
+            "POST",
+            f"/integrations/telegram/tasks/{canonical_id}/cancel",
+            telegram_user_id,
+            {},
+        )
+
     async def list_tasks(
         self,
         telegram_user_id: int,
