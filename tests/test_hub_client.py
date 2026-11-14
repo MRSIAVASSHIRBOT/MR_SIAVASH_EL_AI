@@ -520,7 +520,7 @@ async def test_task_result_uses_client_scoped_result_endpoint():
         "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
         "refresh_token": "task-result-refresh",
         "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
-        "scopes": ["tasks:read"],
+        "scopes": ["tasks:result"],
     })
     task_id = "12345678-1234-4234-8234-123456789abc"
     requests = []
