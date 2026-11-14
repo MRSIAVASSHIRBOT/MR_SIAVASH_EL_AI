@@ -147,10 +147,11 @@ def test_task_status_command_fetches_only_a_valid_task_identifier():
 
 def test_tasks_command_uses_cursor_and_returns_a_clear_next_page_command():
     class FakeHub:
-        async def list_tasks(self, telegram_user_id, *, cursor=None, limit=20):
+        async def list_tasks(self, telegram_user_id, *, cursor=None, limit=20, status=None):
             assert telegram_user_id == 123
             assert cursor == "cursor-current"
             assert limit == 20
+            assert status is None
             return {
                 "tasks": [{"task_id": "task-1"}],
                 "count": 1,

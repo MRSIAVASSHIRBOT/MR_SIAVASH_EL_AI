@@ -49,7 +49,8 @@ def test_help_documents_public_site_query_for_owner_and_public_user():
     assert "/taskstatus TASK_ID" in router.route(_message("/help"))
     assert "/taskresult TASK_ID" in router.route(_message("/help"))
     assert "/taskcancel TASK_ID" in router.route(_message("/help"))
-    assert "/tasks [CURSOR]" in router.route(_message("/help"))
+    assert "/tasks [STATUS] [CURSOR]" in router.route(_message("/help"))
+    assert "/taskhistory TASK_ID" in router.route(_message("/help"))
     assert "/health" in router.route(_message("/help"))
     public_help = router.route(_message("/help", user_id=456))
     assert "ارسال پرسش متنی" in public_help
