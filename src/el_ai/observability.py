@@ -39,9 +39,23 @@ class RuntimeMetrics:
 
     def snapshot(self, *, now: datetime | None = None) -> dict[str, object]:
         current = now or datetime.now(UTC)
+        last_poll_age = (
+            max(0, int((current - self.last_successful_poll_at).total_seconds()))
+            if self.last_successful_poll_at is not None
+            else None
+        )
+        polling_status = (
+            "degraded"
+            if self.consecutive_poll_errors
+            else "healthy"
+            if self.last_successful_poll_at is not None
+            else "starting"
+        )
         return {
             "event": "telegram_runtime_metrics",
+            "polling_status": polling_status,
             "uptime_seconds": max(0, int((current - self.started_at).total_seconds())),
+            "last_successful_poll_age_seconds": last_poll_age,
             "polls": self.polls,
             "updates_received": self.updates_received,
             "replies_sent": self.replies_sent,

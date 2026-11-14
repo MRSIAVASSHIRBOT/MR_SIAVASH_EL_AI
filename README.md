@@ -54,7 +54,8 @@ The bot uses long polling for local development. Production webhook deployment i
 - /pairinfo: show the numeric Telegram ID and stable EL_AI client UUID needed to create a Hub pairing challenge.
 - /pair CODE: exchange a five-minute, one-time Hub pairing code and store credentials in the OS credential vault.
 - /hub: check the paired Hub connection.
-- /tasks: list tasks submitted by this paired bot only.
+- /health: inspect aggregate polling health and counters (owner-only; no message or user data is exposed).
+- /tasks [CURSOR]: list this paired bot's tasks with cursor-based pagination; use the returned next-page command to continue.
 - /memory QUERY: search the owner's Hub memory.
 - /task TYPE | DESCRIPTION: submit a task through Hub policy and idempotency controls.
 - /site QUERY: query public website knowledge without sending private Hub context.

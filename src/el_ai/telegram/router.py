@@ -38,10 +38,11 @@ class MessageRouter:
                 "\n/pairinfo — شناسه اتصال Hub"
                 "\n/pair CODE — اتصال امن به Hub"
                 "\n/hub — وضعیت اتصال"
-                "\n/tasks — فهرست وظایف این ربات"
+                "\n/tasks [CURSOR] — فهرست صفحه‌بندی‌شده وظایف این ربات"
                 "\n/memory QUERY — جست‌وجوی حافظه"
                 "\n/task TYPE | DESCRIPTION — ثبت وظیفه"
                 "\n/taskstatus TASK_ID — مشاهده وضعیت وظیفه ثبت‌شده"
+                "\n/health — وضعیت و آمار زنده ربات (فقط مالک)"
                 "\n/site QUERY — پرسش عمومی از دانش سایت"
             )
             public_help = "\nارسال پرسش متنی — دریافت پاسخ از دانش عمومی سایت"
