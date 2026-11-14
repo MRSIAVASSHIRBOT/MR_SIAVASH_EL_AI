@@ -21,6 +21,15 @@ from el_ai.telegram.router import MessageRouter
 
 LOGGER = logging.getLogger("el_ai")
 
+TASK_STATUSES = frozenset({
+    "queued", "running", "waiting_approval", "succeeded",
+    "failed", "cancelled", "rejected",
+})
+OWNER_HUB_COMMANDS = frozenset({
+    "/pair", "/hub", "/tasks", "/memory", "/task", "/taskstatus",
+    "/taskresult", "/taskcancel", "/taskhistory",
+})
+
 
 def _next_update_offset(offset: int | None, update_id: object) -> int | None:
     """Return the next Telegram offset after an update has been fully handled."""
@@ -104,7 +113,8 @@ async def _owner_hub_command(
             return "اتصال انجام نشد؛ کد ممکن است نامعتبر یا منقضی شده باشد. هیچ اطلاعات محرمانه‌ای ثبت نشده است."
 
     if command not in {
-        "/hub", "/tasks", "/memory", "/task", "/taskstatus", "/taskresult", "/taskcancel"
+        "/hub", "/tasks", "/memory", "/task", "/taskstatus", "/taskresult", "/taskcancel",
+        "/taskhistory",
     }:
         return None
     if not settings.hub_integration_enabled:
@@ -115,19 +125,26 @@ async def _owner_hub_command(
         if command == "/hub":
             return _format_result(await hub.status(telegram_user_id))
         if command == "/tasks":
+            parts = argument.split(maxsplit=1)
+            status_filter = parts[0] if parts and parts[0] in TASK_STATUSES else None
+            cursor = parts[1] if status_filter and len(parts) > 1 else (
+                None if status_filter else (argument or None)
+            )
             try:
                 result = await hub.list_tasks(
                     telegram_user_id,
-                    cursor=argument or None,
+                    cursor=cursor,
                     limit=20,
+                    status=status_filter,
                 )
             except ValueError:
-                return "نشانگر صفحهٔ وظایف نامعتبر است؛ برای شروع دوباره /tasks را بدون شناسه اجرا کن."
+                return "فیلتر وضعیت یا نشانگر صفحهٔ وظایف نامعتبر است؛ /tasks را بدون شناسه اجرا کن."
             next_cursor = result.get("next_cursor")
             visible = {key: value for key, value in result.items() if key != "next_cursor"}
             rendered = _format_result(visible)
             if result.get("has_more") and isinstance(next_cursor, str) and next_cursor:
-                return rendered + f"\n\nصفحه بعد: /tasks {next_cursor}"
+                next_command = "/tasks" + (f" {status_filter}" if status_filter else "") + f" {next_cursor}"
+                return rendered + f"\n\nصفحه بعد: {next_command}"
             return rendered
         if command == "/memory":
             if not argument:
@@ -155,6 +172,21 @@ async def _owner_hub_command(
             except ValueError:
                 return "شناسه وظیفه باید یک UUID معتبر باشد."
             return _format_result(await hub.get_task(telegram_user_id, task_id))
+        if command == "/taskhistory":
+            if not argument:
+                return "روش استفاده: /taskhistory TASK_ID"
+            try:
+                task_id = str(UUID(argument))
+            except ValueError:
+                return "شناسه وظیفه باید یک UUID معتبر باشد."
+            try:
+                return _format_result(await hub.get_task_history(
+                    telegram_user_id, task_id, limit=20
+                ))
+            except HubClientError as exc:
+                if exc.status_code == 404:
+                    return "وظیفه پیدا نشد یا متعلق به این اتصال ربات نیست."
+                raise
         if command == "/taskresult":
             if not argument:
                 return "روش استفاده: /taskresult TASK_ID"
@@ -265,7 +297,7 @@ async def run(settings: Settings) -> None:
                     if user_id is not None and access.is_owner(user_id):
                         if command_name == "/health":
                             response = _runtime_health_response(metrics)
-                        elif command_name in {"/pair", "/hub", "/tasks", "/memory", "/task", "/taskstatus"}:
+                        elif command_name in OWNER_HUB_COMMANDS:
                             response = await _owner_hub_command(
                                 text,
                                 telegram_user_id=user_id,

@@ -489,13 +489,14 @@ async def test_task_list_requests_the_requested_bounded_page_and_preserves_curso
         store,
         transport=httpx.MockTransport(handler),
     )
-    result = await client.list_tasks(123456, cursor=cursor, limit=17)
+    result = await client.list_tasks(123456, cursor=cursor, limit=17, status="queued")
 
     assert result["has_more"] is False
     assert requests[0].method == "GET"
     assert requests[0].url.path == "/integrations/telegram/tasks"
     assert requests[0].url.params["limit"] == "17"
     assert requests[0].url.params["cursor"] == cursor
+    assert requests[0].url.params["status"] == "queued"
     assert requests[0].headers["Authorization"] == "Bearer task-pages-access"
     assert requests[0].headers["X-Telegram-User-Id"] == "123456"
     await client.close()
@@ -508,6 +509,8 @@ async def test_task_list_rejects_invalid_cursor_and_limit_before_network_request
         await client.list_tasks(123456, cursor="../private")
     with pytest.raises(ValueError):
         await client.list_tasks(123456, limit=51)
+    with pytest.raises(ValueError):
+        await client.list_tasks(123456, status="unknown")
     await client.close()
 
 
@@ -584,4 +587,51 @@ async def test_task_result_and_cancel_reject_invalid_ids_before_network_request(
         await client.get_task_result(123456, "../private")
     with pytest.raises(ValueError):
         await client.cancel_task(123456, "../private")
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_task_history_uses_the_pair_scoped_audit_endpoint():
+    store = MemoryStore()
+    store.save("client-task-history", {
+        "access_token": "task-history-access",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "task-history-refresh",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["tasks:read"],
+    })
+    task_id = "12345678-1234-4234-8234-123456789abc"
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={
+            "task_id": task_id,
+            "events": [{"event_type": "task.submitted", "outcome": "queued"}],
+            "count": 1,
+        })
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-task-history",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    result = await client.get_task_history(123456, task_id, limit=12)
+
+    assert result["count"] == 1
+    assert requests[0].method == "GET"
+    assert requests[0].url.path == f"/integrations/telegram/tasks/{task_id}/events"
+    assert requests[0].url.params["limit"] == "12"
+    assert requests[0].headers["X-Telegram-User-Id"] == "123456"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_task_history_rejects_invalid_id_and_limit_before_network_request():
+    client = HubClient("http://127.0.0.1:8000", "client-task-history-invalid", MemoryStore())
+    with pytest.raises(ValueError):
+        await client.get_task_history(123456, "../private")
+    with pytest.raises(ValueError):
+        await client.get_task_history(123456, "12345678-1234-4234-8234-123456789abc", limit=51)
     await client.close()
