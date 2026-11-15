@@ -609,3 +609,62 @@ def test_task_watch_commands_are_owner_menu_only():
     commands = {item["command"] for item in OWNER_BOT_COMMANDS}
     assert {"taskwatch", "taskunwatch", "taskwatches"} <= commands
     assert {"/taskwatch", "/taskunwatch", "/taskwatches"} <= OWNER_HUB_COMMANDS
+
+
+def test_video_route_preview_command_is_read_only_and_requires_explicit_remote_consents():
+    calls = []
+
+    class FakeHub:
+        async def preview_video_route(self, telegram_user_id, **payload):
+            calls.append((telegram_user_id, payload))
+            return {
+                "decision": {"selected": False, "reason": "no_compatible_provider"},
+                "execution": "not_started",
+                "provider_submission_started": False,
+            }
+
+    hub = FakeHub()
+    local = asyncio.run(_owner_hub_command(
+        "/videoroute 10 9:16",
+        telegram_user_id=123,
+        update_id=80,
+        hub=hub,
+        settings=_settings(enabled=True),
+    ))
+    assert json.loads(local)["execution"] == "not_started"
+    assert calls[-1] == (123, {
+        "duration_seconds": 10,
+        "aspect_ratio": "9:16",
+        "resolution": "720p",
+        "remote_processing_approved": False,
+        "remote_spend_approved": False,
+        "max_remote_cost_usd": 0.0,
+    })
+
+    hosted_preview = asyncio.run(_owner_hub_command(
+        "/videoroute 10 9:16 720p remote-ok spend-ok 0.50",
+        telegram_user_id=123,
+        update_id=81,
+        hub=hub,
+        settings=_settings(enabled=True),
+    ))
+    assert json.loads(hosted_preview)["provider_submission_started"] is False
+    assert calls[-1][1]["remote_processing_approved"] is True
+    assert calls[-1][1]["remote_spend_approved"] is True
+    assert calls[-1][1]["max_remote_cost_usd"] == 0.5
+
+    before = len(calls)
+    invalid = asyncio.run(_owner_hub_command(
+        "/videoroute 10 9:16 720p remote-ok",
+        telegram_user_id=123,
+        update_id=82,
+        hub=hub,
+        settings=_settings(enabled=True),
+    ))
+    assert "روش استفاده" in invalid
+    assert len(calls) == before
+
+
+def test_video_route_preview_is_registered_only_for_owner_commands():
+    assert "/videoroute" in OWNER_HUB_COMMANDS
+    assert "videoroute" in {item["command"] for item in OWNER_BOT_COMMANDS}

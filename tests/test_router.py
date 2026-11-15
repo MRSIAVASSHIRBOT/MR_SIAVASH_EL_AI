@@ -52,6 +52,7 @@ def test_help_documents_public_site_query_for_owner_and_public_user():
     assert "/tasks [STATUS] [CURSOR]" in router.route(_message("/help"))
     assert "/taskhistory TASK_ID" in router.route(_message("/help"))
     assert "/videoproviders" in router.route(_message("/help"))
+    assert "/videoroute SECONDS ASPECT" in router.route(_message("/help"))
     assert "/videohistory [CURSOR]" in router.route(_message("/help"))
     assert "/videostatus GENERATION_ID" in router.route(_message("/help"))
     assert "/videocancel GENERATION_ID" in router.route(_message("/help"))
@@ -61,4 +62,5 @@ def test_help_documents_public_site_query_for_owner_and_public_user():
     assert "/taskstatus" not in public_help
     assert "/tasks" not in public_help
     assert "/videohistory" not in public_help
+    assert "/videoroute" not in public_help
     assert "/health" not in public_help

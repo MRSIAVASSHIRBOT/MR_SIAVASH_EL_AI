@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -769,4 +770,79 @@ async def test_video_generation_client_rejects_invalid_cursor_and_identifiers():
         await client.cancel_video_generation(123, "not-a-uuid")
     with pytest.raises(ValueError, match="limit"):
         await client.list_video_generations(123, limit=21)
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_video_route_preview_client_uses_video_read_scope_and_bounded_payload():
+    store = MemoryStore()
+    store.save("route-client", {
+        "access_token": "route-access",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=10)).isoformat(),
+        "refresh_token": "route-refresh",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["video:read"],
+    })
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={
+            "decision": {"selected": False, "reason": "no_compatible_provider"},
+            "execution": "not_started",
+            "provider_submission_started": False,
+        })
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "route-client",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    result = await client.preview_video_route(
+        123,
+        duration_seconds=10,
+        aspect_ratio="9:16",
+        remote_processing_approved=True,
+        remote_spend_approved=True,
+        max_remote_cost_usd=0.5,
+    )
+
+    assert result["execution"] == "not_started"
+    assert calls[0].method == "POST"
+    assert calls[0].url.path == "/integrations/telegram/video/route-preview"
+    assert json.loads(calls[0].content) == {
+        "duration_seconds": 10,
+        "aspect_ratio": "9:16",
+        "resolution": "720p",
+        "remote_processing_approved": True,
+        "remote_spend_approved": True,
+        "max_remote_cost_usd": 0.5,
+    }
+    assert calls[0].headers["Authorization"] == "Bearer route-access"
+    assert HubClient._route_template(calls[0].url.path) == (
+        "/integrations/telegram/video/route-preview"
+    )
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_video_route_preview_client_rejects_invalid_duration_cost_and_consent():
+    client = HubClient(
+        "http://127.0.0.1:8000", "route-invalid", MemoryStore()
+    )
+    with pytest.raises(ValueError, match="duration"):
+        await client.preview_video_route(123, duration_seconds=True, aspect_ratio="9:16")
+    with pytest.raises(ValueError, match="aspect"):
+        await client.preview_video_route(123, duration_seconds=10, aspect_ratio="2:1")
+    with pytest.raises(ValueError, match="consent"):
+        await client.preview_video_route(
+            123, duration_seconds=10, aspect_ratio="9:16",
+            remote_processing_approved="yes"
+        )
+    with pytest.raises(ValueError, match="cost"):
+        await client.preview_video_route(
+            123, duration_seconds=10, aspect_ratio="9:16",
+            max_remote_cost_usd=float("inf")
+        )
     await client.close()

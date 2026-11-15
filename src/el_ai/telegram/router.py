@@ -49,6 +49,8 @@ class MessageRouter:
                 "\n/taskresult TASK_ID — دریافت نتیجه نهایی وظیفه"
                 "\n/taskcancel TASK_ID — لغو وظیفه در صف یا منتظر تأیید"
                 "\n/videoproviders — وضعیت ارائه‌دهندگان تولید ویدئو"
+                "\n/videoroute SECONDS ASPECT [720p|1080p] [remote-ok spend-ok USD_CAP] "
+                "— پیش‌نمایش مسیر؛ تولید شروع نمی‌شود"
                 "\n/videohistory [CURSOR] — تاریخچه صفحه‌بندی‌شده تولید ویدئو"
                 "\n/videostatus GENERATION_ID — وضعیت یک تولید ویدئو"
                 "\n/videocancel GENERATION_ID — لغو تولید پیش از ارسال به ارائه‌دهنده"

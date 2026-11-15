@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode, urlsplit
 from uuid import UUID, uuid4
@@ -22,6 +23,7 @@ _STATIC_HUB_ROUTES = frozenset({
     "/integrations/telegram/tasks",
     "/integrations/telegram/memory/search",
     "/integrations/telegram/video/providers",
+    "/integrations/telegram/video/route-preview",
     "/integrations/telegram/video/generations",
 })
 
@@ -431,6 +433,54 @@ class HubClient:
         """Read the non-secret video provider catalog through video:read."""
         return await self._authorized(
             "GET", "/integrations/telegram/video/providers", telegram_user_id
+        )
+
+    async def preview_video_route(
+        self,
+        telegram_user_id: int,
+        *,
+        duration_seconds: int,
+        aspect_ratio: str,
+        resolution: str = "720p",
+        remote_processing_approved: bool = False,
+        remote_spend_approved: bool = False,
+        max_remote_cost_usd: float = 0.0,
+    ) -> dict[str, object]:
+        """Request a read-only local-first route preview through video:read."""
+        if (
+            isinstance(duration_seconds, bool)
+            or not isinstance(duration_seconds, int)
+            or not 3 <= duration_seconds <= 60
+        ):
+            raise ValueError("Video route preview duration must be between 3 and 60 seconds")
+        if not isinstance(aspect_ratio, str) or aspect_ratio not in {"9:16", "16:9", "1:1", "4:5"}:
+            raise ValueError("Unsupported video route preview aspect ratio")
+        if not isinstance(resolution, str) or resolution not in {"720p", "1080p"}:
+            raise ValueError("Unsupported video route preview resolution")
+        if (
+            not isinstance(remote_processing_approved, bool)
+            or not isinstance(remote_spend_approved, bool)
+        ):
+            raise ValueError("Remote consent values must be booleans")
+        if (
+            isinstance(max_remote_cost_usd, bool)
+            or not isinstance(max_remote_cost_usd, (int, float))
+            or not math.isfinite(float(max_remote_cost_usd))
+            or not 0 <= float(max_remote_cost_usd) <= 10_000
+        ):
+            raise ValueError("Remote cost cap must be finite and between 0 and 10000 USD")
+        return await self._authorized(
+            "POST",
+            "/integrations/telegram/video/route-preview",
+            telegram_user_id,
+            {
+                "duration_seconds": duration_seconds,
+                "aspect_ratio": aspect_ratio,
+                "resolution": resolution,
+                "remote_processing_approved": remote_processing_approved,
+                "remote_spend_approved": remote_spend_approved,
+                "max_remote_cost_usd": float(max_remote_cost_usd),
+            },
         )
 
     async def list_video_generations(
