@@ -271,22 +271,6 @@ async def _owner_hub_command(
         return "درخواست Hub ناموفق بود یا مجوز لازم وجود ندارد. وضعیت اتصال و Scopeها را بررسی کن."
     return None
 
-async def run(settings: Settings) -> None:
-    try:
-        client_id = load_or_create_client_id(settings.state_dir)
-    except InstanceIdentityError as exc:
-        raise SystemExit(str(exc)) from exc
-
-    cursor = UpdateCursor(settings.state_dir / "telegram-update-offset.json")
-    try:
-        offset = cursor.load()
-    except UpdateCursorError as exc:
-        raise SystemExit("Stored Telegram update cursor is invalid or inaccessible") from exc
-
-    api = TelegramBotAPI(
-        settings.telegram_bot_token,
-        timeout_seconds=settings.request_timeout_seconds,
-    )
 PUBLIC_BOT_COMMANDS = (
     {"command": "start", "description": "شروع گفتگو"},
     {"command": "help", "description": "راهنمای امکانات"},
@@ -326,6 +310,22 @@ async def _register_command_menu(api: TelegramBotAPI, owner_ids: set[int] | froz
         )
 
 
+async def run(settings: Settings) -> None:
+    try:
+        client_id = load_or_create_client_id(settings.state_dir)
+    except InstanceIdentityError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    cursor = UpdateCursor(settings.state_dir / "telegram-update-offset.json")
+    try:
+        offset = cursor.load()
+    except UpdateCursorError as exc:
+        raise SystemExit("Stored Telegram update cursor is invalid or inaccessible") from exc
+
+    api = TelegramBotAPI(
+        settings.telegram_bot_token,
+        timeout_seconds=settings.request_timeout_seconds,
+    )
     access = AccessController(
         settings.owner_ids,
         public_enabled=settings.public_enabled,
