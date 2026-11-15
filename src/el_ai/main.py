@@ -304,10 +304,15 @@ async def _register_command_menu(api: TelegramBotAPI, owner_ids: set[int] | froz
         scope={"type": "all_private_chats"},
     )
     for owner_id in sorted(owner_ids):
-        await api.set_my_commands(
-            list(OWNER_BOT_COMMANDS),
-            scope={"type": "chat", "chat_id": owner_id},
-        )
+        try:
+            await api.set_my_commands(
+                list(OWNER_BOT_COMMANDS),
+                scope={"type": "chat", "chat_id": owner_id},
+            )
+        except TelegramAPIError:
+            LOGGER.warning(
+                "Owner-specific command menu registration failed; continuing with other chats"
+            )
 
 
 async def run(settings: Settings) -> None:
