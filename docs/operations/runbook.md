@@ -26,3 +26,11 @@ The polling loop handles SIGINT/SIGTERM and uses bounded exponential backoff for
 ## Production
 
 Production deployment is not included in the bootstrap. Before webhook deployment, define TLS termination, exact webhook secret validation, request size/rate limits, replay/update deduplication, monitoring, log retention and rollback. Never expose the local Hub API or create a public tunnel to a development machine.
+
+
+## Task status notifications
+
+- Owner-only `/taskwatch TASK_ID` persists a watch for an active Hub task and sends a Telegram message when its status changes.
+- Use `/taskwatches` to list the current owner's watches and `/taskunwatch TASK_ID` to stop one.
+- Watches are stored locally in `task-watches.json` with mode 0600 where supported; only task IDs, Telegram owner IDs and last-known statuses are stored.
+- Notifications are polled while the bot process is running. A restart resumes persisted watches; terminal tasks are removed after a successful notification. Delivery is best-effort and an ambiguous Telegram send can be repeated.

@@ -7,7 +7,6 @@ import asyncio
 import json
 import logging
 import signal
-import time
 from uuid import UUID
 
 from el_ai.config import ConfigurationError, Settings
@@ -20,13 +19,6 @@ from el_ai.telegram.access import AccessController
 from el_ai.telegram.api import TelegramAPIError, TelegramBotAPI, split_telegram_message
 from el_ai.telegram.cursor import UpdateCursor, UpdateCursorError
 from el_ai.telegram.router import MessageRouter
-from el_ai.telegram.task_watch import (
-    TERMINAL_TASK_STATUSES,
-    TaskWatch,
-    TaskWatchError,
-    TaskWatchStore,
-)
-from el_ai.telegram.updates import TelegramUpdateError, parse_telegram_update
 
 LOGGER = logging.getLogger("el_ai")
 
@@ -36,8 +28,7 @@ TASK_STATUSES = frozenset({
 })
 OWNER_HUB_COMMANDS = frozenset({
     "/pair", "/hub", "/tasks", "/memory", "/task", "/taskstatus",
-    "/taskresult", "/taskcancel", "/taskhistory", "/taskwatch", "/taskunwatch",
-    "/taskwatches", "/videoproviders",
+    "/taskresult", "/taskcancel", "/taskhistory", "/videoproviders",
     "/videohistory", "/videostatus", "/videocancel",
 })
 
@@ -94,76 +85,6 @@ def _build_hub_client(settings: Settings, client_id: str) -> HubClient | None:
         return None
 
 
-def _task_status_label(status: str) -> str:
-    return {
-        "queued": "در صف",
-        "running": "در حال اجرا",
-        "waiting_approval": "در انتظار تأیید",
-        "succeeded": "موفق",
-        "failed": "ناموفق",
-        "cancelled": "لغوشده",
-        "rejected": "ردشده",
-    }.get(status, "نامشخص")
-
-
-async def _poll_task_watches(
-    api: TelegramBotAPI,
-    hub: HubClient,
-    store: TaskWatchStore,
-) -> None:
-    """Notify each private owner chat once per observed task-status transition."""
-    watches = store.list()
-    if not watches:
-        return
-    semaphore = asyncio.Semaphore(4)
-
-    async def read_status(watch: TaskWatch) -> tuple[TaskWatch, str | None, int | None]:
-        async with semaphore:
-            try:
-                task = await hub.get_task(watch.telegram_user_id, watch.task_id)
-            except HubClientError as exc:
-                return watch, None, exc.status_code
-            except Exception:  # noqa: BLE001 - one unavailable watch must not stop polling
-                return watch, None, None
-        status = task.get("status") if isinstance(task, dict) else None
-        return watch, status if isinstance(status, str) else None, None
-
-    results = await asyncio.gather(*(read_status(item) for item in watches))
-    for watch, status, error_code in results:
-        if error_code == 404:
-            message = (
-                "پایش یک وظیفه متوقف شد؛ وظیفه دیگر در دسترس نیست یا به این اتصال تعلق ندارد.\n"
-                f"شناسه: {watch.task_id}"
-            )
-            try:
-                await _send_response(api, watch.telegram_user_id, message)
-                store.remove(watch.task_id, watch.telegram_user_id)
-            except (TelegramAPIError, TaskWatchError):
-                LOGGER.warning("Task-watch cleanup notification or persistence failed")
-            continue
-        if not isinstance(status, str) or status not in TASK_STATUSES:
-            continue
-        if status == watch.last_status:
-            continue
-        message = (
-            "وضعیت وظیفه تغییر کرد.\n"
-            f"شناسه: {watch.task_id}\n"
-            f"وضعیت جدید: {_task_status_label(status)}"
-        )
-        try:
-            await _send_response(api, watch.telegram_user_id, message)
-        except TelegramAPIError:
-            LOGGER.warning("Telegram task-watch notification failed or has unknown outcome")
-            continue
-        try:
-            if status in TERMINAL_TASK_STATUSES:
-                store.remove(watch.task_id, watch.telegram_user_id)
-            else:
-                store.update_status(watch.task_id, watch.telegram_user_id, status)
-        except TaskWatchError:
-            LOGGER.warning("Telegram task-watch checkpoint could not be persisted")
-
-
 async def _owner_hub_command(
     text: str,
     *,
@@ -171,7 +92,6 @@ async def _owner_hub_command(
     update_id: int,
     hub: HubClient | None,
     settings: Settings,
-    task_watches: TaskWatchStore | None = None,
 ) -> str | None:
     parts = text.strip().split(maxsplit=1)
     command = parts[0].split("@", 1)[0].lower()
@@ -196,8 +116,8 @@ async def _owner_hub_command(
 
     if command not in {
         "/hub", "/tasks", "/memory", "/task", "/taskstatus", "/taskresult", "/taskcancel",
-        "/taskhistory", "/taskwatch", "/taskunwatch", "/taskwatches",
-        "/videoproviders", "/videohistory", "/videostatus", "/videocancel",
+        "/taskhistory", "/videoproviders", "/videohistory", "/videostatus",
+        "/videocancel",
     }:
         return None
     if not settings.hub_integration_enabled:
@@ -270,64 +190,6 @@ async def _owner_hub_command(
                 if exc.status_code == 404:
                     return "وظیفه پیدا نشد یا متعلق به این اتصال ربات نیست."
                 raise
-        if command == "/taskwatch":
-            if not argument:
-                return "روش استفاده: /taskwatch TASK_ID"
-            if task_watches is None:
-                return "ذخیره‌سازی پایش وظایف در دسترس نیست."
-            try:
-                task_id = str(UUID(argument))
-            except ValueError:
-                return "شناسه وظیفه باید یک UUID معتبر باشد."
-            try:
-                task = await hub.get_task(telegram_user_id, task_id)
-            except HubClientError as exc:
-                if exc.status_code == 404:
-                    return "وظیفه پیدا نشد یا متعلق به این اتصال ربات نیست."
-                raise
-            current_status = task.get("status")
-            if not isinstance(current_status, str) or current_status not in TASK_STATUSES:
-                return "Hub وضعیت معتبری برای این وظیفه برنگرداند."
-            if current_status in TERMINAL_TASK_STATUSES:
-                return "این وظیفه قبلاً به وضعیت نهایی رسیده است؛ پایشی ثبت نشد."
-            try:
-                added = task_watches.add(task_id, telegram_user_id, current_status)
-            except (TaskWatchError, ValueError):
-                return "ثبت پایش انجام نشد؛ ظرفیت ذخیره‌سازی را بررسی کن."
-            if not added:
-                return "پایش این وظیفه از قبل فعال است."
-            return (
-                "پایش وضعیت وظیفه فعال شد. هنگام تغییر وضعیت، پیام جداگانه دریافت می‌کنی.\n"
-                f"شناسه: {task_id}\nوضعیت فعلی: {_task_status_label(current_status)}"
-            )
-        if command == "/taskunwatch":
-            if not argument:
-                return "روش استفاده: /taskunwatch TASK_ID"
-            if task_watches is None:
-                return "ذخیره‌سازی پایش وظایف در دسترس نیست."
-            try:
-                task_id = str(UUID(argument))
-            except ValueError:
-                return "شناسه وظیفه باید یک UUID معتبر باشد."
-            try:
-                removed = task_watches.remove(task_id, telegram_user_id)
-            except (TaskWatchError, ValueError):
-                return "توقف پایش انجام نشد؛ وضعیت ذخیره‌سازی را بررسی کن."
-            return "پایش وظیفه متوقف شد." if removed else "برای این وظیفه پایش فعالی ثبت نشده است."
-        if command == "/taskwatches":
-            if task_watches is None:
-                return "ذخیره‌سازی پایش وظایف در دسترس نیست."
-            try:
-                watches = task_watches.list_for_user(telegram_user_id)
-            except TaskWatchError:
-                return "فهرست پایش‌ها در دسترس نیست."
-            return _format_result({
-                "count": len(watches),
-                "watches": [
-                    {"task_id": item.task_id, "status": item.last_status}
-                    for item in watches
-                ],
-            })
         if command == "/taskresult":
             if not argument:
                 return "روش استفاده: /taskresult TASK_ID"
@@ -424,9 +286,6 @@ OWNER_BOT_COMMANDS = (
     {"command": "task", "description": "ثبت وظیفه"},
     {"command": "taskstatus", "description": "وضعیت یک وظیفه"},
     {"command": "taskhistory", "description": "تاریخچه یک وظیفه"},
-    {"command": "taskwatch", "description": "اعلان تغییر وضعیت وظیفه"},
-    {"command": "taskunwatch", "description": "توقف اعلان‌های وظیفه"},
-    {"command": "taskwatches", "description": "فهرست پایش‌های فعال"},
     {"command": "taskresult", "description": "نتیجه نهایی وظیفه"},
     {"command": "taskcancel", "description": "لغو وظیفه در صف"},
     {"command": "videoproviders", "description": "وضعیت ارائه‌دهندگان ویدئو"},
@@ -468,12 +327,6 @@ async def run(settings: Settings) -> None:
     except UpdateCursorError as exc:
         raise SystemExit("Stored Telegram update cursor is invalid or inaccessible") from exc
 
-    task_watches = TaskWatchStore(settings.state_dir / "task-watches.json")
-    try:
-        task_watches.load()
-    except TaskWatchError as exc:
-        raise SystemExit("Stored Telegram task-watch state is invalid or inaccessible") from exc
-
     api = TelegramBotAPI(
         settings.telegram_bot_token,
         timeout_seconds=settings.request_timeout_seconds,
@@ -500,7 +353,6 @@ async def run(settings: Settings) -> None:
 
     backoff = 1
     metrics = RuntimeMetrics()
-    last_task_watch_poll = 0.0
 
     try:
         await _register_command_menu(api, settings.owner_ids)
@@ -514,23 +366,16 @@ async def run(settings: Settings) -> None:
                 updates = await api.get_updates(offset=offset, timeout=settings.poll_timeout_seconds)
                 metrics.record_poll(len(updates))
                 backoff = 1
-                for raw_update in updates:
-                    try:
-                        parsed_update = parse_telegram_update(raw_update)
-                    except TelegramUpdateError:
-                        LOGGER.warning("Telegram returned an invalid update envelope")
-                        raise TelegramAPIError(
-                            "Telegram returned an invalid update envelope"
-                        ) from None
-                    update_id = parsed_update.update_id
-                    message = parsed_update.message
-                    if message is None:
+                for update in updates:
+                    update_id = update.get("update_id")
+                    message = update.get("message")
+                    if not isinstance(message, dict):
                         metrics.record_ignored_update()
                         offset = _advance_update_cursor(cursor, offset, update_id)
                         continue
-                    chat = message["chat"]
-                    chat_id = chat["id"]
-                    if isinstance(chat_id, bool) or not isinstance(chat_id, int):
+                    chat = message.get("chat") or {}
+                    chat_id = chat.get("id")
+                    if not isinstance(chat_id, int):
                         metrics.record_ignored_update()
                         offset = _advance_update_cursor(cursor, offset, update_id)
                         continue
@@ -558,7 +403,6 @@ async def run(settings: Settings) -> None:
                                 update_id=update_id if isinstance(update_id, int) else 0,
                                 hub=hub,
                                 settings=settings,
-                                task_watches=task_watches,
                             ) or response
                         elif command_name == "/site":
                             query = normalized_text.partition(" ")[2].strip()
@@ -597,13 +441,6 @@ async def run(settings: Settings) -> None:
                     else:
                         metrics.record_reply()
                         offset = _advance_update_cursor(cursor, offset, update_id)
-                if (
-                    hub is not None
-                    and settings.hub_integration_enabled
-                    and time.monotonic() - last_task_watch_poll >= 30
-                ):
-                    await _poll_task_watches(api, hub, task_watches)
-                    last_task_watch_poll = time.monotonic()
                 metrics.emit(LOGGER)
             except TelegramAPIError:
                 metrics.record_telegram_api_error()

@@ -127,3 +127,18 @@ async def test_set_my_commands_rejects_invalid_entries_and_unsafe_scopes():
             scope={"type": "chat", "chat_id": True},
         )
     await api.close()
+
+
+@pytest.mark.asyncio
+async def test_get_updates_rejects_malformed_or_oversized_collections():
+    for result in ([{"update_id": 1}, None], [{"update_id": index} for index in range(101)]):
+        def handler(_request: httpx.Request, payload=result) -> httpx.Response:
+            return httpx.Response(200, json={"ok": True, "result": payload})
+
+        api = TelegramBotAPI(
+            "123:abcdefghijklmnop",
+            transport=httpx.MockTransport(handler),
+        )
+        with pytest.raises(TelegramAPIError, match="invalid update collection"):
+            await api.get_updates(offset=None, timeout=10)
+        await api.close()
