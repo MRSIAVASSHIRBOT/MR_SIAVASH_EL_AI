@@ -29,6 +29,8 @@ EL_AI owns Telegram updates, Telegram user/chat identity, command parsing, deliv
 
 The proposed implementation is under review in [EL_AI PR #31](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AI/pull/31) and [Hub PR #394](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/pull/394). EL_AI generates opaque UUID request IDs for outbound Hub operations and the public website Gateway; the Hub change validates or replaces inbound IDs and returns the canonical value in `X-Request-ID`.
 
+Both sides emit privacy-safe correlation events. Hub logs contain `request_id`, HTTP `method`, route template, and `status_code`; EL_AI logs contain those fields plus an `outcome`. Task IDs are represented as route placeholders, and query strings, request bodies, Telegram identities, client IDs, credentials, and raw URLs are excluded.
+
 **These changes are not yet merged as a coordinated contract update.** Until both implementations and the canonical Hub manifest/documentation are merged and verified together, consumers must not rely on end-to-end correlation as a released contract guarantee. Request IDs are diagnostic metadata only; they do not grant permissions or provide idempotency.
 
 ## Compatibility
