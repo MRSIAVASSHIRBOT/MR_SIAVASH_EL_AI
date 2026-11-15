@@ -113,6 +113,7 @@ class HubClient:
     async def _request(self, method: str, path: str, payload: dict[str, object]) -> dict[str, object]:
         request_id = str(uuid4())
         status_code: int | None = None
+        response_status_code: int | None = None
         failed = False
         result: dict[str, object] | None = None
         try:
@@ -122,7 +123,7 @@ class HubClient:
                 json=payload,
                 headers={"X-Request-ID": request_id},
             )
-            status_code = response.status_code
+            response_status_code = response.status_code
             response.raise_for_status()
             result = response.json()
         except httpx.HTTPStatusError as exc:
@@ -138,7 +139,7 @@ class HubClient:
             if not isinstance(result, dict)
             else "success"
         )
-        self._log_request(request_id, method, path, status_code, outcome)
+        self._log_request(request_id, method, path, response_status_code or status_code, outcome)
         if status_code is not None:
             raise HubClientError(
                 f"Hub rejected the request (HTTP {status_code})",
@@ -271,6 +272,7 @@ class HubClient:
             if idempotency_key is not None:
                 headers["Idempotency-Key"] = idempotency_key
             status_code: int | None = None
+            response_status_code: int | None = None
             failed = False
             result: dict[str, object] | None = None
             try:
@@ -280,7 +282,7 @@ class HubClient:
                 response = await self._client.request(
                     method, path.lstrip("/"), **request_kwargs
                 )
-                status_code = response.status_code
+                response_status_code = response.status_code
                 response.raise_for_status()
                 result = response.json()
             except httpx.HTTPStatusError as exc:
@@ -296,7 +298,7 @@ class HubClient:
                 if not isinstance(result, dict)
                 else "success"
             )
-            self._log_request(request_id, method, path, status_code, outcome)
+            self._log_request(request_id, method, path, response_status_code or status_code, outcome)
             if status_code is not None:
                 raise HubClientError(
                     f"Hub rejected the request (HTTP {status_code})",
