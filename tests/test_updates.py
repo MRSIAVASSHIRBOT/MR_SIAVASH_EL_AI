@@ -84,7 +84,7 @@ def test_parser_ignores_text_with_unpaired_surrogates():
         "update_id": 16,
         "message": {
             "chat": {"id": 123, "type": "private"},
-            "text": "\\ud800",
+            "text": chr(0xD800),
         },
     })
     assert parsed.message is None
