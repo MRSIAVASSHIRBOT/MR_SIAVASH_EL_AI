@@ -114,6 +114,7 @@ class HubClient:
         request_id = str(uuid4())
         status_code: int | None = None
         failed = False
+        result: dict[str, object] | None = None
         try:
             response = await self._client.request(
                 method,
@@ -271,6 +272,7 @@ class HubClient:
                 headers["Idempotency-Key"] = idempotency_key
             status_code: int | None = None
             failed = False
+            result: dict[str, object] | None = None
             try:
                 request_kwargs = {"headers": headers}
                 if payload is not None:
