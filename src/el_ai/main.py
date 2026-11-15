@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import logging
@@ -362,6 +363,17 @@ async def run(settings: Settings) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(prog="el-ai")
+    parser.add_argument("command", nargs="?", choices=("run", "doctor"), default="run")
+    parser.add_argument("--json", action="store_true", dest="json_output")
+    args = parser.parse_args()
+    if args.command == "doctor":
+        from el_ai.doctor import main as doctor_main
+
+        raise SystemExit(doctor_main(json_output=args.json_output))
+    if args.json_output:
+        parser.error("--json is only supported with the doctor command")
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
