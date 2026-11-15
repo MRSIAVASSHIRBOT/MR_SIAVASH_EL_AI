@@ -88,13 +88,21 @@ class TelegramBotAPI:
         return data.get("result")
 
     async def get_updates(self, *, offset: int | None, timeout: int) -> list[dict[str, Any]]:
-        payload: dict[str, Any] = {"timeout": timeout, "allowed_updates": ["message"]}
+        payload: dict[str, Any] = {
+            "timeout": timeout,
+            "limit": 100,
+            "allowed_updates": ["message"],
+        }
         if offset is not None:
             payload["offset"] = offset
         result = await self.call("getUpdates", payload)
-        if not isinstance(result, list):
+        if (
+            not isinstance(result, list)
+            or len(result) > 100
+            or any(not isinstance(item, dict) for item in result)
+        ):
             raise TelegramAPIError("Telegram returned an invalid update collection")
-        return [item for item in result if isinstance(item, dict)]
+        return result
 
     async def set_my_commands(
         self,
