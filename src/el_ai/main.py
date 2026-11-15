@@ -233,7 +233,7 @@ async def _owner_hub_command(
             visible = {key: value for key, value in result.items() if key != "next_cursor"}
             rendered = _format_result(visible)
             if result.get("has_more") and isinstance(next_cursor, str) and next_cursor:
-                return rendered + f"\\n\\nصفحه بعد: /videohistory {next_cursor}"
+                return rendered + f"\n\nصفحه بعد: /videohistory {next_cursor}"
             return rendered
         if command == "/videostatus":
             if not argument:
