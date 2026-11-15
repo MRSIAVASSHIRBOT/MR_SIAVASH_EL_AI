@@ -458,7 +458,10 @@ class HubClient:
             raise ValueError("Unsupported video route preview aspect ratio")
         if resolution not in {"720p", "1080p"}:
             raise ValueError("Unsupported video route preview resolution")
-        if not isinstance(remote_processing_approved, bool) or not isinstance(remote_spend_approved, bool):
+        if (
+            not isinstance(remote_processing_approved, bool)
+            or not isinstance(remote_spend_approved, bool)
+        ):
             raise ValueError("Remote consent values must be booleans")
         if (
             isinstance(max_remote_cost_usd, bool)

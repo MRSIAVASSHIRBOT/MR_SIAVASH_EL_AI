@@ -820,7 +820,9 @@ async def test_video_route_preview_client_uses_video_read_scope_and_bounded_payl
         "max_remote_cost_usd": 0.5,
     }
     assert calls[0].headers["Authorization"] == "Bearer route-access"
-    assert HubClient._route_template(calls[0].url.path) == "/integrations/telegram/video/route-preview"
+    assert HubClient._route_template(calls[0].url.path) == (
+        "/integrations/telegram/video/route-preview"
+    )
     await client.close()
 
 
