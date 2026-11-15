@@ -10,7 +10,7 @@ The Hub owns Telegram client registration, scopes, token issuance, expiry, revoc
 - Hub stores only token hashes. Owner can list and revoke paired clients.
 - EL_AI stores raw credentials only in an OS-backed credential manager.
 - Every paired request includes the bearer access token and X-Telegram-User-Id.
-- Dedicated bot scopes are status:read, tasks:read, tasks:create, and memory:search.
+- Dedicated bot scopes are status:read, tasks:read, tasks:result, tasks:create, tasks:cancel, memory:search, video:read, and video:cancel. New scopes are never granted automatically to an existing client.
 - Agent execution and approval decisions are not in the initial scope set.
 
 ## Scoped endpoints
@@ -18,12 +18,15 @@ The Hub owns Telegram client registration, scopes, token issuance, expiry, revoc
 - POST /integrations/telegram/pairing-challenges: owner-authenticated challenge creation.
 - POST /integrations/telegram/exchange: single-use challenge exchange.
 - POST /integrations/telegram/refresh: refresh an access token using the paired refresh credential.
-- GET /integrations/telegram/clients and POST /integrations/telegram/clients/{client_id}/revoke: owner management.
+- GET /integrations/telegram/clients, PUT /integrations/telegram/clients/{client_id}/scopes, and POST /integrations/telegram/clients/{client_id}/revoke: owner management. Scope updates require an authenticated Hub owner and apply to the next paired request.
 - GET /integrations/telegram/status: requires status:read.
 - GET /integrations/telegram/tasks: requires tasks:read and returns only tasks submitted by the exact paired client.
 - GET /integrations/telegram/tasks/{task_id}: requires tasks:read and returns one task only when that exact paired client submitted it; other clients receive the same 404 as an unknown task.
 - POST /integrations/telegram/tasks: requires tasks:create and an idempotency key; Hub PolicyEngine remains authoritative.
 - POST /integrations/telegram/memory/search: requires memory:search and is owner-scoped.
+- GET /integrations/telegram/video/providers: requires video:read and returns only the non-secret configured catalog.
+- GET /integrations/telegram/video/generations and GET /integrations/telegram/video/generations/{generation_id}: require video:read, are owner-scoped, and omit provider job and private asset identifiers.
+- DELETE /integrations/telegram/video/generations/{generation_id}: requires video:cancel and only cancels prepared or queued work before provider submission; active or ambiguous provider jobs return 409.
 
 Telegram credentials do not authenticate against the Hub's general owner-session routes. The Hub derives the owner identity from the paired client record, not from an owner ID supplied by the Telegram request.
 

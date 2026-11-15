@@ -45,6 +45,10 @@ class MessageRouter:
                 "\n/taskhistory TASK_ID — مشاهده تاریخچه وضعیت و رویدادهای وظیفه"
                 "\n/taskresult TASK_ID — دریافت نتیجه نهایی وظیفه"
                 "\n/taskcancel TASK_ID — لغو وظیفه در صف یا منتظر تأیید"
+                "\n/videoproviders — وضعیت ارائه‌دهندگان تولید ویدئو"
+                "\n/videohistory [CURSOR] — تاریخچه صفحه‌بندی‌شده تولید ویدئو"
+                "\n/videostatus GENERATION_ID — وضعیت یک تولید ویدئو"
+                "\n/videocancel GENERATION_ID — لغو تولید پیش از ارسال به ارائه‌دهنده"
                 "\n/health — وضعیت و آمار زنده ربات (فقط مالک)"
                 "\n/site QUERY — پرسش عمومی از دانش سایت"
             )

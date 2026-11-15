@@ -81,3 +81,49 @@ def test_split_telegram_message_handles_unbroken_astral_text():
     assert len(chunks) > 1
     assert "".join(chunks) == text
     assert all(len(chunk.encode("utf-16-le")) // 2 <= 4096 for chunk in chunks)
+
+
+@pytest.mark.asyncio
+async def test_set_my_commands_sends_scoped_owner_menu_without_leaking_credentials():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.url.path, request.read()))
+        return httpx.Response(200, json={"ok": True, "result": True})
+
+    api = TelegramBotAPI("123:abcdefghijklmnop", transport=httpx.MockTransport(handler))
+    commands = [
+        {"command": "start", "description": "شروع گفتگو"},
+        {"command": "videohistory", "description": "تاریخچه تولید ویدئو"},
+    ]
+    result = await api.set_my_commands(
+        commands,
+        scope={"type": "chat", "chat_id": 123456},
+    )
+
+    assert result is True
+    assert calls[0][0].endswith("setMyCommands")
+    import json
+    payload = json.loads(calls[0][1])
+    assert payload["commands"] == commands
+    assert payload["scope"] == {"type": "chat", "chat_id": 123456}
+    assert "abcdefghijklmnop" not in repr(payload)
+    await api.close()
+
+
+@pytest.mark.asyncio
+async def test_set_my_commands_rejects_invalid_entries_and_unsafe_scopes():
+    api = TelegramBotAPI("123:abcdefghijklmnop")
+    with pytest.raises(ValueError):
+        await api.set_my_commands([{"command": "Bad", "description": "invalid"}])
+    with pytest.raises(ValueError):
+        await api.set_my_commands([
+            {"command": "help", "description": "one"},
+            {"command": "help", "description": "duplicate"},
+        ])
+    with pytest.raises(ValueError):
+        await api.set_my_commands(
+            [{"command": "help", "description": "help"}],
+            scope={"type": "chat", "chat_id": True},
+        )
+    await api.close()

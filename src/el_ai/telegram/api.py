@@ -96,6 +96,53 @@ class TelegramBotAPI:
             raise TelegramAPIError("Telegram returned an invalid update collection")
         return [item for item in result if isinstance(item, dict)]
 
+    async def set_my_commands(
+        self,
+        commands: list[dict[str, str]],
+        *,
+        scope: dict[str, Any] | None = None,
+    ) -> Any:
+        """Set a bounded command menu for a public or explicitly scoped chat."""
+        if not isinstance(commands, list) or len(commands) > 100:
+            raise ValueError("Telegram command list must contain at most 100 entries")
+        normalized: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for item in commands:
+            if not isinstance(item, dict) or set(item) != {"command", "description"}:
+                raise ValueError("Telegram command entry is invalid")
+            command = item["command"]
+            description = item["description"]
+            if (
+                not isinstance(command, str)
+                or not re.fullmatch(r"[a-z0-9_]{1,32}", command)
+                or command in seen
+                or not isinstance(description, str)
+                or not description.strip()
+                or len(description) > 256
+            ):
+                raise ValueError("Telegram command entry is invalid")
+            seen.add(command)
+            normalized.append({"command": command, "description": description})
+
+        payload: dict[str, Any] = {"commands": normalized}
+        if scope is not None:
+            if not isinstance(scope, dict):
+                raise ValueError("Telegram command scope is invalid")
+            scope_type = scope.get("type")
+            if isinstance(scope_type, str) and scope_type in {"default", "all_private_chats"} and set(scope) == {"type"}:
+                payload["scope"] = {"type": scope_type}
+            elif (
+                scope_type == "chat"
+                and set(scope) == {"type", "chat_id"}
+                and isinstance(scope.get("chat_id"), int)
+                and not isinstance(scope.get("chat_id"), bool)
+                and scope["chat_id"] > 0
+            ):
+                payload["scope"] = {"type": "chat", "chat_id": scope["chat_id"]}
+            else:
+                raise ValueError("Telegram command scope is invalid")
+        return await self.call("setMyCommands", payload)
+
     async def send_message(self, chat_id: int, text: str) -> Any:
         if not text or _utf16_length(text) > 4096:
             raise ValueError("Telegram message must contain 1 to 4096 UTF-16 code units")

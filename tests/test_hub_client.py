@@ -693,3 +693,80 @@ async def test_hub_request_logs_are_correlated_and_privacy_safe(caplog):
     assert "log-access-secret" not in caplog.text
     assert "log-refresh-secret" not in caplog.text
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_video_generation_client_uses_scoped_routes_and_bounded_pagination():
+    store = MemoryStore()
+    store.save("video-client", {
+        "access_token": "video-access",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=10)).isoformat(),
+        "refresh_token": "video-refresh",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["video:read", "video:cancel"],
+    })
+    generation_id = "12345678-1234-4234-8234-123456789abc"
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.url.path.endswith("/video/providers"):
+            return httpx.Response(200, json={
+                "providers": [], "count": 0, "generation_available": False,
+                "reason_code": "provider_unavailable", "execution": "not_started"
+            })
+        if request.method == "DELETE":
+            return httpx.Response(200, json={
+                "generation_id": generation_id, "status": "cancelled",
+                "cancellation_requested": False
+            })
+        if request.url.path.endswith("/" + generation_id):
+            return httpx.Response(200, json={
+                "generation_id": generation_id, "status": "queued"
+            })
+        return httpx.Response(200, json={
+            "items": [], "count": 0, "has_more": False, "next_cursor": None
+        })
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "video-client",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    providers = await client.list_video_providers(123)
+    history = await client.list_video_generations(123, cursor="cursor_123", limit=10)
+    status = await client.get_video_generation(123, generation_id)
+    cancelled = await client.cancel_video_generation(123, generation_id)
+
+    assert providers["generation_available"] is False
+    assert history["count"] == 0
+    assert status["status"] == "queued"
+    assert cancelled["status"] == "cancelled"
+    assert calls[0].url.path == "/integrations/telegram/video/providers"
+    assert calls[1].url.path == "/integrations/telegram/video/generations"
+    assert calls[1].url.params["cursor"] == "cursor_123"
+    assert calls[1].url.params["limit"] == "10"
+    assert calls[2].url.path.endswith("/" + generation_id)
+    assert calls[3].method == "DELETE"
+    assert all(call.headers["Authorization"] == "Bearer video-access" for call in calls)
+    assert HubClient._route_template(calls[2].url.path) == (
+        "/integrations/telegram/video/generations/{generation_id}"
+    )
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_video_generation_client_rejects_invalid_cursor_and_identifiers():
+    client = HubClient(
+        "http://127.0.0.1:8000", "video-invalid", MemoryStore()
+    )
+    with pytest.raises(ValueError, match="cursor"):
+        await client.list_video_generations(123, cursor="invalid!")
+    with pytest.raises(ValueError):
+        await client.get_video_generation(123, "not-a-uuid")
+    with pytest.raises(ValueError):
+        await client.cancel_video_generation(123, "not-a-uuid")
+    with pytest.raises(ValueError, match="limit"):
+        await client.list_video_generations(123, limit=21)
+    await client.close()

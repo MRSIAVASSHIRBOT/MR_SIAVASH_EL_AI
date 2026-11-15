@@ -9,10 +9,15 @@
 5. Set `TELEGRAM_OWNER_IDS` to the numeric ID of the owner.
 6. Keep `TELEGRAM_PUBLIC_ENABLED=false` until public capabilities have been reviewed.
 7. Start with `python -m el_ai`.
+8. On startup, the bot registers `/start` and `/help` for private chats and a separate command menu for each configured owner; menu registration failure is non-fatal and polling continues.
 
 ## Secret handling
 
 Never commit `.env`, bot tokens, Hub credentials or provider keys. Rotate a token immediately if exposed. Do not send tokens through Telegram messages or chat.
+
+## Owner video commands
+
+The owner-only `/videoproviders`, `/videohistory`, `/videostatus` and `/videocancel` commands use the Hub's paired Telegram API. Grant `video:read` for provider metadata, history and status. Grant `video:cancel` separately only when pending-generation cancellation is required. Existing pairings do not gain these scopes automatically; the authenticated Hub owner can explicitly update the active client's scopes with `PUT /integrations/telegram/clients/{client_id}/scopes`. Cancellation is limited to prepared or queued work before provider submission; active or ambiguous provider jobs are never reported as cancelled.
 
 ## Shutdown and failure
 
