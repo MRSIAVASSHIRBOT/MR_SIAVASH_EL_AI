@@ -16,7 +16,7 @@ python -m el_ai doctor
 
 ## What it checks
 
-- Telegram bot token presence and basic shape only; the value is always redacted.
+- Telegram bot token presence and basic shape only (ASCII numeric bot ID, colon, and non-empty token part); the value is always redacted.
 - At least one positive numeric Telegram owner ID.
 - Supported environment and boolean configuration values.
 - Polling timeout, request timeout, and rate-limit ranges.

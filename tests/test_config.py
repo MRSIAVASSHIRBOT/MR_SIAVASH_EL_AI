@@ -63,3 +63,18 @@ def test_public_site_url_rejects_remote_plain_http_and_credentials():
         _public_url("http://gateway.example", "https://gateway.example", "SITE_PUBLIC_API_BASE_URL")
     with pytest.raises(ConfigurationError):
         _public_url("https://user:password@gateway.example", "https://gateway.example", "SITE_PUBLIC_API_BASE_URL")
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        "not-numeric:abcdefghijklmnopqrstuvwxyz",
+        "123456:",
+        "123456:token with whitespace",
+        "１２３４５６:abcdefghijklmnopqrstuvwxyz",
+    ],
+)
+def test_settings_reject_malformed_telegram_bot_token(monkeypatch, token):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", token)
+    with pytest.raises(ConfigurationError, match="TELEGRAM_BOT_TOKEN"):
+        Settings.from_env()
