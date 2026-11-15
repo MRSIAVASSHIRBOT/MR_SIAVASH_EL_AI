@@ -60,6 +60,7 @@ async def test_pairing_stores_credentials_and_status_uses_bound_identity():
     assert requests[1].headers["X-Telegram-User-Id"] == "123456"
     assert str(UUID(requests[0].headers["X-Request-ID"])) == requests[0].headers["X-Request-ID"]
     assert str(UUID(requests[1].headers["X-Request-ID"])) == requests[1].headers["X-Request-ID"]
+    assert requests[0].headers["X-Request-ID"] != requests[1].headers["X-Request-ID"]
     assert store.load("client-1")["refresh_token"] == "refresh-secret"
     await client.close()
 
@@ -91,6 +92,11 @@ async def test_access_token_is_refreshed_before_expiry():
     await client.status(123456)
     assert calls[0].url.path.endswith("/refresh")
     assert calls[1].headers["Authorization"] == "Bearer new-access"
+    refresh_request_id = calls[0].headers["X-Request-ID"]
+    authorized_request_id = calls[1].headers["X-Request-ID"]
+    assert str(UUID(refresh_request_id)) == refresh_request_id
+    assert str(UUID(authorized_request_id)) == authorized_request_id
+    assert refresh_request_id != authorized_request_id
     assert store.load("client-2")["access_token"] == "new-access"
     await client.close()
 
@@ -173,10 +179,12 @@ async def test_unauthorized_access_token_is_refreshed_once_and_retried():
     })
     status_attempts = 0
     request_ids = []
+    refresh_request_ids = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal status_attempts
         if request.url.path.endswith("/refresh"):
+            refresh_request_ids.append(request.headers["X-Request-ID"])
             return httpx.Response(200, json={"access_token": "refreshed-access", "expires_in": 900})
         request_ids.append(request.headers["X-Request-ID"])
         status_attempts += 1
@@ -196,6 +204,9 @@ async def test_unauthorized_access_token_is_refreshed_once_and_retried():
     assert len(request_ids) == 2
     assert request_ids[0] == request_ids[1]
     assert str(UUID(request_ids[0])) == request_ids[0]
+    assert len(refresh_request_ids) == 1
+    assert str(UUID(refresh_request_ids[0])) == refresh_request_ids[0]
+    assert refresh_request_ids[0] != request_ids[0]
     assert store.load("client-7")["access_token"] == "refreshed-access"
     await client.close()
 
