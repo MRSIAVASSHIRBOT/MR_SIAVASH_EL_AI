@@ -63,14 +63,16 @@ def collect_report() -> dict[str, object]:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     if not token:
         checks.append(
-            DoctorCheck("telegram_bot_token", "error", "required token is missing")
+            DoctorCheck(
+                "telegram_bot_token", "error", "TELEGRAM_BOT_TOKEN is required; no value is displayed"
+            )
         )
     elif ":" not in token or any(character.isspace() for character in token):
         checks.append(
             DoctorCheck(
                 "telegram_bot_token",
                 "error",
-                "token format looks invalid; value is redacted and not verified remotely",
+                "TELEGRAM_BOT_TOKEN format looks invalid; value is redacted and not verified remotely",
             )
         )
     else:
@@ -127,9 +129,19 @@ def collect_report() -> dict[str, object]:
                 if value
                 else "Hub integration is disabled by configuration"
             )
-            checks.append(DoctorCheck(name.lower(), status, detail))
+            check_name = (
+                "telegram_public_access"
+                if name == "TELEGRAM_PUBLIC_ENABLED"
+                else "hub_integration"
+            )
+            checks.append(DoctorCheck(check_name, status, detail))
         except ConfigurationError:
-            checks.append(DoctorCheck(name.lower(), "error", "must be a boolean value"))
+            check_name = (
+                "telegram_public_access"
+                if name == "TELEGRAM_PUBLIC_ENABLED"
+                else "hub_integration"
+            )
+            checks.append(DoctorCheck(check_name, "error", "must be a boolean value"))
 
     hub_enabled = False
     try:
