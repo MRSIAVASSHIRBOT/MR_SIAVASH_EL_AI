@@ -10,6 +10,7 @@ from el_ai.main import (
     _format_result,
     _owner_hub_command,
     _runtime_health_response,
+    _register_command_menu,
     OWNER_HUB_COMMANDS,
     _send_response,
 )
