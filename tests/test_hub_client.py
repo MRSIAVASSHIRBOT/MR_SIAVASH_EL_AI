@@ -654,3 +654,42 @@ async def test_task_history_rejects_invalid_id_and_limit_before_network_request(
     with pytest.raises(ValueError):
         await client.get_task_history(123456, "12345678-1234-4234-8234-123456789abc", limit=51)
     await client.close()
+
+
+
+@pytest.mark.asyncio
+async def test_hub_request_logs_are_correlated_and_privacy_safe(caplog):
+    store = MemoryStore()
+    store.save("client-log-correlation", {
+        "access_token": "log-access-secret",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "log-refresh-secret",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["tasks:read"],
+    })
+    task_id = "12345678-1234-4234-8234-123456789abc"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"task_id": task_id, "events": [], "count": 0})
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-log-correlation",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    with caplog.at_level("INFO", logger="el_ai.hub"):
+        await client.get_task_history(123456, task_id, limit=7)
+
+    record = next(record for record in caplog.records if record.name == "el_ai.hub")
+    assert str(UUID(record.request_id)) == record.request_id
+    assert record.method == "GET"
+    assert record.route_template == "/integrations/telegram/tasks/{task_id}/events"
+    assert record.status_code == 200
+    assert record.outcome == "success"
+    assert task_id not in caplog.text
+    assert "limit=7" not in caplog.text
+    assert "123456" not in caplog.text
+    assert "log-access-secret" not in caplog.text
+    assert "log-refresh-secret" not in caplog.text
+    await client.close()

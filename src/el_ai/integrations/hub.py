@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode, urlsplit
 from uuid import UUID, uuid4
@@ -10,6 +11,17 @@ from uuid import UUID, uuid4
 import httpx
 
 from el_ai.integrations.secrets import KeyringCredentialStore
+
+
+logger = logging.getLogger("el_ai.hub")
+
+_STATIC_HUB_ROUTES = frozenset({
+    "/integrations/telegram/exchange",
+    "/integrations/telegram/refresh",
+    "/integrations/telegram/status",
+    "/integrations/telegram/tasks",
+    "/integrations/telegram/memory/search",
+})
 
 
 class HubClientError(RuntimeError):
@@ -25,6 +37,47 @@ class HubNotPairedError(HubClientError):
 
 
 class HubClient:
+    @staticmethod
+    def _route_template(path: str) -> str:
+        path_only = urlsplit(path).path
+        if path_only in _STATIC_HUB_ROUTES:
+            return path_only
+        task_prefix = "/integrations/telegram/tasks/"
+        if path_only.startswith(task_prefix):
+            suffix = path_only[len(task_prefix):].split("/")
+            if len(suffix) == 1 and suffix[0]:
+                return f"{task_prefix}{{task_id}}"
+            if len(suffix) == 2 and suffix[0] and suffix[1] in {
+                "cancel", "events", "result"
+            }:
+                return f"{task_prefix}{{task_id}}/{suffix[1]}"
+        return "unknown"
+
+    @staticmethod
+    def _log_request(
+        request_id: str,
+        method: str,
+        path: str,
+        status_code: int | None,
+        outcome: str,
+    ) -> None:
+        route_template = HubClient._route_template(path)
+        logger.info(
+            "hub_request_completed request_id=%s method=%s route_template=%s status_code=%s outcome=%s",
+            request_id,
+            method,
+            route_template,
+            status_code,
+            outcome,
+            extra={
+                "request_id": request_id,
+                "method": method,
+                "route_template": route_template,
+                "status_code": status_code,
+                "outcome": outcome,
+            },
+        )
+
     def __init__(
         self,
         base_url: str,
@@ -58,6 +111,7 @@ class HubClient:
         )
 
     async def _request(self, method: str, path: str, payload: dict[str, object]) -> dict[str, object]:
+        request_id = str(uuid4())
         status_code: int | None = None
         failed = False
         try:
@@ -65,14 +119,25 @@ class HubClient:
                 method,
                 path.lstrip("/"),
                 json=payload,
-                headers={"X-Request-ID": str(uuid4())},
+                headers={"X-Request-ID": request_id},
             )
+            status_code = response.status_code
             response.raise_for_status()
             result = response.json()
         except httpx.HTTPStatusError as exc:
             status_code = exc.response.status_code
         except (httpx.HTTPError, ValueError):
             failed = True
+        outcome = (
+            "http_error"
+            if status_code is not None and status_code >= 400
+            else "request_failed"
+            if failed
+            else "invalid_response"
+            if not isinstance(result, dict)
+            else "success"
+        )
+        self._log_request(request_id, method, path, status_code, outcome)
         if status_code is not None:
             raise HubClientError(
                 f"Hub rejected the request (HTTP {status_code})",
@@ -213,12 +278,23 @@ class HubClient:
                 response = await self._client.request(
                     method, path.lstrip("/"), **request_kwargs
                 )
+                status_code = response.status_code
                 response.raise_for_status()
                 result = response.json()
             except httpx.HTTPStatusError as exc:
                 status_code = exc.response.status_code
             except (httpx.HTTPError, ValueError):
                 failed = True
+            outcome = (
+                "http_error"
+                if status_code is not None and status_code >= 400
+                else "request_failed"
+                if failed
+                else "invalid_response"
+                if not isinstance(result, dict)
+                else "success"
+            )
+            self._log_request(request_id, method, path, status_code, outcome)
             if status_code is not None:
                 raise HubClientError(
                     f"Hub rejected the request (HTTP {status_code})",
