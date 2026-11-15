@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode, urlsplit
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 
@@ -61,7 +61,12 @@ class HubClient:
         status_code: int | None = None
         failed = False
         try:
-            response = await self._client.request(method, path.lstrip("/"), json=payload)
+            response = await self._client.request(
+                method,
+                path.lstrip("/"),
+                json=payload,
+                headers={"X-Request-ID": str(uuid4())},
+            )
             response.raise_for_status()
             result = response.json()
         except httpx.HTTPStatusError as exc:
@@ -189,10 +194,13 @@ class HubClient:
         payload: dict[str, object] | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, object]:
+        request_id = str(uuid4())
+
         async def send(token: str) -> dict[str, object]:
             headers = {
                 "Authorization": f"Bearer {token}",
                 "X-Telegram-User-Id": str(telegram_user_id),
+                "X-Request-ID": request_id,
             }
             if idempotency_key is not None:
                 headers["Idempotency-Key"] = idempotency_key
