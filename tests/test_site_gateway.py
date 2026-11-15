@@ -1,5 +1,6 @@
 import json
 import time
+from uuid import UUID
 
 import httpx
 import pytest
@@ -14,6 +15,7 @@ async def test_public_gateway_sends_only_message_and_validates_source_links():
     def handler(request: httpx.Request) -> httpx.Response:
         captured["path"] = request.url.path
         captured["payload"] = json.loads(request.read())
+        captured["request_id"] = request.headers["X-Request-ID"]
         return httpx.Response(
             200,
             json={
@@ -37,6 +39,7 @@ async def test_public_gateway_sends_only_message_and_validates_source_links():
     result = await client.ask("معرفی سایت")
     assert captured["path"] == "/v1/assistant/chat"
     assert captured["payload"] == {"message": "معرفی سایت"}
+    assert str(UUID(captured["request_id"])) == captured["request_id"]
     assert result.mode == "knowledge_fallback"
     assert len(result.sources) == 1
     assert result.sources[0].url == "https://example.github.io/site/index.html#home"
