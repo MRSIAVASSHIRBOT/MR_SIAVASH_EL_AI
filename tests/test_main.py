@@ -15,6 +15,7 @@ from el_ai.main import (
     _send_response,
 )
 from el_ai.observability import RuntimeMetrics
+from el_ai.telegram.api import TelegramAPIError
 
 
 def _settings(*, enabled: bool) -> Settings:
