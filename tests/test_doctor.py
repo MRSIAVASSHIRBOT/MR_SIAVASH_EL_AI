@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from el_ai import doctor
 from el_ai.integrations.secrets import SecretStoreError
 
@@ -114,3 +116,27 @@ def test_doctor_json_output_is_machine_readable_and_redacts_token(
     assert report["ready"] is True
     assert token not in output
     assert report["secrets_displayed"] is False
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        "not-numeric:abcdefghijklmnopqrstuvwxyz",
+        "123456:",
+        "123456:token with whitespace",
+        "１２３４５６:abcdefghijklmnopqrstuvwxyz",
+    ],
+)
+def test_doctor_rejects_malformed_bot_token_without_disclosing_it(
+    monkeypatch, tmp_path, token
+):
+    _base_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", token)
+
+    report = doctor.collect_report()
+    rendered = doctor.render_json(report)
+
+    assert report["ready"] is False
+    assert _check(report, "telegram_bot_token")["status"] == "error"
+    assert token not in rendered
+    assert "TELEGRAM_BOT_TOKEN" in rendered

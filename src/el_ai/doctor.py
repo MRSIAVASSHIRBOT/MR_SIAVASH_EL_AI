@@ -15,6 +15,7 @@ from el_ai.config import (
     _owner_ids,
     _positive_int,
     _public_url,
+    _telegram_bot_token,
 )
 from el_ai.integrations.secrets import KeyringCredentialStore, SecretStoreError
 
@@ -60,21 +61,16 @@ def collect_report() -> dict[str, object]:
     """Collect configuration and local capability checks without network or writes."""
     checks: list[DoctorCheck] = []
 
-    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-    if not token:
-        checks.append(
-            DoctorCheck(
-                "telegram_bot_token", "error", "TELEGRAM_BOT_TOKEN is required; no value is displayed"
-            )
+    raw_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    try:
+        _telegram_bot_token(raw_token)
+    except ConfigurationError:
+        detail = (
+            "TELEGRAM_BOT_TOKEN is required; no value is displayed"
+            if not raw_token.strip()
+            else "TELEGRAM_BOT_TOKEN format looks invalid; value is redacted and not verified remotely"
         )
-    elif ":" not in token or any(character.isspace() for character in token):
-        checks.append(
-            DoctorCheck(
-                "telegram_bot_token",
-                "error",
-                "TELEGRAM_BOT_TOKEN format looks invalid; value is redacted and not verified remotely",
-            )
-        )
+        checks.append(DoctorCheck("telegram_bot_token", "error", detail))
     else:
         checks.append(
             DoctorCheck(

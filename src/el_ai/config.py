@@ -12,6 +12,25 @@ class ConfigurationError(ValueError):
     """Raised when runtime configuration is missing or invalid."""
 
 
+def _telegram_bot_token(raw: str | None) -> str:
+    """Validate the local Bot API token shape without contacting Telegram."""
+    token = (raw or "").strip()
+    if not token:
+        raise ConfigurationError("TELEGRAM_BOT_TOKEN is required")
+    bot_id, separator, secret = token.partition(":")
+    if (
+        not separator
+        or not bot_id.isascii()
+        or not bot_id.isdigit()
+        or not secret
+        or any(character.isspace() for character in token)
+    ):
+        raise ConfigurationError(
+            "TELEGRAM_BOT_TOKEN must contain a numeric bot ID and a non-empty token"
+        )
+    return token
+
+
 def _boolean(name: str, default: bool = False) -> bool:
     raw = os.getenv(name)
     if raw is None:
@@ -112,9 +131,7 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-        if not token:
-            raise ConfigurationError("TELEGRAM_BOT_TOKEN is required")
+        token = _telegram_bot_token(os.getenv("TELEGRAM_BOT_TOKEN"))
         environment = os.getenv("EL_AI_ENVIRONMENT", "development").strip().lower()
         if environment not in {"development", "test", "production"}:
             raise ConfigurationError("EL_AI_ENVIRONMENT must be development, test, or production")
