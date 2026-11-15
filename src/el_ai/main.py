@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import logging
+import math
 import signal
 import time
 from uuid import UUID
@@ -37,7 +38,7 @@ TASK_STATUSES = frozenset({
 OWNER_HUB_COMMANDS = frozenset({
     "/pair", "/hub", "/tasks", "/memory", "/task", "/taskstatus",
     "/taskresult", "/taskcancel", "/taskhistory", "/taskwatch", "/taskunwatch",
-    "/taskwatches", "/videoproviders",
+    "/taskwatches", "/videoproviders", "/videoroute",
     "/videohistory", "/videostatus", "/videocancel",
 })
 
@@ -197,7 +198,7 @@ async def _owner_hub_command(
     if command not in {
         "/hub", "/tasks", "/memory", "/task", "/taskstatus", "/taskresult", "/taskcancel",
         "/taskhistory", "/taskwatch", "/taskunwatch", "/taskwatches",
-        "/videoproviders", "/videohistory", "/videostatus", "/videocancel",
+        "/videoproviders", "/videoroute", "/videohistory", "/videostatus", "/videocancel",
     }:
         return None
     if not settings.hub_integration_enabled:
@@ -360,6 +361,49 @@ async def _owner_hub_command(
                 raise
         if command == "/videoproviders":
             return _format_result(await hub.list_video_providers(telegram_user_id))
+        if command == "/videoroute":
+            arguments = argument.split()
+            usage = (
+                "روش استفاده: /videoroute SECONDS ASPECT [720p|1080p] "
+                "[remote-ok spend-ok USD_CAP] — فقط پیش‌نمایش؛ تولید شروع نمی‌شود."
+            )
+            if len(arguments) not in {2, 3, 6}:
+                return usage
+            if not arguments[0].isascii() or not arguments[0].isdigit():
+                return usage
+            duration = int(arguments[0])
+            aspect_ratio = arguments[1]
+            resolution = arguments[2] if len(arguments) >= 3 else "720p"
+            remote_processing_approved = False
+            remote_spend_approved = False
+            max_remote_cost_usd = 0.0
+            if len(arguments) == 6:
+                if arguments[3:5] != ["remote-ok", "spend-ok"]:
+                    return usage
+                try:
+                    max_remote_cost_usd = float(arguments[5])
+                except ValueError:
+                    return "سقف هزینه باید یک عدد معتبر بر حسب دلار باشد."
+                if (
+                    not math.isfinite(max_remote_cost_usd)
+                    or not 0 <= max_remote_cost_usd <= 10_000
+                ):
+                    return "سقف هزینه باید بین صفر تا ۱۰۰۰۰ دلار باشد."
+                remote_processing_approved = True
+                remote_spend_approved = True
+            try:
+                result = await hub.preview_video_route(
+                    telegram_user_id,
+                    duration_seconds=duration,
+                    aspect_ratio=aspect_ratio,
+                    resolution=resolution,
+                    remote_processing_approved=remote_processing_approved,
+                    remote_spend_approved=remote_spend_approved,
+                    max_remote_cost_usd=max_remote_cost_usd,
+                )
+            except ValueError:
+                return usage
+            return _format_result(result)
         if command == "/videohistory":
             try:
                 result = await hub.list_video_generations(
@@ -430,6 +474,7 @@ OWNER_BOT_COMMANDS = (
     {"command": "taskresult", "description": "نتیجه نهایی وظیفه"},
     {"command": "taskcancel", "description": "لغو وظیفه در صف"},
     {"command": "videoproviders", "description": "وضعیت ارائه‌دهندگان ویدئو"},
+    {"command": "videoroute", "description": "پیش‌نمایش مسیر امن تولید ویدئو"},
     {"command": "videohistory", "description": "تاریخچه تولید ویدئو"},
     {"command": "videostatus", "description": "وضعیت یک تولید ویدئو"},
     {"command": "videocancel", "description": "لغو تولید ویدئوی در صف"},
