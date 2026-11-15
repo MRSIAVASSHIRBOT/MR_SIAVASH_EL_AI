@@ -15,7 +15,8 @@ EL_AI owns Telegram updates, Telegram user/chat identity, command parsing, deliv
 - Treat Hub scopes as authoritative. Never infer additional permissions from Telegram owner status alone. The authenticated Hub owner can explicitly update an active paired client's scope set; the bot does not request or grant scopes itself.
 - Store credentials through the operating-system credential store adapter; never place credentials in URLs, logs, source control, or browser storage.
 - Preserve the bounded pagination, result size, and idempotency rules in the canonical manifest.
-- Keep private commands fail-closed when pairing is absent, expired, or revoked. Video commands require `video:read`; pending-only cancellation additionally requires `video:cancel`.\n- Keep `/videoproviders`, `/videohistory`, `/videostatus`, and `/videocancel` owner-only. The provider catalog is read-only; cancellation must never claim that active or ambiguous external work stopped.
+- Keep private commands fail-closed when pairing is absent, expired, or revoked. Video commands require `video:read`; pending-only cancellation additionally requires `video:cancel`.
+- Keep `/videoproviders`, `/videohistory`, `/videostatus`, and `/videocancel` owner-only. The provider catalog is read-only; cancellation must never claim that active or ambiguous external work stopped.
 
 ## Security boundaries
 
