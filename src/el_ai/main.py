@@ -28,7 +28,8 @@ TASK_STATUSES = frozenset({
 })
 OWNER_HUB_COMMANDS = frozenset({
     "/pair", "/hub", "/tasks", "/memory", "/task", "/taskstatus",
-    "/taskresult", "/taskcancel", "/taskhistory",
+    "/taskresult", "/taskcancel", "/taskhistory", "/videoproviders",
+    "/videohistory", "/videostatus", "/videocancel",
 })
 
 
@@ -115,7 +116,8 @@ async def _owner_hub_command(
 
     if command not in {
         "/hub", "/tasks", "/memory", "/task", "/taskstatus", "/taskresult", "/taskcancel",
-        "/taskhistory",
+        "/taskhistory", "/videoproviders", "/videohistory", "/videostatus",
+        "/videocancel",
     }:
         return None
     if not settings.hub_integration_enabled:
@@ -218,6 +220,53 @@ async def _owner_hub_command(
                 if exc.status_code == 404:
                     return "وظیفه پیدا نشد یا متعلق به این اتصال ربات نیست."
                 raise
+        if command == "/videoproviders":
+            return _format_result(await hub.list_video_providers(telegram_user_id))
+        if command == "/videohistory":
+            try:
+                result = await hub.list_video_generations(
+                    telegram_user_id, cursor=argument or None, limit=10
+                )
+            except ValueError:
+                return "نشانگر صفحه تاریخچه ویدئو نامعتبر است؛ /videohistory را بدون شناسه اجرا کن."
+            next_cursor = result.get("next_cursor")
+            visible = {key: value for key, value in result.items() if key != "next_cursor"}
+            rendered = _format_result(visible)
+            if result.get("has_more") and isinstance(next_cursor, str) and next_cursor:
+                return rendered + f"\\n\\nصفحه بعد: /videohistory {next_cursor}"
+            return rendered
+        if command == "/videostatus":
+            if not argument:
+                return "روش استفاده: /videostatus GENERATION_ID"
+            try:
+                generation_id = str(UUID(argument))
+            except ValueError:
+                return "شناسه تولید ویدئو باید یک UUID معتبر باشد."
+            try:
+                return _format_result(
+                    await hub.get_video_generation(telegram_user_id, generation_id)
+                )
+            except HubClientError as exc:
+                if exc.status_code == 404:
+                    return "تولید ویدئو پیدا نشد یا متعلق به حساب متصل نیست."
+                raise
+        if command == "/videocancel":
+            if not argument:
+                return "روش استفاده: /videocancel GENERATION_ID"
+            try:
+                generation_id = str(UUID(argument))
+            except ValueError:
+                return "شناسه تولید ویدئو باید یک UUID معتبر باشد."
+            try:
+                return _format_result(
+                    await hub.cancel_video_generation(telegram_user_id, generation_id)
+                )
+            except HubClientError as exc:
+                if exc.status_code == 409:
+                    return "فقط تولیدهای آماده یا در صف، پیش از ارسال به ارائه‌دهنده، قابل لغو هستند."
+                if exc.status_code == 404:
+                    return "تولید ویدئو پیدا نشد یا متعلق به حساب متصل نیست."
+                raise
     except HubClientError:
         return "درخواست Hub ناموفق بود یا مجوز لازم وجود ندارد. وضعیت اتصال و Scopeها را بررسی کن."
     return None
@@ -238,6 +287,45 @@ async def run(settings: Settings) -> None:
         settings.telegram_bot_token,
         timeout_seconds=settings.request_timeout_seconds,
     )
+PUBLIC_BOT_COMMANDS = (
+    {"command": "start", "description": "شروع گفتگو"},
+    {"command": "help", "description": "راهنمای امکانات"},
+)
+OWNER_BOT_COMMANDS = (
+    *PUBLIC_BOT_COMMANDS,
+    {"command": "owner", "description": "بررسی دسترسی مالک"},
+    {"command": "pairinfo", "description": "شناسه اتصال امن Hub"},
+    {"command": "pair", "description": "اتصال امن به Hub"},
+    {"command": "hub", "description": "وضعیت اتصال Hub"},
+    {"command": "tasks", "description": "فهرست وظایف"},
+    {"command": "memory", "description": "جست‌وجوی حافظه"},
+    {"command": "task", "description": "ثبت وظیفه"},
+    {"command": "taskstatus", "description": "وضعیت یک وظیفه"},
+    {"command": "taskhistory", "description": "تاریخچه یک وظیفه"},
+    {"command": "taskresult", "description": "نتیجه نهایی وظیفه"},
+    {"command": "taskcancel", "description": "لغو وظیفه در صف"},
+    {"command": "videoproviders", "description": "وضعیت ارائه‌دهندگان ویدئو"},
+    {"command": "videohistory", "description": "تاریخچه تولید ویدئو"},
+    {"command": "videostatus", "description": "وضعیت یک تولید ویدئو"},
+    {"command": "videocancel", "description": "لغو تولید ویدئوی در صف"},
+    {"command": "health", "description": "سلامت و آمار ربات"},
+    {"command": "site", "description": "پرسش از دانش سایت"},
+)
+
+
+async def _register_command_menu(api: TelegramBotAPI, owner_ids: set[int] | frozenset[int]) -> None:
+    """Publish public commands globally and owner-only commands per private chat."""
+    await api.set_my_commands(
+        list(PUBLIC_BOT_COMMANDS),
+        scope={"type": "all_private_chats"},
+    )
+    for owner_id in sorted(owner_ids):
+        await api.set_my_commands(
+            list(OWNER_BOT_COMMANDS),
+            scope={"type": "chat", "chat_id": owner_id},
+        )
+
+
     access = AccessController(
         settings.owner_ids,
         public_enabled=settings.public_enabled,
@@ -260,6 +348,11 @@ async def run(settings: Settings) -> None:
 
     backoff = 1
     metrics = RuntimeMetrics()
+
+    try:
+        await _register_command_menu(api, settings.owner_ids)
+    except TelegramAPIError:
+        LOGGER.warning("Telegram command menu registration failed; polling continues")
 
     try:
         LOGGER.info("Telegram polling started; environment=%s", settings.environment)
