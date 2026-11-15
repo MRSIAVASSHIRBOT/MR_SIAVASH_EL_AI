@@ -27,7 +27,9 @@ EL_AI's scoped Hub client, stable installation identity, OS-backed Keyring crede
 
 Pairing remains opt-in. No live Telegram bot is configured or deployed, and no live end-to-end pairing smoke test has been verified. Live use still requires a running local Hub, owner-initiated pairing and owner-managed Telegram runtime configuration. This documentation does not authorize remote Hub hosting, a public tunnel or production bot deployment.
 
-Video-generation provider metadata, owner-scoped history and status use `video:read`; `video:cancel` is separate and cannot cancel active or ambiguous provider work. No provider submission or remote generation command is exposed by this bot integration.\n\n## Rejected shortcuts
+Video-generation provider metadata, owner-scoped history and status use `video:read`; `video:cancel` is separate and cannot cancel active or ambiguous provider work. No provider submission or remote generation command is exposed by this bot integration.
+
+## Rejected shortcuts
 
 - storing the Hub owner password in EL_AI;
 - putting a general Hub owner session token in Telegram bot configuration;
