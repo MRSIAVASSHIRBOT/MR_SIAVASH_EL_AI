@@ -465,3 +465,23 @@ def test_command_menu_registers_public_commands_and_owner_only_commands_per_chat
     owner_names = {item["command"] for item in api.calls[1][0]}
     assert public_names == {"start", "help"}
     assert {"videoproviders", "videohistory", "videostatus", "videocancel"} <= owner_names
+
+
+def test_command_menu_registration_continues_after_one_owner_scope_failure():
+    class FakeAPI:
+        def __init__(self):
+            self.calls = []
+
+        async def set_my_commands(self, commands, *, scope=None):
+            self.calls.append(scope)
+            if scope == {"type": "chat", "chat_id": 100}:
+                raise TelegramAPIError("chat scope unavailable")
+
+    api = FakeAPI()
+    asyncio.run(_register_command_menu(api, {100, 200}))
+
+    assert api.calls == [
+        {"type": "all_private_chats"},
+        {"type": "chat", "chat_id": 100},
+        {"type": "chat", "chat_id": 200},
+    ]
