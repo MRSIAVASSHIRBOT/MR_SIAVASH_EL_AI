@@ -435,7 +435,6 @@ class HubClient:
             "GET", "/integrations/telegram/video/providers", telegram_user_id
         )
 
-
     async def preview_video_route(
         self,
         telegram_user_id: int,
@@ -454,9 +453,9 @@ class HubClient:
             or not 3 <= duration_seconds <= 60
         ):
             raise ValueError("Video route preview duration must be between 3 and 60 seconds")
-        if aspect_ratio not in {"9:16", "16:9", "1:1", "4:5"}:
+        if not isinstance(aspect_ratio, str) or aspect_ratio not in {"9:16", "16:9", "1:1", "4:5"}:
             raise ValueError("Unsupported video route preview aspect ratio")
-        if resolution not in {"720p", "1080p"}:
+        if not isinstance(resolution, str) or resolution not in {"720p", "1080p"}:
             raise ValueError("Unsupported video route preview resolution")
         if (
             not isinstance(remote_processing_approved, bool)
