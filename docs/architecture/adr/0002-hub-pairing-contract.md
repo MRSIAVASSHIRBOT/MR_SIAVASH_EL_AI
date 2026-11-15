@@ -10,7 +10,7 @@ EL_AI must not store the Hub owner password or reuse an unrestricted owner sessi
 Required properties:
 - owner-initiated pairing with a clear consent summary;
 - one-time challenge with five-minute expiry and replay prevention;
-- credential scope limited to named read/task capabilities;
+- credential scope limited to named read/task/video capabilities, with pending-only video cancellation separately scoped;
 - Hub-side ownership and authorization on every request;
 - 15-minute access token and 30-day revocable refresh token;
 - owner-controlled client listing and revocation;
@@ -27,7 +27,7 @@ EL_AI's scoped Hub client, stable installation identity, OS-backed Keyring crede
 
 Pairing remains opt-in. No live Telegram bot is configured or deployed, and no live end-to-end pairing smoke test has been verified. Live use still requires a running local Hub, owner-initiated pairing and owner-managed Telegram runtime configuration. This documentation does not authorize remote Hub hosting, a public tunnel or production bot deployment.
 
-## Rejected shortcuts
+Video-generation provider metadata, owner-scoped history and status use `video:read`; `video:cancel` is separate and cannot cancel active or ambiguous provider work. No provider submission or remote generation command is exposed by this bot integration.\n\n## Rejected shortcuts
 
 - storing the Hub owner password in EL_AI;
 - putting a general Hub owner session token in Telegram bot configuration;
