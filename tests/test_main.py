@@ -12,9 +12,12 @@ from el_ai.main import (
     _runtime_health_response,
     _register_command_menu,
     OWNER_HUB_COMMANDS,
+    OWNER_BOT_COMMANDS,
+    _poll_task_watches,
     _send_response,
 )
 from el_ai.observability import RuntimeMetrics
+from el_ai.telegram.task_watch import TaskWatchStore
 from el_ai.telegram.api import TelegramAPIError
 
 
@@ -486,3 +489,123 @@ def test_command_menu_registration_continues_after_one_owner_scope_failure():
         {"type": "chat", "chat_id": 100},
         {"type": "chat", "chat_id": 200},
     ]
+
+
+def test_task_watch_commands_register_list_and_remove_only_the_calling_owner(tmp_path):
+    task_id = "12345678-1234-4234-8234-123456789abc"
+    store = TaskWatchStore(tmp_path / "task-watches.json")
+    store.load()
+
+    class FakeHub:
+        async def get_task(self, telegram_user_id, requested_id):
+            assert telegram_user_id == 123
+            assert requested_id == task_id
+            return {"task_id": task_id, "status": "running"}
+
+    hub = FakeHub()
+    registered = asyncio.run(_owner_hub_command(
+        f"/taskwatch {task_id}",
+        telegram_user_id=123,
+        update_id=40,
+        hub=hub,
+        settings=_settings(enabled=True),
+        task_watches=store,
+    ))
+    assert "پایش وضعیت وظیفه فعال شد" in registered
+    assert len(store.list_for_user(123)) == 1
+    assert store.list_for_user(456) == ()
+
+    listed = asyncio.run(_owner_hub_command(
+        "/taskwatches",
+        telegram_user_id=123,
+        update_id=41,
+        hub=hub,
+        settings=_settings(enabled=True),
+        task_watches=store,
+    ))
+    assert json.loads(listed)["watches"] == [{"task_id": task_id, "status": "running"}]
+
+    removed = asyncio.run(_owner_hub_command(
+        f"/taskunwatch {task_id}",
+        telegram_user_id=123,
+        update_id=42,
+        hub=hub,
+        settings=_settings(enabled=True),
+        task_watches=store,
+    ))
+    assert "متوقف شد" in removed
+    assert store.list() == ()
+
+
+def test_task_watch_command_rejects_terminal_tasks(tmp_path):
+    task_id = "12345678-1234-4234-8234-123456789abc"
+    store = TaskWatchStore(tmp_path / "task-watches.json")
+    store.load()
+
+    class FakeHub:
+        async def get_task(self, *_args):
+            return {"status": "succeeded"}
+
+    result = asyncio.run(_owner_hub_command(
+        f"/taskwatch {task_id}",
+        telegram_user_id=123,
+        update_id=43,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+        task_watches=store,
+    ))
+    assert "وضعیت نهایی" in result
+    assert store.list() == ()
+
+
+def test_task_watch_poll_notifies_status_changes_and_removes_terminal_watches(tmp_path):
+    task_id = "12345678-1234-4234-8234-123456789abc"
+    store = TaskWatchStore(tmp_path / "task-watches.json")
+    store.load()
+    store.add(task_id, 123, "running")
+
+    class FakeHub:
+        async def get_task(self, telegram_user_id, requested_id):
+            assert telegram_user_id == 123
+            assert requested_id == task_id
+            return {"status": "succeeded"}
+
+    class FakeAPI:
+        def __init__(self):
+            self.sent = []
+
+        async def send_message(self, chat_id, text):
+            self.sent.append((chat_id, text))
+
+    api = FakeAPI()
+    asyncio.run(_poll_task_watches(api, FakeHub(), store))
+
+    assert len(api.sent) == 1
+    assert api.sent[0][0] == 123
+    assert "موفق" in api.sent[0][1]
+    assert task_id in api.sent[0][1]
+    assert store.list() == ()
+
+
+def test_task_watch_poll_keeps_checkpoint_when_telegram_delivery_fails(tmp_path):
+    task_id = "12345678-1234-4234-8234-123456789abc"
+    store = TaskWatchStore(tmp_path / "task-watches.json")
+    store.load()
+    store.add(task_id, 123, "queued")
+
+    class FakeHub:
+        async def get_task(self, *_args):
+            return {"status": "running"}
+
+    class FailingAPI:
+        async def send_message(self, *_args):
+            raise TelegramAPIError("simulated failure")
+
+    asyncio.run(_poll_task_watches(FailingAPI(), FakeHub(), store))
+    assert store.list_for_user(123)[0].last_status == "queued"
+
+
+def test_task_watch_commands_are_owner_menu_only():
+    commands = {item["command"] for item in OWNER_BOT_COMMANDS}
+    assert {"taskwatch", "taskunwatch", "taskwatches"} <= commands
+    assert {"/taskwatch", "/taskunwatch", "/taskwatches"} <= OWNER_HUB_COMMANDS
