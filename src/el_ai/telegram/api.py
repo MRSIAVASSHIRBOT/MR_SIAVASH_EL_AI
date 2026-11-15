@@ -129,7 +129,7 @@ class TelegramBotAPI:
             if not isinstance(scope, dict):
                 raise ValueError("Telegram command scope is invalid")
             scope_type = scope.get("type")
-            if scope_type in {"default", "all_private_chats"} and set(scope) == {"type"}:
+            if isinstance(scope_type, str) and scope_type in {"default", "all_private_chats"} and set(scope) == {"type"}:
                 payload["scope"] = {"type": scope_type}
             elif (
                 scope_type == "chat"
