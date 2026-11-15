@@ -27,11 +27,16 @@ EL_AI owns Telegram updates, Telegram user/chat identity, command parsing, deliv
 
 ## Request correlation status
 
-The proposed implementation is under review in [EL_AI PR #31](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AI/pull/31) and [Hub PR #394](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/pull/394). EL_AI generates opaque UUID request IDs for outbound Hub operations and the public website Gateway; the Hub change validates or replaces inbound IDs and returns the canonical value in `X-Request-ID`.
+The coordinated request-correlation implementation is merged into the default branches through [EL_AI PR #31](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AI/pull/31) and [Hub PR #394](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/pull/394). The canonical Hub v1 manifest marks `X-Request-ID` as standardized.
 
-Both sides emit privacy-safe correlation events. Hub logs contain `request_id`, HTTP `method`, route template, and `status_code`; EL_AI logs contain those fields plus an `outcome`. Task IDs are represented as route placeholders, and query strings, request bodies, Telegram identities, client IDs, credentials, and raw URLs are excluded.
+- EL_AI assigns a canonical lowercase UUIDv4 to each logical Hub operation and to each independent public Website Gateway request.
+- Hub validates canonical lowercase UUIDs (versions 1–8), replaces missing or invalid values with a server-generated UUIDv4, stores the canonical value in request state, and returns it in `X-Request-ID` on handled HTTP responses.
+- On one authorized Hub operation receiving HTTP 401, EL_AI refreshes credentials using a separate request ID, then replays the original operation at most once using the original request ID. A second 401 is surfaced; no generic retries or backoff are performed.
+- Hub logs contain `request_id`, HTTP `method`, route template, and `status_code`; EL_AI logs contain those fields plus an `outcome`. Task IDs are represented as route placeholders.
+- Query strings, request bodies, Telegram identities, client IDs, credentials, and raw URLs are excluded from correlation logs.
+- Public Website Gateway request IDs are independent; they are not forwarded to the private Hub and do not imply a shared request context.
 
-**These changes are not yet merged as a coordinated contract update.** Until both implementations and the canonical Hub manifest/documentation are merged and verified together, consumers must not rely on end-to-end correlation as a released contract guarantee. Request IDs are diagnostic metadata only; they do not grant permissions or provide idempotency.
+Request IDs are diagnostic metadata only. They do not grant permissions or provide idempotency. The public Gateway remains public-only and cannot call private Hub routes or hold Hub credentials.
 
 ## Compatibility
 
