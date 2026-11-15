@@ -13,7 +13,7 @@ EL_AI owns Telegram updates, Telegram user/chat identity, command parsing, deliv
 - Use the dedicated `/integrations/telegram` API surface; do not call Hub internal routes.
 - Send the paired bearer access token and `X-Telegram-User-Id` header on authenticated operations.
 - Treat Hub scopes as authoritative. Never infer additional permissions from Telegram owner status alone.
-- Store credentials through the operating-system credential store adapter; never place them in URLs, logs, source control, or browser storage.
+- Store credentials through the operating-system credential store adapter; never place credentials in URLs, logs, source control, or browser storage.
 - Preserve the bounded pagination, result size, and idempotency rules in the canonical manifest.
 - Keep private commands fail-closed when pairing is absent, expired, or revoked.
 
@@ -25,9 +25,11 @@ EL_AI owns Telegram updates, Telegram user/chat identity, command parsing, deliv
 - Public website knowledge queries remain separate from owner-only Hub operations.
 - Pairing must remain owner-initiated and bound to the Telegram user ID and this installation's client ID.
 
-## Observability gap
+## Request correlation status
 
-End-to-end `X-Request-ID` propagation is not standardized in contract v1. Do not assume request correlation across EL_AI and Hub until a separately tested implementation is merged.
+The proposed implementation is under review in [EL_AI PR #31](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AI/pull/31) and [Hub PR #394](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/pull/394). EL_AI generates opaque UUID request IDs for outbound Hub operations and the public website Gateway; the Hub change validates or replaces inbound IDs and returns the canonical value in `X-Request-ID`.
+
+**These changes are not yet merged as a coordinated contract update.** Until both implementations and the canonical Hub manifest/documentation are merged and verified together, consumers must not rely on end-to-end correlation as a released contract guarantee. Request IDs are diagnostic metadata only; they do not grant permissions or provide idempotency.
 
 ## Compatibility
 
