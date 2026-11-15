@@ -21,6 +21,8 @@ _STATIC_HUB_ROUTES = frozenset({
     "/integrations/telegram/status",
     "/integrations/telegram/tasks",
     "/integrations/telegram/memory/search",
+    "/integrations/telegram/video/providers",
+    "/integrations/telegram/video/generations",
 })
 
 
@@ -42,6 +44,11 @@ class HubClient:
         path_only = urlsplit(path).path
         if path_only in _STATIC_HUB_ROUTES:
             return path_only
+        video_prefix = "/integrations/telegram/video/generations/"
+        if path_only.startswith(video_prefix):
+            suffix = path_only[len(video_prefix):].split("/")
+            if len(suffix) == 1 and suffix[0]:
+                return f"{video_prefix}{{generation_id}}"
         task_prefix = "/integrations/telegram/tasks/"
         if path_only.startswith(task_prefix):
             suffix = path_only[len(task_prefix):].split("/")
@@ -417,6 +424,61 @@ class HubClient:
         return await self._authorized(
             "GET",
             f"/integrations/telegram/tasks/{canonical_id}/events?{urlencode({'limit': limit})}",
+            telegram_user_id,
+        )
+
+    async def list_video_providers(self, telegram_user_id: int) -> dict[str, object]:
+        """Read the non-secret video provider catalog through video:read."""
+        return await self._authorized(
+            "GET", "/integrations/telegram/video/providers", telegram_user_id
+        )
+
+    async def list_video_generations(
+        self,
+        telegram_user_id: int,
+        *,
+        cursor: str | None = None,
+        limit: int = 10,
+    ) -> dict[str, object]:
+        """List one bounded owner-scoped video generation page."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 20:
+            raise ValueError("Video generation page limit must be between 1 and 20")
+        params: dict[str, str | int] = {"limit": limit}
+        if cursor is not None:
+            if (
+                not isinstance(cursor, str)
+                or not cursor
+                or len(cursor) > 512
+                or not cursor.isascii()
+                or not cursor.replace("_", "").replace("-", "").isalnum()
+            ):
+                raise ValueError("Invalid video generation page cursor")
+            params["cursor"] = cursor
+        return await self._authorized(
+            "GET",
+            f"/integrations/telegram/video/generations?{urlencode(params)}",
+            telegram_user_id,
+        )
+
+    async def get_video_generation(
+        self, telegram_user_id: int, generation_id: str
+    ) -> dict[str, object]:
+        """Fetch one generation status through the paired owner's video:read scope."""
+        canonical_id = str(UUID(generation_id))
+        return await self._authorized(
+            "GET",
+            f"/integrations/telegram/video/generations/{canonical_id}",
+            telegram_user_id,
+        )
+
+    async def cancel_video_generation(
+        self, telegram_user_id: int, generation_id: str
+    ) -> dict[str, object]:
+        """Cancel only prepared or queued generation work before provider submission."""
+        canonical_id = str(UUID(generation_id))
+        return await self._authorized(
+            "DELETE",
+            f"/integrations/telegram/video/generations/{canonical_id}",
             telegram_user_id,
         )
 
