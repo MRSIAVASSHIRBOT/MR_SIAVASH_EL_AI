@@ -36,6 +36,17 @@ python -m el_ai
 
 The bot uses long polling for local development. Production webhook deployment is a separate release milestone and must use a secret-validated endpoint and TLS.
 
+Run the read-only local preflight before configuring or starting the bot:
+
+```bash
+el-ai doctor
+el-ai doctor --json
+# or:
+python -m el_ai doctor
+```
+
+The preflight does not contact Telegram, Hub, or the public Gateway, does not write files, and never prints credentials. It checks required environment settings, local state-directory access, Hub URL policy and trusted keyring availability (only when Hub integration is enabled). It does not prove that a Telegram token is valid or that remote services are reachable. See [docs/operations/preflight.md](docs/operations/preflight.md).
+
 ## Configuration
 
 - TELEGRAM_BOT_TOKEN: required runtime secret.

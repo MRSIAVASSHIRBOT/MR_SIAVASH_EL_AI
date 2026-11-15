@@ -5,6 +5,7 @@ from el_ai.config import Settings
 from el_ai.integrations.hub import HubClientError
 from el_ai.integrations.secrets import SecretStoreError
 from el_ai.main import (
+    main,
     _build_hub_client,
     _format_result,
     _owner_hub_command,
@@ -340,3 +341,22 @@ def test_task_history_command_uses_a_valid_uuid_and_returns_events():
 
 def test_owner_hub_dispatch_allowlist_covers_all_implemented_task_commands():
     assert {"/tasks", "/taskstatus", "/taskhistory", "/taskresult", "/taskcancel"} <= OWNER_HUB_COMMANDS
+
+
+
+def test_main_dispatches_read_only_doctor_without_loading_runtime_settings(monkeypatch):
+    import sys
+
+    import pytest
+
+    from el_ai import doctor
+
+    calls = []
+    monkeypatch.setattr(sys, "argv", ["el-ai", "doctor", "--json"])
+    monkeypatch.setattr(doctor, "main", lambda *, json_output=False: calls.append(json_output) or 0)
+
+    with pytest.raises(SystemExit) as exc:
+        main()
+
+    assert exc.value.code == 0
+    assert calls == [True]
