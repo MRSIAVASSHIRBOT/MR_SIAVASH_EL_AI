@@ -360,3 +360,107 @@ def test_main_dispatches_read_only_doctor_without_loading_runtime_settings(monke
 
     assert exc.value.code == 0
     assert calls == [True]
+
+
+def test_video_provider_command_reports_catalog_without_claiming_generation_started():
+    class FakeHub:
+        async def list_video_providers(self, telegram_user_id):
+            assert telegram_user_id == 123
+            return {
+                "providers": [],
+                "count": 0,
+                "generation_available": False,
+                "reason_code": "provider_unavailable",
+                "execution": "not_started",
+            }
+
+    rendered = asyncio.run(_owner_hub_command(
+        "/videoproviders", telegram_user_id=123, update_id=70,
+        hub=FakeHub(), settings=_settings(enabled=True)
+    ))
+    payload = json.loads(rendered)
+    assert payload["generation_available"] is False
+    assert payload["execution"] == "not_started"
+
+
+def test_video_history_command_preserves_cursor_and_hides_internal_cursor_payload():
+    class FakeHub:
+        async def list_video_generations(self, telegram_user_id, *, cursor=None, limit=10):
+            assert telegram_user_id == 123
+            assert cursor == "cursor-current"
+            assert limit == 10
+            return {
+                "items": [{"generation_id": "generation-1", "status": "queued"}],
+                "count": 1,
+                "has_more": True,
+                "next_cursor": "cursor-next",
+            }
+
+    rendered = asyncio.run(_owner_hub_command(
+        "/videohistory cursor-current", telegram_user_id=123, update_id=71,
+        hub=FakeHub(), settings=_settings(enabled=True)
+    ))
+    payload, next_page = rendered.split("\\n\\nصفحه بعد: ", 1)
+    assert json.loads(payload) == {
+        "items": [{"generation_id": "generation-1", "status": "queued"}],
+        "count": 1,
+        "has_more": True,
+    }
+    assert next_page == "/videohistory cursor-next"
+
+
+def test_video_status_command_validates_uuid_and_returns_owner_scoped_status():
+    generation_id = "12345678-1234-4234-8234-123456789abc"
+
+    class FakeHub:
+        async def get_video_generation(self, telegram_user_id, requested_id):
+            assert telegram_user_id == 123
+            assert requested_id == generation_id
+            return {"generation_id": generation_id, "status": "succeeded"}
+
+    rendered = asyncio.run(_owner_hub_command(
+        f"/videostatus {generation_id}", telegram_user_id=123, update_id=72,
+        hub=FakeHub(), settings=_settings(enabled=True)
+    ))
+    assert json.loads(rendered)["status"] == "succeeded"
+
+    invalid = asyncio.run(_owner_hub_command(
+        "/videostatus invalid", telegram_user_id=123, update_id=73,
+        hub=FakeHub(), settings=_settings(enabled=True)
+    ))
+    assert "UUID" in invalid
+
+
+def test_video_cancel_command_never_claims_active_provider_work_was_cancelled():
+    generation_id = "12345678-1234-4234-8234-123456789abc"
+
+    class FakeHub:
+        async def cancel_video_generation(self, telegram_user_id, requested_id):
+            assert telegram_user_id == 123
+            assert requested_id == generation_id
+            raise HubClientError("active provider work", status_code=409)
+
+    rendered = asyncio.run(_owner_hub_command(
+        f"/videocancel {generation_id}", telegram_user_id=123, update_id=74,
+        hub=FakeHub(), settings=_settings(enabled=True)
+    ))
+    assert "پیش از ارسال" in rendered
+
+
+def test_command_menu_registers_public_commands_and_owner_only_commands_per_chat():
+    class FakeAPI:
+        def __init__(self):
+            self.calls = []
+
+        async def set_my_commands(self, commands, *, scope=None):
+            self.calls.append((commands, scope))
+
+    api = FakeAPI()
+    asyncio.run(_register_command_menu(api, {900, 100}))
+
+    assert api.calls[0][1] == {"type": "all_private_chats"}
+    assert [call[1]["chat_id"] for call in api.calls[1:]] == [100, 900]
+    public_names = {item["command"] for item in api.calls[0][0]}
+    owner_names = {item["command"] for item in api.calls[1][0]}
+    assert public_names == {"start", "help"}
+    assert {"videoproviders", "videohistory", "videostatus", "videocancel"} <= owner_names
