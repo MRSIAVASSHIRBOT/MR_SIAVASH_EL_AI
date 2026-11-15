@@ -6,6 +6,7 @@ import json
 import time
 from dataclasses import dataclass
 from urllib.parse import urljoin, urlsplit
+from uuid import uuid4
 
 import httpx
 
@@ -139,6 +140,7 @@ class SiteGatewayClient:
                 "POST",
                 "v1/assistant/chat",
                 json={"message": normalized},
+                headers={"X-Request-ID": str(uuid4())},
             ) as response:
                 response.raise_for_status()
                 payload = json.loads(await self._read_response_body(response))

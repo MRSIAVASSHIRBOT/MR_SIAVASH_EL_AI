@@ -1,5 +1,6 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import httpx
 import pytest
@@ -57,6 +58,9 @@ async def test_pairing_stores_credentials_and_status_uses_bound_identity():
     assert status["status"] == "authenticated"
     assert requests[1].headers["Authorization"] == "Bearer access-secret"
     assert requests[1].headers["X-Telegram-User-Id"] == "123456"
+    assert str(UUID(requests[0].headers["X-Request-ID"])) == requests[0].headers["X-Request-ID"]
+    assert str(UUID(requests[1].headers["X-Request-ID"])) == requests[1].headers["X-Request-ID"]
+    assert requests[0].headers["X-Request-ID"] != requests[1].headers["X-Request-ID"]
     assert store.load("client-1")["refresh_token"] == "refresh-secret"
     await client.close()
 
@@ -88,6 +92,11 @@ async def test_access_token_is_refreshed_before_expiry():
     await client.status(123456)
     assert calls[0].url.path.endswith("/refresh")
     assert calls[1].headers["Authorization"] == "Bearer new-access"
+    refresh_request_id = calls[0].headers["X-Request-ID"]
+    authorized_request_id = calls[1].headers["X-Request-ID"]
+    assert str(UUID(refresh_request_id)) == refresh_request_id
+    assert str(UUID(authorized_request_id)) == authorized_request_id
+    assert refresh_request_id != authorized_request_id
     assert store.load("client-2")["access_token"] == "new-access"
     await client.close()
 
@@ -169,11 +178,15 @@ async def test_unauthorized_access_token_is_refreshed_once_and_retried():
         "scopes": ["status:read"],
     })
     status_attempts = 0
+    request_ids = []
+    refresh_request_ids = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal status_attempts
         if request.url.path.endswith("/refresh"):
+            refresh_request_ids.append(request.headers["X-Request-ID"])
             return httpx.Response(200, json={"access_token": "refreshed-access", "expires_in": 900})
+        request_ids.append(request.headers["X-Request-ID"])
         status_attempts += 1
         if status_attempts == 1:
             return httpx.Response(401, json={"detail": "expired"})
@@ -188,6 +201,12 @@ async def test_unauthorized_access_token_is_refreshed_once_and_retried():
     result = await client.status(123456)
     assert result["status"] == "authenticated"
     assert status_attempts == 2
+    assert len(request_ids) == 2
+    assert request_ids[0] == request_ids[1]
+    assert str(UUID(request_ids[0])) == request_ids[0]
+    assert len(refresh_request_ids) == 1
+    assert str(UUID(refresh_request_ids[0])) == refresh_request_ids[0]
+    assert refresh_request_ids[0] != request_ids[0]
     assert store.load("client-7")["access_token"] == "refreshed-access"
     await client.close()
 
@@ -634,4 +653,43 @@ async def test_task_history_rejects_invalid_id_and_limit_before_network_request(
         await client.get_task_history(123456, "../private")
     with pytest.raises(ValueError):
         await client.get_task_history(123456, "12345678-1234-4234-8234-123456789abc", limit=51)
+    await client.close()
+
+
+
+@pytest.mark.asyncio
+async def test_hub_request_logs_are_correlated_and_privacy_safe(caplog):
+    store = MemoryStore()
+    store.save("client-log-correlation", {
+        "access_token": "log-access-secret",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "log-refresh-secret",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["tasks:read"],
+    })
+    task_id = "12345678-1234-4234-8234-123456789abc"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"task_id": task_id, "events": [], "count": 0})
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-log-correlation",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    with caplog.at_level("INFO", logger="el_ai.hub"):
+        await client.get_task_history(123456, task_id, limit=7)
+
+    record = next(record for record in caplog.records if record.name == "el_ai.hub")
+    assert str(UUID(record.request_id)) == record.request_id
+    assert record.method == "GET"
+    assert record.route_template == "/integrations/telegram/tasks/{task_id}/events"
+    assert record.status_code == 200
+    assert record.outcome == "success"
+    assert task_id not in caplog.text
+    assert "limit=7" not in caplog.text
+    assert "123456" not in caplog.text
+    assert "log-access-secret" not in caplog.text
+    assert "log-refresh-secret" not in caplog.text
     await client.close()
