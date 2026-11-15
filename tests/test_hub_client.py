@@ -1,5 +1,6 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import httpx
 import pytest
@@ -57,6 +58,8 @@ async def test_pairing_stores_credentials_and_status_uses_bound_identity():
     assert status["status"] == "authenticated"
     assert requests[1].headers["Authorization"] == "Bearer access-secret"
     assert requests[1].headers["X-Telegram-User-Id"] == "123456"
+    assert str(UUID(requests[0].headers["X-Request-ID"])) == requests[0].headers["X-Request-ID"]
+    assert str(UUID(requests[1].headers["X-Request-ID"])) == requests[1].headers["X-Request-ID"]
     assert store.load("client-1")["refresh_token"] == "refresh-secret"
     await client.close()
 
