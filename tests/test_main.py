@@ -401,7 +401,7 @@ def test_video_history_command_preserves_cursor_and_hides_internal_cursor_payloa
         "/videohistory cursor-current", telegram_user_id=123, update_id=71,
         hub=FakeHub(), settings=_settings(enabled=True)
     ))
-    payload, next_page = rendered.split("\\n\\nصفحه بعد: ", 1)
+    payload, next_page = rendered.split("\n\nصفحه بعد: ", 1)
     assert json.loads(payload) == {
         "items": [{"generation_id": "generation-1", "status": "queued"}],
         "count": 1,
