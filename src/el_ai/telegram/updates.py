@@ -34,7 +34,11 @@ def parse_telegram_update(value: object) -> ParsedTelegramUpdate:
     if not isinstance(value, dict):
         raise TelegramUpdateError("Telegram update envelope must be an object")
     update_id = value.get("update_id")
-    if not _is_integer(update_id) or update_id < 0:
+    if (
+        not _is_integer(update_id)
+        or update_id < 0
+        or update_id > _MAX_TELEGRAM_ID
+    ):
         raise TelegramUpdateError("Telegram update ID is invalid")
 
     raw_message = value.get("message")
@@ -75,7 +79,13 @@ def parse_telegram_update(value: object) -> ParsedTelegramUpdate:
 
     text = raw_message.get("text")
     if text is not None:
-        if not isinstance(text, str) or _utf16_length(text) > _MAX_TEXT_UNITS:
+        if not isinstance(text, str):
+            return ParsedTelegramUpdate(update_id, None, "invalid_text")
+        try:
+            text_units = _utf16_length(text)
+        except UnicodeEncodeError:
+            return ParsedTelegramUpdate(update_id, None, "invalid_text")
+        if text_units > _MAX_TEXT_UNITS:
             return ParsedTelegramUpdate(update_id, None, "invalid_text")
         normalized["text"] = text
 
