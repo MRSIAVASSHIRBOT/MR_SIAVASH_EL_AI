@@ -70,7 +70,7 @@ The preflight does not contact Telegram, Hub, or the public Gateway, does not wr
 - `/task TYPE | DESCRIPTION`: submit a task through Hub policy and idempotency controls.
 - `/taskstatus TASK_ID`, `/taskhistory TASK_ID`, and `/taskresult TASK_ID`: inspect the status, event history, or final result of a task submitted by this paired client.
 - `/taskcancel TASK_ID`: cancel a task only while it is queued or waiting for approval.
-- `/taskwatch TASK_ID`, `/taskwatches`, and `/taskunwatch TASK_ID`: persist, list, or stop owner-only task status notifications. Watches store task IDs, Telegram owner IDs, and last-known status only; delivery is best-effort.
+- `/taskwatch TASK_ID`, `/taskwatches`, and `/taskunwatch TASK_ID`: persist, list, or stop owner-only task status notifications. Watches store task IDs, Telegram owner IDs, status checkpoints, and bounded retry deadlines only; transient Hub or Telegram failures use persisted exponential backoff (30 seconds to 30 minutes). Delivery remains at-least-once when Telegram reports an unknown outcome.
 - `/memory QUERY`: search the owner's Hub memory.
 - `/videoproviders`: inspect the non-secret configured video provider catalog.
 - `/videoroute SECONDS ASPECT [720p|1080p] [remote-ok spend-ok USD_CAP]`: request a read-only local-first route preview. It starts no generation, submits no prompt or media, and creates no provider charge.
