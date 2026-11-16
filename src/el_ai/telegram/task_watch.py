@@ -18,6 +18,9 @@ TASK_WATCH_STATUSES = frozenset({
 TERMINAL_TASK_STATUSES = frozenset({"succeeded", "failed", "cancelled", "rejected"})
 MAX_TASK_WATCHES = 20
 MAX_TASK_WATCH_BYTES = 16 * 1024
+MAX_TASK_WATCH_RETRIES = 16
+TASK_WATCH_RETRY_BASE_SECONDS = 30
+TASK_WATCH_RETRY_MAX_SECONDS = 1800
 
 
 class TaskWatchError(RuntimeError):
@@ -29,6 +32,8 @@ class TaskWatch:
     task_id: str
     telegram_user_id: int
     last_status: str
+    retry_count: int = 0
+    next_attempt_at: int = 0
 
 
 class TaskWatchStore:
@@ -72,7 +77,7 @@ class TaskWatchStore:
         if (
             isinstance(version, bool)
             or not isinstance(version, int)
-            or version != 1
+            or version not in {1, 2}
             or not isinstance(payload.get("watches"), list)
         ):
             raise TaskWatchError("Stored Telegram task-watch state is unsupported")
@@ -80,9 +85,15 @@ class TaskWatchStore:
         watches: list[TaskWatch] = []
         seen: set[tuple[str, int]] = set()
         for item in payload["watches"]:
-            if not isinstance(item, dict) or set(item) != {
-                "task_id", "telegram_user_id", "last_status"
-            }:
+            expected_fields = (
+                {"task_id", "telegram_user_id", "last_status"}
+                if version == 1
+                else {
+                    "task_id", "telegram_user_id", "last_status",
+                    "retry_count", "next_attempt_at",
+                }
+            )
+            if not isinstance(item, dict) or set(item) != expected_fields:
                 raise TaskWatchError("Stored Telegram task-watch entry is invalid")
             task_id = item.get("task_id")
             user_id = item.get("telegram_user_id")
@@ -102,11 +113,24 @@ class TaskWatchStore:
                 or status not in TASK_WATCH_STATUSES
             ):
                 raise TaskWatchError("Stored Telegram task-watch entry is invalid")
+            retry_count = item.get("retry_count", 0)
+            next_attempt_at = item.get("next_attempt_at", 0)
+            if (
+                isinstance(retry_count, bool)
+                or not isinstance(retry_count, int)
+                or not 0 <= retry_count <= MAX_TASK_WATCH_RETRIES
+                or isinstance(next_attempt_at, bool)
+                or not isinstance(next_attempt_at, int)
+                or next_attempt_at < 0
+            ):
+                raise TaskWatchError("Stored Telegram task-watch retry state is invalid")
             key = (task_id, user_id)
             if key in seen:
                 raise TaskWatchError("Stored Telegram task-watch entries are duplicated")
             seen.add(key)
-            watches.append(TaskWatch(task_id, user_id, status))
+            watches.append(
+                TaskWatch(task_id, user_id, status, retry_count, next_attempt_at)
+            )
 
         if len(watches) > MAX_TASK_WATCHES:
             raise TaskWatchError("Stored Telegram task-watch collection exceeds its limit")
@@ -115,6 +139,13 @@ class TaskWatchStore:
 
     def list(self) -> tuple[TaskWatch, ...]:
         return tuple(self._ensure_loaded())
+
+    def list_due(self, now: int) -> tuple[TaskWatch, ...]:
+        self._validate_timestamp(now)
+        return tuple(
+            watch for watch in self._ensure_loaded()
+            if watch.next_attempt_at <= now
+        )
 
     def list_for_user(self, telegram_user_id: int) -> tuple[TaskWatch, ...]:
         self._validate_user_id(telegram_user_id)
@@ -176,6 +207,57 @@ class TaskWatchStore:
         self._replace(updated)
         return True
 
+    def defer(self, task_id: str, telegram_user_id: int, now: int) -> bool:
+        canonical_id = self._canonical_task_id(task_id)
+        self._validate_user_id(telegram_user_id)
+        self._validate_timestamp(now)
+        watches = self._ensure_loaded()
+        updated: list[TaskWatch] = []
+        found = False
+        for item in watches:
+            if item.task_id == canonical_id and item.telegram_user_id == telegram_user_id:
+                retry_count = min(item.retry_count + 1, MAX_TASK_WATCH_RETRIES)
+                delay = min(
+                    TASK_WATCH_RETRY_BASE_SECONDS * (2 ** (retry_count - 1)),
+                    TASK_WATCH_RETRY_MAX_SECONDS,
+                )
+                updated.append(
+                    TaskWatch(
+                        item.task_id,
+                        item.telegram_user_id,
+                        item.last_status,
+                        retry_count,
+                        now + delay,
+                    )
+                )
+                found = True
+            else:
+                updated.append(item)
+        if not found:
+            return False
+        self._replace(updated)
+        return True
+
+    def clear_retry(self, task_id: str, telegram_user_id: int) -> bool:
+        canonical_id = self._canonical_task_id(task_id)
+        self._validate_user_id(telegram_user_id)
+        watches = self._ensure_loaded()
+        updated = [
+            TaskWatch(item.task_id, item.telegram_user_id, item.last_status)
+            if item.task_id == canonical_id and item.telegram_user_id == telegram_user_id
+            else item
+            for item in watches
+        ]
+        if updated == watches:
+            return False
+        self._replace(updated)
+        return True
+
+    @staticmethod
+    def _validate_timestamp(value: int) -> None:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError("Retry timestamp must be a non-negative integer")
+
     def _ensure_loaded(self) -> list[TaskWatch]:
         if self._watches is None:
             self.load()
@@ -216,12 +298,14 @@ class TaskWatchStore:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             payload = {
-                "version": 1,
+                "version": 2,
                 "watches": [
                     {
                         "task_id": item.task_id,
                         "telegram_user_id": item.telegram_user_id,
                         "last_status": item.last_status,
+                        "retry_count": item.retry_count,
+                        "next_attempt_at": item.next_attempt_at,
                     }
                     for item in self._ensure_loaded()
                 ],
