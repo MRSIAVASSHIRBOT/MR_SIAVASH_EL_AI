@@ -192,6 +192,7 @@ class TelegramBotAPI:
                 "sendVideo",
                 data=data,
                 files={"video": (filename, video, "video/mp4")},
+                timeout=httpx.Timeout(120),
             )
             response.raise_for_status()
             payload = response.json()
