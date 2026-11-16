@@ -107,13 +107,28 @@ def _task_status_label(status: str) -> str:
     }.get(status, "نامشخص")
 
 
+def _defer_task_watch(
+    store: TaskWatchStore,
+    watch: TaskWatch,
+    now: int,
+) -> None:
+    """Persist a bounded retry deadline without logging task or owner identifiers."""
+    try:
+        store.defer(watch.task_id, watch.telegram_user_id, now)
+    except TaskWatchError:
+        LOGGER.warning("Telegram task-watch retry deadline could not be persisted")
+
+
 async def _poll_task_watches(
     api: TelegramBotAPI,
     hub: HubClient,
     store: TaskWatchStore,
+    *,
+    now: int | None = None,
 ) -> None:
-    """Notify each private owner chat once per observed task-status transition."""
-    watches = store.list()
+    """Poll due watches and retry transient failures with persisted backoff."""
+    current_time = int(time.time()) if now is None else now
+    watches = store.list_due(current_time)
     if not watches:
         return
     semaphore = asyncio.Semaphore(4)
@@ -123,11 +138,13 @@ async def _poll_task_watches(
             try:
                 task = await hub.get_task(watch.telegram_user_id, watch.task_id)
             except HubClientError as exc:
-                return watch, None, exc.status_code
+                return watch, None, exc.status_code if exc.status_code is not None else 0
             except Exception:  # noqa: BLE001 - one unavailable watch must not stop polling
-                return watch, None, None
+                return watch, None, 0
         status = task.get("status") if isinstance(task, dict) else None
-        return watch, status if isinstance(status, str) else None, None
+        if not isinstance(status, str) or status not in TASK_STATUSES:
+            return watch, None, 0
+        return watch, status, None
 
     results = await asyncio.gather(*(read_status(item) for item in watches))
     for watch, status, error_code in results:
@@ -138,14 +155,33 @@ async def _poll_task_watches(
             )
             try:
                 await _send_response(api, watch.telegram_user_id, message)
+            except TelegramAPIError:
+                LOGGER.warning("Task-watch cleanup notification failed or has unknown outcome")
+                _defer_task_watch(store, watch, current_time)
+                continue
+            try:
                 store.remove(watch.task_id, watch.telegram_user_id)
-            except (TelegramAPIError, TaskWatchError):
-                LOGGER.warning("Task-watch cleanup notification or persistence failed")
+            except TaskWatchError:
+                LOGGER.warning("Task-watch cleanup state could not be persisted")
+                _defer_task_watch(store, watch, current_time)
             continue
-        if not isinstance(status, str) or status not in TASK_STATUSES:
+
+        if error_code is not None:
+            LOGGER.warning("Hub task-watch lookup failed; retry scheduled")
+            _defer_task_watch(store, watch, current_time)
+            continue
+        if not isinstance(status, str):
+            LOGGER.warning("Hub task-watch response was invalid; retry scheduled")
+            _defer_task_watch(store, watch, current_time)
             continue
         if status == watch.last_status:
+            if watch.retry_count:
+                try:
+                    store.clear_retry(watch.task_id, watch.telegram_user_id)
+                except TaskWatchError:
+                    LOGGER.warning("Task-watch retry state could not be cleared")
             continue
+
         message = (
             "وضعیت وظیفه تغییر کرد.\n"
             f"شناسه: {watch.task_id}\n"
@@ -155,6 +191,7 @@ async def _poll_task_watches(
             await _send_response(api, watch.telegram_user_id, message)
         except TelegramAPIError:
             LOGGER.warning("Telegram task-watch notification failed or has unknown outcome")
+            _defer_task_watch(store, watch, current_time)
             continue
         try:
             if status in TERMINAL_TASK_STATUSES:
@@ -163,6 +200,7 @@ async def _poll_task_watches(
                 store.update_status(watch.task_id, watch.telegram_user_id, status)
         except TaskWatchError:
             LOGGER.warning("Telegram task-watch checkpoint could not be persisted")
+            _defer_task_watch(store, watch, current_time)
 
 
 async def _owner_hub_command(
