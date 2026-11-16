@@ -18,7 +18,7 @@ Advanced Telegram interface for the MR_SIAVASH ecosystem.
 
 The Telegram transport, owner/public separation, scoped Hub client, stable local client identity, OS-backed Keyring storage, and public MR_SIAVASH_AI assistant client are implemented on `main`. Public conversations and Hub access remain opt-in. No bot token has been configured, no live Telegram bot has been connected, and no production bot deployment has occurred.
 
-The production website Gateway currently has active Workers AI and 90-day support-retention configuration. Its current 100% traffic deployment is Worker version `62e8a337-d804-4748-8bb2-d5e0180ee2f8` (version 14), deployed on 2026-11-11 12:31:27 UTC from MR_SIAVASH_AI commit `1616545a2e204cb378e2c824299412ca20ef598b`. The production D1 binding remains `mr-siavash-ai-prod`, the Workers AI binding is present, and query-string redaction is enabled. The daily `0 3 * * *` UTC cleanup schedule remains configured. Cloudflare Workers Observability recorded one `support_retention_cleanup_completed` event at 2026-11-12 03:00:24 UTC after deployment. This confirms the scheduled event was emitted; it does not independently prove exact deletion counts or every end-to-end retention outcome. This describes the website Gateway only; it does not mean the Telegram bot is connected or deployed.
+The production website Gateway currently has active Workers AI and 90-day support-retention configuration. Its current 100% traffic deployment is Worker version `62e8a337-d804-4748-8bb2-d5e0180ee2f8` (version 14), deployed on 2026-11-11 12:31:27 UTC from MR_SIAVASH_AI commit `1616545a2e204cb378e2c824299412ca20ef598b`. The production D1 binding remains `mr-siavash-ai-prod`, the Workers AI binding is present, and query-string redaction is enabled. The daily `0 3 * * *` UTC cleanup schedule remains configured. Cloudflare Workers Observability recorded `support_retention_cleanup_completed` events on 2026-11-12 03:00:24.092 UTC and 2026-11-13 03:00:23.971 UTC. The 13 November event reported a 90-day retention period and aggregate deletion counts of 0 support tickets, 0 idempotency records, and 0 rate-limit buckets. These are invocation-level aggregate telemetry, not proof of every possible retention state. The current website source is 40 commits ahead of the deployed source annotation; see the [website release evidence](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI/blob/main/docs/RELEASE_STATUS.md) and [source-drift issue #120](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI/issues/120). No newer Worker deployment is inferred. This describes the website Gateway only; it does not mean the Telegram bot is connected or deployed.
 
 See docs/architecture/overview.md, docs/security/threat-model.md, and docs/roadmap/implementation-plan.md.
 
@@ -62,14 +62,24 @@ The preflight does not contact Telegram, Hub, or the public Gateway, does not wr
 
 ## Owner Telegram commands
 
-- /pairinfo: show the numeric Telegram ID and stable EL_AI client UUID needed to create a Hub pairing challenge.
-- /pair CODE: exchange a five-minute, one-time Hub pairing code and store credentials in the OS credential vault.
-- /hub: check the paired Hub connection.
-- /health: inspect aggregate polling health and counters (owner-only; no message or user data is exposed).
-- /tasks [CURSOR]: list this paired bot's tasks with cursor-based pagination; use the returned next-page command to continue.
-- /memory QUERY: search the owner's Hub memory.
-- /task TYPE | DESCRIPTION: submit a task through Hub policy and idempotency controls.
-- /site QUERY: query public website knowledge without sending private Hub context.
+- `/pairinfo`: show the numeric Telegram ID and stable EL_AI client UUID needed to create a Hub pairing challenge.
+- `/pair CODE`: exchange a five-minute, one-time Hub pairing code and store credentials in the OS credential vault.
+- `/owner`: confirm that the sender is the configured owner.
+- `/hub`: check the paired Hub connection.
+- `/tasks [STATUS] [CURSOR]`: list this paired bot's tasks with bounded cursor-based pagination.
+- `/task TYPE | DESCRIPTION`: submit a task through Hub policy and idempotency controls.
+- `/taskstatus TASK_ID`, `/taskhistory TASK_ID`, and `/taskresult TASK_ID`: inspect the status, event history, or final result of a task submitted by this paired client.
+- `/taskcancel TASK_ID`: cancel a task only while it is queued or waiting for approval.
+- `/taskwatch TASK_ID`, `/taskwatches`, and `/taskunwatch TASK_ID`: persist, list, or stop owner-only task status notifications. Watches store task IDs, Telegram owner IDs, and last-known status only; delivery is best-effort.
+- `/memory QUERY`: search the owner's Hub memory.
+- `/videoproviders`: inspect the non-secret configured video provider catalog.
+- `/videoroute SECONDS ASPECT [720p|1080p] [remote-ok spend-ok USD_CAP]`: request a read-only local-first route preview. It starts no generation, submits no prompt or media, and creates no provider charge.
+- `/videohistory [CURSOR]` and `/videostatus GENERATION_ID`: inspect bounded, owner-scoped video generation history and status.
+- `/videocancel GENERATION_ID`: cancel only a prepared or queued generation before provider submission; active or ambiguous provider work is not reported as cancelled.
+- `/health`: inspect aggregate polling health and counters (owner-only; no message or user data is exposed).
+- `/site QUERY`: query public website knowledge without sending private Hub context.
+
+Video catalog, route preview, history, and status require the paired client's `video:read` scope. Pending-generation cancellation separately requires `video:cancel`. Existing pairings do not receive new scopes automatically; the authenticated Hub owner must explicitly update the client scope set.
 
 When TELEGRAM_PUBLIC_ENABLED=true, public users can send normal text in a private chat and receive answers from the public website Gateway. Group chats remain blocked.
 
