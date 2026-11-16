@@ -242,7 +242,7 @@ async def _owner_hub_command(
         "/taskhistory", "/taskwatch", "/taskunwatch", "/taskwatches",
         "/videoproviders", "/videoroute", "/videohistory", "/videostatus", "/videocancel",
         "/videodrafts", "/videorenders", "/videorender", "/videorenderstatus",
-    "/videorenderdownload", "/videorendercancel",
+        "/videorenderdownload", "/videorendercancel",
     }:
         return None
     if not settings.hub_integration_enabled:
