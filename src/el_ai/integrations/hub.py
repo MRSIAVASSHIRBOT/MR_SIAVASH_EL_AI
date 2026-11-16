@@ -25,6 +25,8 @@ _STATIC_HUB_ROUTES = frozenset({
     "/integrations/telegram/video/providers",
     "/integrations/telegram/video/route-preview",
     "/integrations/telegram/video/generations",
+    "/integrations/telegram/video/render-drafts",
+    "/integrations/telegram/video/renders",
 })
 
 
@@ -51,6 +53,11 @@ class HubClient:
             suffix = path_only[len(video_prefix):].split("/")
             if len(suffix) == 1 and suffix[0]:
                 return f"{video_prefix}{{generation_id}}"
+        render_prefix = "/integrations/telegram/video/renders/"
+        if path_only.startswith(render_prefix):
+            suffix = path_only[len(render_prefix):].split("/")
+            if len(suffix) == 1 and suffix[0]:
+                return f"{render_prefix}{{render_id}}"
         task_prefix = "/integrations/telegram/tasks/"
         if path_only.startswith(task_prefix):
             suffix = path_only[len(task_prefix):].split("/")
@@ -529,6 +536,64 @@ class HubClient:
         return await self._authorized(
             "DELETE",
             f"/integrations/telegram/video/generations/{canonical_id}",
+            telegram_user_id,
+        )
+
+    async def list_video_render_drafts(
+        self, telegram_user_id: int, analysis_id: str
+    ) -> dict[str, object]:
+        """List bounded owner-scoped prepared timeline drafts through video:read."""
+        canonical_id = str(UUID(analysis_id))
+        return await self._authorized(
+            "GET",
+            f"/integrations/telegram/video/render-drafts?{urlencode({'analysis_id': canonical_id})}",
+            telegram_user_id,
+        )
+
+    async def submit_video_render(
+        self,
+        telegram_user_id: int,
+        draft_id: str,
+        *,
+        idempotency_key: str,
+    ) -> dict[str, object]:
+        """Submit a local deterministic FFmpeg render through the explicit video:render scope."""
+        canonical_id = str(UUID(draft_id))
+        if (
+            not isinstance(idempotency_key, str)
+            or not idempotency_key.strip()
+            or len(idempotency_key) > 255
+            or "\r" in idempotency_key
+            or "\n" in idempotency_key
+        ):
+            raise ValueError("Video render idempotency key must contain 1 to 255 safe characters")
+        return await self._authorized(
+            "POST",
+            "/integrations/telegram/video/renders",
+            telegram_user_id,
+            {"draft_id": canonical_id},
+            idempotency_key=idempotency_key.strip(),
+        )
+
+    async def get_video_render(
+        self, telegram_user_id: int, render_id: str
+    ) -> dict[str, object]:
+        """Read one owner-scoped deterministic render through video:read."""
+        canonical_id = str(UUID(render_id))
+        return await self._authorized(
+            "GET",
+            f"/integrations/telegram/video/renders/{canonical_id}",
+            telegram_user_id,
+        )
+
+    async def cancel_video_render(
+        self, telegram_user_id: int, render_id: str
+    ) -> dict[str, object]:
+        """Request cancellation of one owner-scoped local render through video:cancel."""
+        canonical_id = str(UUID(render_id))
+        return await self._authorized(
+            "DELETE",
+            f"/integrations/telegram/video/renders/{canonical_id}",
             telegram_user_id,
         )
 

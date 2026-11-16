@@ -54,6 +54,10 @@ class MessageRouter:
                 "\n/videohistory [CURSOR] — تاریخچه صفحه‌بندی‌شده تولید ویدئو"
                 "\n/videostatus GENERATION_ID — وضعیت یک تولید ویدئو"
                 "\n/videocancel GENERATION_ID — لغو تولید پیش از ارسال به ارائه‌دهنده"
+                "\n/videodrafts ANALYSIS_ID — فهرست Draftهای آمادهٔ رندر"
+                "\n/videorender DRAFT_ID — ثبت رندر قطعی محلی با FFmpeg"
+                "\n/videorenderstatus RENDER_ID — وضعیت رندر محلی"
+                "\n/videorendercancel RENDER_ID — لغو یا توقف رندر محلی"
                 "\n/health — وضعیت و آمار زنده ربات (فقط مالک)"
                 "\n/site QUERY — پرسش عمومی از دانش سایت"
             )
