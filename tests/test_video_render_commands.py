@@ -22,7 +22,10 @@ def test_video_render_commands_are_owner_only_and_in_the_private_menu():
     assert {
         "/videodrafts", "/videorender", "/videorenderstatus", "/videorendercancel"
     } <= OWNER_HUB_COMMANDS
-    router = MessageRouter(AccessController({123}), client_id="client-id")
+    router = MessageRouter(
+        AccessController(frozenset({123}), public_enabled=False, rate_limit=20),
+        client_id="client-id",
+    )
     help_text = router.route({
         "from": {"id": 123},
         "chat": {"type": "private"},
