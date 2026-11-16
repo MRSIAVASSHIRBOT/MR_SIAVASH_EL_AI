@@ -40,7 +40,8 @@ OWNER_HUB_COMMANDS = frozenset({
     "/taskresult", "/taskcancel", "/taskhistory", "/taskwatch", "/taskunwatch",
     "/taskwatches", "/videoproviders", "/videoroute",
     "/videohistory", "/videostatus", "/videocancel",
-    "/videodrafts", "/videorender", "/videorenderstatus", "/videorendercancel",
+    "/videodrafts", "/videorenders", "/videorender", "/videorenderstatus",
+    "/videorenderdownload", "/videorendercancel",
 })
 
 
@@ -212,6 +213,8 @@ async def _owner_hub_command(
     hub: HubClient | None,
     settings: Settings,
     task_watches: TaskWatchStore | None = None,
+    api: TelegramBotAPI | None = None,
+    chat_id: int | None = None,
 ) -> str | None:
     parts = text.strip().split(maxsplit=1)
     command = parts[0].split("@", 1)[0].lower()
@@ -238,7 +241,8 @@ async def _owner_hub_command(
         "/hub", "/tasks", "/memory", "/task", "/taskstatus", "/taskresult", "/taskcancel",
         "/taskhistory", "/taskwatch", "/taskunwatch", "/taskwatches",
         "/videoproviders", "/videoroute", "/videohistory", "/videostatus", "/videocancel",
-        "/videodrafts", "/videorender", "/videorenderstatus", "/videorendercancel",
+        "/videodrafts", "/videorenders", "/videorender", "/videorenderstatus",
+        "/videorenderdownload", "/videorendercancel",
     }:
         return None
     if not settings.hub_integration_enabled:
@@ -509,6 +513,22 @@ async def _owner_hub_command(
                 "render_kind": "deterministic_ffmpeg",
                 "note": "فقط Draftهای آماده‌شده قابل رندر هستند؛ آماده‌سازی Timeline در داشبورد Hub انجام می‌شود.",
             })
+
+        if command == "/videorenders":
+            try:
+                result = await hub.list_video_renders(
+                    telegram_user_id, limit=10, cursor=argument or None
+                )
+            except ValueError:
+                return "نشانگر صفحه‌بندی رندر معتبر نیست؛ مقدار دریافتی از Hub را بدون تغییر ارسال کن."
+            except HubClientError as exc:
+                if exc.status_code == 422:
+                    return "نشانگر صفحه‌بندی رندر منقضی یا نامعتبر است؛ فهرست را از صفحه اول باز کن."
+                raise
+            return _format_result({
+                **result,
+                "render_kind": "deterministic_ffmpeg",
+            })
         if command == "/videorender":
             if not argument:
                 return "روش استفاده: /videorender DRAFT_ID"
@@ -553,6 +573,33 @@ async def _owner_hub_command(
             if result.get("output_available") is True:
                 rendered += "\n\nفایل MP4 خصوصی در داشبورد Hub قابل دانلود است."
             return rendered
+
+        if command == "/videorenderdownload":
+            if not argument:
+                return "روش استفاده: /videorenderdownload RENDER_ID"
+            try:
+                render_id = str(UUID(argument))
+            except ValueError:
+                return "شناسه رندر باید یک UUID معتبر باشد."
+            if api is None or chat_id is None:
+                return "ارسال فایل در این محیط تلگرام فعال نیست."
+            try:
+                video = await hub.download_video_render(telegram_user_id, render_id)
+            except HubClientError as exc:
+                if exc.status_code == 404:
+                    return "رندر پیدا نشد یا متعلق به حساب متصل نیست."
+                if exc.status_code == 409:
+                    return "رندر هنوز تکمیل نشده است؛ پس از وضعیت completed دوباره تلاش کن."
+                if exc.status_code == 413:
+                    return "حجم فایل از سقف ارسال تلگرام بیشتر است؛ آن را از داشبورد خصوصی Hub دریافت کن."
+                raise
+            await api.send_video(
+                chat_id,
+                video,
+                filename=f"render-{render_id}.mp4",
+                caption="رندر قطعی محلی FFmpeg · فایل خصوصی حساب متصل",
+            )
+            return "فایل MP4 آماده و در همین گفت‌وگوی خصوصی ارسال شد."
         if command == "/videorendercancel":
             if not argument:
                 return "روش استفاده: /videorendercancel RENDER_ID"
@@ -596,8 +643,10 @@ OWNER_BOT_COMMANDS = (
     {"command": "videostatus", "description": "وضعیت یک تولید ویدئو"},
     {"command": "videocancel", "description": "لغو تولید ویدئوی در صف"},
     {"command": "videodrafts", "description": "فهرست Draftهای آماده رندر"},
+    {"command": "videorenders", "description": "تاریخچه رندرهای محلی"},
     {"command": "videorender", "description": "ثبت رندر قطعی محلی FFmpeg"},
     {"command": "videorenderstatus", "description": "وضعیت رندر محلی"},
+    {"command": "videorenderdownload", "description": "دریافت فایل MP4 در تلگرام"},
     {"command": "videorendercancel", "description": "لغو رندر محلی"},
     {"command": "health", "description": "سلامت و آمار ربات"},
     {"command": "site", "description": "پرسش از دانش سایت"},
@@ -725,6 +774,8 @@ async def run(settings: Settings) -> None:
                                 hub=hub,
                                 settings=settings,
                                 task_watches=task_watches,
+                                api=api,
+                                chat_id=chat_id,
                             ) or response
                         elif command_name == "/site":
                             query = normalized_text.partition(" ")[2].strip()

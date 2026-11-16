@@ -142,3 +142,49 @@ async def test_get_updates_rejects_malformed_or_oversized_collections():
         with pytest.raises(TelegramAPIError, match="invalid update collection"):
             await api.get_updates(offset=None, timeout=10)
         await api.close()
+
+@pytest.mark.asyncio
+async def test_send_video_uses_bounded_multipart_upload_and_sanitizes_failures():
+    mp4 = b"\x00\x00\x00\x18ftypisom"
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.read()
+        calls.append((request, body))
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 88}})
+
+    api = TelegramBotAPI(
+        "123:abcdefghijklmnop",
+        transport=httpx.MockTransport(handler),
+    )
+    result = await api.send_video(
+        900,
+        mp4,
+        filename="render-123.mp4",
+        caption="رندر محلی",
+    )
+    assert result["message_id"] == 88
+    request, body = calls[0]
+    assert request.url.path.endswith("sendVideo")
+    assert request.headers["content-type"].startswith("multipart/form-data; boundary=")
+    assert b'name="chat_id"' in body and b"900" in body
+    assert b'name="supports_streaming"' in body
+    assert b'filename="render-123.mp4"' in body
+    assert b"Content-Type: video/mp4" in body
+    assert mp4 in body
+    await api.close()
+
+
+@pytest.mark.asyncio
+async def test_send_video_rejects_oversized_invalid_or_unsafe_uploads():
+    api = TelegramBotAPI("123:abcdefghijklmnop")
+    mp4 = b"\x00\x00\x00\x18ftypisom"
+    with pytest.raises(ValueError, match="MP4"):
+        await api.send_video(900, b"not-a-video!!", filename="render.mp4")
+    with pytest.raises(ValueError, match="filename"):
+        await api.send_video(900, mp4, filename="../render.mp4")
+    with pytest.raises(ValueError, match="chat ID"):
+        await api.send_video(True, mp4, filename="render.mp4")
+    with pytest.raises(ValueError, match="caption"):
+        await api.send_video(900, mp4, filename="render.mp4", caption="😀" * 513)
+    await api.close()
