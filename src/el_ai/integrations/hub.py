@@ -15,6 +15,7 @@ from el_ai.integrations.secrets import KeyringCredentialStore
 
 
 logger = logging.getLogger("el_ai.hub")
+MAX_TELEGRAM_VIDEO_BYTES = 48_000_000
 
 _STATIC_HUB_ROUTES = frozenset({
     "/integrations/telegram/exchange",
@@ -58,6 +59,8 @@ class HubClient:
             suffix = path_only[len(render_prefix):].split("/")
             if len(suffix) == 1 and suffix[0]:
                 return f"{render_prefix}{{render_id}}"
+            if len(suffix) == 2 and suffix[0] and suffix[1] == "file":
+                return f"{render_prefix}{{render_id}}/file"
         task_prefix = "/integrations/telegram/tasks/"
         if path_only.startswith(task_prefix):
             suffix = path_only[len(task_prefix):].split("/")
@@ -350,6 +353,88 @@ class HubClient:
             refreshed_token = await self._access_token(telegram_user_id)
             return await send(refreshed_token)
 
+
+    async def _authorized_download(
+        self,
+        path: str,
+        telegram_user_id: int,
+        *,
+        max_bytes: int,
+    ) -> bytes:
+        request_id = str(uuid4())
+
+        async def send(token: str) -> bytes:
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "X-Telegram-User-Id": str(telegram_user_id),
+                "X-Request-ID": request_id,
+            }
+            response_status_code: int | None = None
+            try:
+                async with self._client.stream(
+                    "GET", path.lstrip("/"), headers=headers
+                ) as response:
+                    response_status_code = response.status_code
+                    response.raise_for_status()
+                    content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+                    if content_type != "video/mp4":
+                        self._log_request(request_id, "GET", path, response_status_code, "invalid_response")
+                        raise HubClientError("Hub returned an invalid video response", status_code=502)
+                    content_length = response.headers.get("content-length")
+                    if content_length is not None:
+                        if not content_length.isdecimal():
+                            self._log_request(request_id, "GET", path, response_status_code, "invalid_response")
+                            raise HubClientError("Hub returned an invalid video size", status_code=502)
+                        if int(content_length) > max_bytes:
+                            self._log_request(request_id, "GET", path, response_status_code, "http_error")
+                            raise HubClientError("Video exceeds the Telegram upload limit", status_code=413)
+                    data = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        if len(data) + len(chunk) > max_bytes:
+                            self._log_request(request_id, "GET", path, response_status_code, "http_error")
+                            raise HubClientError("Video exceeds the Telegram upload limit", status_code=413)
+                        data.extend(chunk)
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code
+                self._log_request(request_id, "GET", path, status_code, "http_error")
+                raise HubClientError(
+                    f"Hub rejected the request (HTTP {status_code})",
+                    status_code=status_code,
+                ) from None
+            except HubClientError:
+                raise
+            except httpx.HTTPError:
+                self._log_request(request_id, "GET", path, response_status_code, "request_failed")
+                raise HubClientError("Hub video download failed") from None
+
+            if len(data) < 12 or data[4:8] != b"ftyp":
+                self._log_request(request_id, "GET", path, response_status_code, "invalid_response")
+                raise HubClientError("Hub returned an invalid MP4 file", status_code=502)
+            self._log_request(request_id, "GET", path, response_status_code, "success")
+            return bytes(data)
+
+        token = await self._access_token(telegram_user_id)
+        try:
+            return await send(token)
+        except HubClientError as exc:
+            if exc.status_code != 401:
+                raise
+            try:
+                credentials = self._store.load(self.client_id)
+                if credentials is None:
+                    raise HubNotPairedError("Hub pairing is no longer available")
+                if credentials.get("access_token") == token:
+                    credentials["access_expires_at"] = (
+                        datetime.now(UTC) - timedelta(seconds=1)
+                    ).isoformat()
+                    self._store.save(self.client_id, credentials)
+            except HubClientError:
+                raise
+            except Exception as store_exc:
+                raise HubClientError("Could not refresh credentials from the OS vault") from store_exc
+            refreshed_token = await self._access_token(telegram_user_id)
+            return await send(refreshed_token)
+
     async def status(self, telegram_user_id: int) -> dict[str, object]:
         return await self._authorized(
             "GET", "/integrations/telegram/status", telegram_user_id
@@ -584,6 +669,45 @@ class HubClient:
             "GET",
             f"/integrations/telegram/video/renders/{canonical_id}",
             telegram_user_id,
+        )
+
+
+    async def list_video_renders(
+        self,
+        telegram_user_id: int,
+        *,
+        limit: int = 10,
+        cursor: str | None = None,
+    ) -> dict[str, object]:
+        """List one bounded owner-scoped page of deterministic local renders."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 20:
+            raise ValueError("Video render page limit must be between 1 and 20")
+        params: dict[str, str | int] = {"limit": limit}
+        if cursor is not None:
+            if (
+                not isinstance(cursor, str)
+                or not cursor
+                or len(cursor) > 512
+                or not cursor.isascii()
+                or not cursor.replace("_", "").replace("-", "").isalnum()
+            ):
+                raise ValueError("Invalid video render page cursor")
+            params["cursor"] = cursor
+        return await self._authorized(
+            "GET",
+            f"/integrations/telegram/video/renders?{urlencode(params)}",
+            telegram_user_id,
+        )
+
+    async def download_video_render(
+        self, telegram_user_id: int, render_id: str
+    ) -> bytes:
+        """Download one completed owner-scoped MP4 for explicit Telegram delivery."""
+        canonical_id = str(UUID(render_id))
+        return await self._authorized_download(
+            f"/integrations/telegram/video/renders/{canonical_id}/file",
+            telegram_user_id,
+            max_bytes=MAX_TELEGRAM_VIDEO_BYTES,
         )
 
     async def cancel_video_render(
