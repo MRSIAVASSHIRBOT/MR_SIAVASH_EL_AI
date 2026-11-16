@@ -8,6 +8,9 @@ from typing import Any
 import httpx
 
 
+MAX_TELEGRAM_VIDEO_BYTES = 48_000_000
+
+
 class TelegramAPIError(RuntimeError):
     """Sanitized Telegram API failure; never contains token or response body."""
 
@@ -155,6 +158,49 @@ class TelegramBotAPI:
         if not text or _utf16_length(text) > 4096:
             raise ValueError("Telegram message must contain 1 to 4096 UTF-16 code units")
         return await self.call("sendMessage", {"chat_id": chat_id, "text": text})
+
+
+    async def send_video(
+        self,
+        chat_id: int,
+        video: bytes,
+        *,
+        filename: str,
+        caption: str | None = None,
+    ) -> Any:
+        """Upload a bounded MP4 using Telegram's multipart sendVideo method."""
+        if isinstance(chat_id, bool) or not isinstance(chat_id, int) or chat_id <= 0:
+            raise ValueError("Telegram chat ID must be a positive integer")
+        if not isinstance(video, bytes) or not 12 <= len(video) <= MAX_TELEGRAM_VIDEO_BYTES:
+            raise ValueError("Telegram video must be a non-empty MP4 within the upload limit")
+        if not isinstance(filename, str) or not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.mp4", filename
+        ):
+            raise ValueError("Telegram video filename is invalid")
+        if caption is not None and (
+            not isinstance(caption, str) or _utf16_length(caption) > 1024
+        ):
+            raise ValueError("Telegram video caption exceeds the UTF-16 limit")
+        if video[4:8] != b"ftyp":
+            raise ValueError("Telegram video payload is not a valid MP4 container")
+
+        data = {"chat_id": str(chat_id), "supports_streaming": "true"}
+        if caption:
+            data["caption"] = caption
+        try:
+            response = await self._client.post(
+                "sendVideo",
+                data=data,
+                files={"video": (filename, video, "video/mp4")},
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError):
+            # HTTPX exceptions retain a request URL containing the bot token.
+            raise TelegramAPIError("Telegram video upload failed") from None
+        if not isinstance(payload, dict) or payload.get("ok") is not True:
+            raise TelegramAPIError("Telegram API rejected the video upload")
+        return payload.get("result")
 
     async def close(self) -> None:
         await self._client.aclose()
