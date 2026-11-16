@@ -601,8 +601,11 @@ def test_task_watch_poll_keeps_checkpoint_when_telegram_delivery_fails(tmp_path)
         async def send_message(self, *_args):
             raise TelegramAPIError("simulated failure")
 
-    asyncio.run(_poll_task_watches(FailingAPI(), FakeHub(), store))
-    assert store.list_for_user(123)[0].last_status == "queued"
+    asyncio.run(_poll_task_watches(FailingAPI(), FakeHub(), store, now=1000))
+    watch = store.list_for_user(123)[0]
+    assert watch.last_status == "queued"
+    assert watch.retry_count == 1
+    assert watch.next_attempt_at == 1030
 
 
 def test_task_watch_commands_are_owner_menu_only():
@@ -668,3 +671,53 @@ def test_video_route_preview_command_is_read_only_and_requires_explicit_remote_c
 def test_video_route_preview_is_registered_only_for_owner_commands():
     assert "/videoroute" in OWNER_HUB_COMMANDS
     assert "videoroute" in {item["command"] for item in OWNER_BOT_COMMANDS}
+
+
+
+def test_task_watch_poll_skips_watches_until_persisted_retry_deadline(tmp_path):
+    task_id = "12345678-1234-4234-8234-123456789abc"
+    store = TaskWatchStore(tmp_path / "task-watches.json")
+    store.load()
+    store.add(task_id, 123, "running")
+    store.defer(task_id, 123, 1000)
+    calls = []
+
+    class FakeHub:
+        async def get_task(self, *_args):
+            calls.append("called")
+            return {"status": "running"}
+
+    class FakeAPI:
+        async def send_message(self, *_args):
+            raise AssertionError("An unchanged status must not send a notification")
+
+    api = FakeAPI()
+    hub = FakeHub()
+    asyncio.run(_poll_task_watches(api, hub, store, now=1029))
+    assert calls == []
+    asyncio.run(_poll_task_watches(api, hub, store, now=1030))
+    assert calls == ["called"]
+    watch = store.list_for_user(123)[0]
+    assert watch.retry_count == 0
+    assert watch.next_attempt_at == 0
+
+
+def test_task_watch_poll_defers_transient_hub_failures(tmp_path):
+    task_id = "12345678-1234-4234-8234-123456789abc"
+    store = TaskWatchStore(tmp_path / "task-watches.json")
+    store.load()
+    store.add(task_id, 123, "queued")
+
+    class FailingHub:
+        async def get_task(self, *_args):
+            raise HubClientError("temporary failure", status_code=503)
+
+    class FakeAPI:
+        async def send_message(self, *_args):
+            raise AssertionError("A failed Hub lookup must not notify")
+
+    asyncio.run(_poll_task_watches(FakeAPI(), FailingHub(), store, now=500))
+    watch = store.list_for_user(123)[0]
+    assert watch.last_status == "queued"
+    assert watch.retry_count == 1
+    assert watch.next_attempt_at == 530
