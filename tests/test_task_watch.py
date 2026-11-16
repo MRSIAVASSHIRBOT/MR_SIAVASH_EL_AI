@@ -70,3 +70,72 @@ def test_task_watch_store_rejects_corrupt_and_duplicate_state(tmp_path):
     }), encoding="utf-8")
     with pytest.raises(TaskWatchError, match="duplicated"):
         TaskWatchStore(path).load()
+
+
+
+def test_task_watch_store_migrates_v1_state_and_persists_retry_backoff(tmp_path):
+    path = tmp_path / "task-watches.json"
+    path.write_text(json.dumps({
+        "version": 1,
+        "watches": [
+            {"task_id": TASK_A, "telegram_user_id": 123, "last_status": "running"},
+        ],
+    }), encoding="utf-8")
+
+    store = TaskWatchStore(path)
+    migrated = store.load()[0]
+    assert migrated.retry_count == 0
+    assert migrated.next_attempt_at == 0
+    assert store.defer(TASK_A, 123, 100) is True
+
+    deferred = store.list()[0]
+    assert deferred.retry_count == 1
+    assert deferred.next_attempt_at == 130
+    assert store.list_due(129) == ()
+    assert store.list_due(130) == (deferred,)
+
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+    assert persisted["version"] == 2
+    assert persisted["watches"][0]["retry_count"] == 1
+    assert persisted["watches"][0]["next_attempt_at"] == 130
+
+
+def test_task_watch_retry_backoff_is_exponential_bounded_and_reset_by_progress(tmp_path):
+    store = TaskWatchStore(tmp_path / "task-watches.json")
+    store.load()
+    store.add(TASK_A, 123, "queued")
+
+    expected_deadlines = (30, 160, 320, 560, 1040, 2000, 3800, 5600)
+    now_values = (0, 100, 200, 320, 560, 1040, 2000, 3800)
+    for now, expected in zip(now_values, expected_deadlines, strict=True):
+        assert store.defer(TASK_A, 123, now) is True
+        watch = store.list()[0]
+        assert watch.next_attempt_at == expected
+
+    assert store.list()[0].retry_count == 8
+    assert store.update_status(TASK_A, 123, "running") is True
+    watch = store.list()[0]
+    assert watch.retry_count == 0
+    assert watch.next_attempt_at == 0
+
+
+def test_task_watch_store_rejects_invalid_retry_state_and_timestamps(tmp_path):
+    path = tmp_path / "task-watches.json"
+    path.write_text(json.dumps({
+        "version": 2,
+        "watches": [{
+            "task_id": TASK_A,
+            "telegram_user_id": 123,
+            "last_status": "running",
+            "retry_count": True,
+            "next_attempt_at": 0,
+        }],
+    }), encoding="utf-8")
+    with pytest.raises(TaskWatchError, match="retry state"):
+        TaskWatchStore(path).load()
+
+    store = TaskWatchStore(tmp_path / "other.json")
+    with pytest.raises(ValueError):
+        store.list_due(True)
+    with pytest.raises(ValueError):
+        store.defer(TASK_A, 123, -1)
