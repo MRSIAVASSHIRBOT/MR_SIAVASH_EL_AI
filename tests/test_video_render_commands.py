@@ -71,7 +71,7 @@ def test_video_render_commands_validate_ids_and_submit_with_update_idempotency()
 
         async def download_video_render(self, telegram_user_id, requested_render_id):
             calls.append(("download", telegram_user_id, requested_render_id))
-            return b"\\x00\\x00\\x00\\x18ftypisom"
+            return b"\x00\x00\x00\x18ftypisom"
 
         async def cancel_video_render(self, telegram_user_id, requested_render_id):
             calls.append(("cancel", telegram_user_id, requested_render_id))
@@ -133,7 +133,7 @@ def test_video_render_commands_validate_ids_and_submit_with_update_idempotency()
     ))
     assert "ارسال شد" in delivered
     assert sent[0][0] == 900
-    assert sent[0][1] == b"\\x00\\x00\\x00\\x18ftypisom"
+    assert sent[0][1] == b"\x00\x00\x00\x18ftypisom"
     assert sent[0][2] == f"render-{render_id}.mp4"
 
     invalid = asyncio.run(_owner_hub_command(
