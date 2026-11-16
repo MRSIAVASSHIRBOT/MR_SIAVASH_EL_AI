@@ -39,7 +39,7 @@ async def test_video_render_client_uses_scoped_routes_and_idempotency_header():
     draft_id = "22345678-1234-4234-8234-123456789abc"
     render_id = "32345678-1234-4234-8234-123456789abc"
     calls = []
-    mp4 = b"\\x00\\x00\\x00\\x18ftypisom"
+    mp4 = b"\x00\x00\x00\x18ftypisom"
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request)
@@ -151,7 +151,7 @@ async def test_video_render_download_enforces_the_upload_size_limit(monkeypatch)
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
-            content=b"\\x00\\x00\\x00\\x18ftypisom",
+            content=b"\x00\x00\x00\x18ftypisom",
             headers={"content-type": "video/mp4"},
         )
 
