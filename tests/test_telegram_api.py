@@ -145,7 +145,7 @@ async def test_get_updates_rejects_malformed_or_oversized_collections():
 
 @pytest.mark.asyncio
 async def test_send_video_uses_bounded_multipart_upload_and_sanitizes_failures():
-    mp4 = b"\\x00\\x00\\x00\\x18ftypisom"
+    mp4 = b"\x00\x00\x00\x18ftypisom"
     calls = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -178,7 +178,7 @@ async def test_send_video_uses_bounded_multipart_upload_and_sanitizes_failures()
 @pytest.mark.asyncio
 async def test_send_video_rejects_oversized_invalid_or_unsafe_uploads():
     api = TelegramBotAPI("123:abcdefghijklmnop")
-    mp4 = b"\\x00\\x00\\x00\\x18ftypisom"
+    mp4 = b"\x00\x00\x00\x18ftypisom"
     with pytest.raises(ValueError, match="MP4"):
         await api.send_video(900, b"not-a-video!!", filename="render.mp4")
     with pytest.raises(ValueError, match="filename"):
