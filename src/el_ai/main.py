@@ -40,6 +40,7 @@ OWNER_HUB_COMMANDS = frozenset({
     "/taskresult", "/taskcancel", "/taskhistory", "/taskwatch", "/taskunwatch",
     "/taskwatches", "/videoproviders", "/videoroute",
     "/videohistory", "/videostatus", "/videocancel",
+    "/videodrafts", "/videorender", "/videorenderstatus", "/videorendercancel",
 })
 
 
@@ -237,6 +238,7 @@ async def _owner_hub_command(
         "/hub", "/tasks", "/memory", "/task", "/taskstatus", "/taskresult", "/taskcancel",
         "/taskhistory", "/taskwatch", "/taskunwatch", "/taskwatches",
         "/videoproviders", "/videoroute", "/videohistory", "/videostatus", "/videocancel",
+        "/videodrafts", "/videorender", "/videorenderstatus", "/videorendercancel",
     }:
         return None
     if not settings.hub_integration_enabled:
@@ -487,6 +489,83 @@ async def _owner_hub_command(
                 if exc.status_code == 404:
                     return "تولید ویدئو پیدا نشد یا متعلق به حساب متصل نیست."
                 raise
+        if command == "/videodrafts":
+            if not argument:
+                return "روش استفاده: /videodrafts ANALYSIS_ID"
+            try:
+                analysis_id = str(UUID(argument))
+            except ValueError:
+                return "شناسه تحلیل ویدئو باید یک UUID معتبر باشد."
+            try:
+                result = await hub.list_video_render_drafts(telegram_user_id, analysis_id)
+            except HubClientError as exc:
+                if exc.status_code == 404:
+                    return "تحلیل ویدئو پیدا نشد یا متعلق به حساب متصل نیست."
+                if exc.status_code == 409:
+                    return "تحلیل باید ابتدا با موفقیت تکمیل شود."
+                raise
+            return _format_result({
+                **result,
+                "render_kind": "deterministic_ffmpeg",
+                "note": "فقط Draftهای آماده‌شده قابل رندر هستند؛ آماده‌سازی Timeline در داشبورد Hub انجام می‌شود.",
+            })
+        if command == "/videorender":
+            if not argument:
+                return "روش استفاده: /videorender DRAFT_ID"
+            try:
+                draft_id = str(UUID(argument))
+            except ValueError:
+                return "شناسه Draft باید یک UUID معتبر باشد."
+            idempotency_key = f"el-ai:{telegram_user_id}:{update_id}:video-render"
+            try:
+                result = await hub.submit_video_render(
+                    telegram_user_id,
+                    draft_id,
+                    idempotency_key=idempotency_key,
+                )
+            except HubClientError as exc:
+                if exc.status_code == 404:
+                    return "Draft پیدا نشد یا متعلق به حساب متصل نیست."
+                if exc.status_code == 409:
+                    return "Timeline این Draft هنوز برای رندر آماده نشده یا نسخه آن تغییر کرده است؛ ابتدا آن را در داشبورد Hub آماده و ذخیره کن."
+                if exc.status_code == 422:
+                    return "Timeline یا کلید درخواست رندر معتبر نیست؛ Draft را در Hub دوباره بررسی کن."
+                raise
+            return _format_result({
+                **result,
+                "render_kind": "deterministic_ffmpeg",
+                "note": "این رندر قطعی و محلی با FFmpeg است؛ مدل مولد یا سرویس ابری فراخوانی نمی‌شود. فایل خروجی در داشبورد Hub قابل دانلود است.",
+            })
+        if command == "/videorenderstatus":
+            if not argument:
+                return "روش استفاده: /videorenderstatus RENDER_ID"
+            try:
+                render_id = str(UUID(argument))
+            except ValueError:
+                return "شناسه رندر باید یک UUID معتبر باشد."
+            try:
+                result = await hub.get_video_render(telegram_user_id, render_id)
+            except HubClientError as exc:
+                if exc.status_code == 404:
+                    return "رندر پیدا نشد یا متعلق به حساب متصل نیست."
+                raise
+            rendered = _format_result(result)
+            if result.get("output_available") is True:
+                rendered += "\n\nفایل MP4 خصوصی در داشبورد Hub قابل دانلود است."
+            return rendered
+        if command == "/videorendercancel":
+            if not argument:
+                return "روش استفاده: /videorendercancel RENDER_ID"
+            try:
+                render_id = str(UUID(argument))
+            except ValueError:
+                return "شناسه رندر باید یک UUID معتبر باشد."
+            try:
+                return _format_result(await hub.cancel_video_render(telegram_user_id, render_id))
+            except HubClientError as exc:
+                if exc.status_code == 404:
+                    return "رندر پیدا نشد یا متعلق به حساب متصل نیست."
+                raise
     except HubClientError:
         return "درخواست Hub ناموفق بود یا مجوز لازم وجود ندارد. وضعیت اتصال و Scopeها را بررسی کن."
     return None
@@ -516,6 +595,10 @@ OWNER_BOT_COMMANDS = (
     {"command": "videohistory", "description": "تاریخچه تولید ویدئو"},
     {"command": "videostatus", "description": "وضعیت یک تولید ویدئو"},
     {"command": "videocancel", "description": "لغو تولید ویدئوی در صف"},
+    {"command": "videodrafts", "description": "فهرست Draftهای آماده رندر"},
+    {"command": "videorender", "description": "ثبت رندر قطعی محلی FFmpeg"},
+    {"command": "videorenderstatus", "description": "وضعیت رندر محلی"},
+    {"command": "videorendercancel", "description": "لغو رندر محلی"},
     {"command": "health", "description": "سلامت و آمار ربات"},
     {"command": "site", "description": "پرسش از دانش سایت"},
 )
