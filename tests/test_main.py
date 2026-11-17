@@ -721,3 +721,27 @@ def test_task_watch_poll_defers_transient_hub_failures(tmp_path):
     assert watch.last_status == "queued"
     assert watch.retry_count == 1
     assert watch.next_attempt_at == 530
+
+
+
+def test_memory_dream_command_uses_read_only_hub_preview():
+    class FakeHub:
+        async def preview_memory_dream(self, telegram_user_id, *, limit=100):
+            assert telegram_user_id == 123
+            assert limit == 100
+            return {
+                "engine": "deterministic_memory_review_v1",
+                "proposal_count": 0,
+                "state_changed": False,
+                "proposals": [],
+            }
+
+    rendered = asyncio.run(_owner_hub_command(
+        "/memorydream",
+        telegram_user_id=123,
+        update_id=99,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+    ))
+    assert json.loads(rendered)["state_changed"] is False
+    assert "/memorydream" in OWNER_HUB_COMMANDS
