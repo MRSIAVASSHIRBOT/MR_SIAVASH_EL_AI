@@ -40,7 +40,7 @@ OWNER_HUB_COMMANDS = frozenset({
     "/taskresult", "/taskcancel", "/taskhistory", "/taskwatch", "/taskunwatch",
     "/taskwatches", "/videoproviders", "/videoroute",
     "/videohistory", "/videostatus", "/videocancel",
-    "/videodrafts", "/videorenders", "/videorender", "/videorenderstatus",
+    "/videodrafts", "/videorenders", "/videorendercheck", "/videorender", "/videorenderstatus",
     "/videorenderdownload", "/videorendercancel",
 })
 
@@ -241,7 +241,7 @@ async def _owner_hub_command(
         "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskresult", "/taskcancel",
         "/taskhistory", "/taskwatch", "/taskunwatch", "/taskwatches",
         "/videoproviders", "/videoroute", "/videohistory", "/videostatus", "/videocancel",
-        "/videodrafts", "/videorenders", "/videorender", "/videorenderstatus",
+        "/videodrafts", "/videorenders", "/videorendercheck", "/videorender", "/videorenderstatus",
         "/videorenderdownload", "/videorendercancel",
     }:
         return None
@@ -584,6 +584,56 @@ async def _owner_hub_command(
                 **result,
                 "render_kind": "deterministic_ffmpeg",
             })
+
+        if command == "/videorendercheck":
+            if not argument:
+                return "روش استفاده: /videorendercheck DRAFT_ID"
+            try:
+                draft_id = str(UUID(argument))
+            except ValueError:
+                return "شناسه Draft باید یک UUID معتبر باشد."
+            try:
+                result = await hub.preflight_video_render(telegram_user_id, draft_id)
+            except HubClientError as exc:
+                if exc.status_code == 404:
+                    return "Draft پیدا نشد یا متعلق به حساب متصل نیست."
+                if exc.status_code == 422:
+                    return "شناسه Draft یا وضعیت Timeline معتبر نیست."
+                raise
+            checks = result.get("checks")
+            if not isinstance(checks, list):
+                return "Hub نتیجه معتبرِ پیش‌بررسی برنگرداند."
+            labels = {
+                "timeline_integrity": "یکپارچگی Timeline",
+                "analysis_completed": "تکمیل تحلیل",
+                "source_bounds": "محدوده و مالکیت منابع",
+                "source_files": "فایل‌های منبع",
+                "ffmpeg_available": "FFmpeg",
+                "ffprobe_available": "FFprobe",
+                "output_storage": "ذخیره‌سازی خروجی",
+                "disk_space": "فضای دیسک",
+            }
+            statuses = {"pass": "موفق", "warning": "هشدار", "fail": "ناموفق"}
+            lines = [
+                "پیش‌بررسی رندر محلی",
+                "وضعیت: " + ("آماده برای ثبت جداگانه" if result.get("ready") is True else "نیازمند رفع مانع"),
+                "هیچ Job، رندر یا درخواست Provider آغاز نشد."
+            ]
+            for check in checks[:12]:
+                if not isinstance(check, dict):
+                    continue
+                code = check.get("code")
+                status = check.get("status")
+                detail = check.get("detail")
+                lines.append(
+                    (labels.get(code, str(code)[:60]))
+                    + ": " + statuses.get(status, "نامشخص")
+                    + (" — " + detail[:180] if isinstance(detail, str) and detail else "")
+                )
+            if result.get("warnings"):
+                lines.append("هشدارها مانع قطعی نیستند؛ Worker پیش از اجرا دوباره بررسی می‌کند.")
+            lines.append("این نتیجه لحظه‌ای است و جایگزین بررسی نهایی Worker نمی‌شود.")
+            return "\\n".join(lines)
         if command == "/videorender":
             if not argument:
                 return "روش استفاده: /videorender DRAFT_ID"
@@ -703,6 +753,7 @@ OWNER_BOT_COMMANDS = (
     {"command": "videocancel", "description": "لغو تولید ویدئوی در صف"},
     {"command": "videodrafts", "description": "فهرست Draftهای آماده رندر"},
     {"command": "videorenders", "description": "تاریخچه رندرهای محلی"},
+    {"command": "videorendercheck", "description": "بررسی آمادگی رندر محلی"},
     {"command": "videorender", "description": "ثبت رندر قطعی محلی FFmpeg"},
     {"command": "videorenderstatus", "description": "وضعیت رندر محلی"},
     {"command": "videorenderdownload", "description": "دریافت فایل MP4 در تلگرام"},
