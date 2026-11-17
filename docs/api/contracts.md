@@ -23,7 +23,8 @@ The Hub owns Telegram client registration, scopes, token issuance, expiry, revoc
 - GET /integrations/telegram/tasks: requires tasks:read and returns only tasks submitted by the exact paired client.
 - GET /integrations/telegram/tasks/{task_id}: requires tasks:read and returns one task only when that exact paired client submitted it; other clients receive the same 404 as an unknown task.
 - POST /integrations/telegram/tasks: requires tasks:create and an idempotency key; Hub PolicyEngine remains authoritative.
-- POST /integrations/telegram/memory/search: requires memory:search and is owner-scoped.\n- POST /integrations/telegram/memory/dream/preview: requires memory:search and returns a bounded, read-only duplicate-memory review for the paired owner; no entry is changed automatically.
+- POST /integrations/telegram/memory/search: requires memory:search and is owner-scoped.
+- POST /integrations/telegram/memory/dream/preview: requires memory:search and returns a bounded, read-only duplicate-memory review for the paired owner; no entry is changed automatically.
 - GET /integrations/telegram/video/providers: requires video:read and returns only the non-secret configured catalog.
 - GET /integrations/telegram/video/generations and GET /integrations/telegram/video/generations/{generation_id}: require video:read, are owner-scoped, and omit provider job and private asset identifiers.
 - DELETE /integrations/telegram/video/generations/{generation_id}: requires video:cancel and only cancels prepared or queued work before provider submission; active or ambiguous provider jobs return 409.
