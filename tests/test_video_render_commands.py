@@ -82,6 +82,10 @@ def test_video_render_commands_validate_ids_and_submit_with_update_idempotency()
                 "warnings": ["disk_space"]
             }
 
+        async def preflight_video_render_for_submit(self, telegram_user_id, requested_draft_id):
+            calls.append(("preflight-submit", telegram_user_id, requested_draft_id))
+            return {"ready": True, "warnings": ["disk_space"], "checks": []}
+
         async def download_video_render(self, telegram_user_id, requested_render_id):
             calls.append(("download", telegram_user_id, requested_render_id))
             return b"\x00\x00\x00\x18ftypisom"
@@ -109,7 +113,8 @@ def test_video_render_commands_validate_ids_and_submit_with_update_idempotency()
         hub=hub, settings=settings,
     ))
     assert json.loads(submitted)["render_id"] == render_id
-    assert calls[1] == (
+    assert calls[1] == ("preflight-submit", 123, draft_id)
+    assert calls[2] == (
         "submit", 123, draft_id, "el-ai:123:81:video-render"
     )
 
@@ -170,6 +175,9 @@ def test_video_render_submission_explains_unprepared_drafts():
     from el_ai.integrations.hub import HubClientError
 
     class FakeHub:
+        async def preflight_video_render_for_submit(self, telegram_user_id, draft_id):
+            return {"ready": True, "checks": [], "warnings": []}
+
         async def submit_video_render(self, telegram_user_id, draft_id, *, idempotency_key):
             raise HubClientError("conflict", status_code=409)
 
@@ -182,3 +190,30 @@ def test_video_render_submission_explains_unprepared_drafts():
     ))
     assert "Timeline" in result
     assert "داشبورد Hub" in result
+
+
+def test_video_render_submission_stops_when_local_preflight_fails():
+    calls = []
+    draft_id = "22345678-1234-4234-8234-123456789abc"
+
+    class FakeHub:
+        async def preflight_video_render_for_submit(self, telegram_user_id, requested_draft_id):
+            calls.append(("preflight-submit", telegram_user_id, requested_draft_id))
+            return {
+                "ready": False,
+                "checks": [
+                    {"code": "ffmpeg_available", "status": "fail", "detail": "FFmpeg is missing."}
+                ],
+            }
+
+        async def submit_video_render(self, *args, **kwargs):
+            raise AssertionError("A failed preflight must not create a render job.")
+
+    result = asyncio.run(_owner_hub_command(
+        f"/videorender {draft_id}", telegram_user_id=123, update_id=91,
+        hub=FakeHub(), settings=_settings(),
+    ))
+    assert "رندر ثبت نشد" in result
+    assert "FFmpeg is missing" in result
+    assert "هیچ Job" in result
+    assert calls == [("preflight-submit", 123, draft_id)]
