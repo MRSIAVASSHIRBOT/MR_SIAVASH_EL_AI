@@ -60,6 +60,7 @@ class MessageRouter:
                 "\n/videocancel GENERATION_ID — لغو تولید پیش از ارسال به ارائه‌دهنده"
                 "\n/videodrafts ANALYSIS_ID — فهرست Draftهای آمادهٔ رندر"
                 "\n/videorenders [CURSOR] — تاریخچه صفحه‌بندی‌شده رندرهای محلی"
+                "\n/videorendercheck DRAFT_ID — بررسی آمادگی محلی پیش از ثبت رندر"
                 "\n/videorender DRAFT_ID — ثبت رندر قطعی محلی با FFmpeg"
                 "\n/videorenderdownload RENDER_ID — ارسال فایل MP4 خصوصی در تلگرام"
                 "\n/videorenderstatus RENDER_ID — وضعیت رندر محلی"

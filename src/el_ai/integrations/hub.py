@@ -29,6 +29,8 @@ _STATIC_HUB_ROUTES = frozenset({
     "/integrations/telegram/video/route-preview",
     "/integrations/telegram/video/generations",
     "/integrations/telegram/video/render-drafts",
+    "/integrations/telegram/video/render-preflight",
+    "/integrations/telegram/video/render-preflight-submit",
     "/integrations/telegram/video/renders",
 })
 
@@ -651,6 +653,30 @@ class HubClient:
         return await self._authorized(
             "GET",
             f"/integrations/telegram/video/render-drafts?{urlencode({'analysis_id': canonical_id})}",
+            telegram_user_id,
+        )
+
+
+    async def preflight_video_render(
+        self, telegram_user_id: int, draft_id: str
+    ) -> dict[str, object]:
+        """Inspect local render readiness through video:read without creating a job."""
+        canonical_id = str(UUID(draft_id))
+        return await self._authorized(
+            "GET",
+            f"/integrations/telegram/video/render-preflight?{urlencode({'draft_id': canonical_id})}",
+            telegram_user_id,
+        )
+
+
+    async def preflight_video_render_for_submit(
+        self, telegram_user_id: int, draft_id: str
+    ) -> dict[str, object]:
+        """Check render prerequisites using the same video:render scope as submission."""
+        canonical_id = str(UUID(draft_id))
+        return await self._authorized(
+            "GET",
+            f"/integrations/telegram/video/render-preflight-submit?{urlencode({'draft_id': canonical_id})}",
             telegram_user_id,
         )
 
