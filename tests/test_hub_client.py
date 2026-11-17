@@ -890,3 +890,47 @@ async def test_memory_dream_preview_uses_paired_private_endpoint_and_bounds():
         '{"limit":100,"similarity_threshold":0.82}'
     )
     await client.close()
+
+
+
+@pytest.mark.asyncio
+async def test_memory_validation_preview_uses_paired_private_endpoint_and_bounds():
+    store = MemoryStore()
+    store.save("client-memory-validation", {
+        "access_token": "memory-validation-access",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "memory-validation-refresh",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["memory:search"],
+    })
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={
+            "engine": "deterministic_memory_validation_v1",
+            "contradiction_count": 0,
+            "unverified_count": 0,
+            "state_changed": False,
+        })
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-memory-validation",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(ValueError):
+        await client.preview_memory_validation(123456, limit=101)
+    with pytest.raises(ValueError):
+        await client.preview_memory_validation(123456, similarity_threshold=0.5)
+
+    result = await client.preview_memory_validation(123456)
+    assert result["engine"] == "deterministic_memory_validation_v1"
+    assert requests[0].method == "POST"
+    assert requests[0].url.path == "/integrations/telegram/memory/validate/preview"
+    assert requests[0].headers["X-Telegram-User-Id"] == "123456"
+    assert requests[0].read().decode() == (
+        '{"limit":100,"similarity_threshold":0.72}'
+    )
+    await client.close()
