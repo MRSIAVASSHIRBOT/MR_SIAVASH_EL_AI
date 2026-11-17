@@ -641,6 +641,30 @@ async def _owner_hub_command(
                 draft_id = str(UUID(argument))
             except ValueError:
                 return "شناسه Draft باید یک UUID معتبر باشد."
+            try:
+                readiness = await hub.preflight_video_render_for_submit(
+                    telegram_user_id, draft_id
+                )
+            except HubClientError as exc:
+                if exc.status_code == 404:
+                    return "Draft پیدا نشد یا متعلق به حساب متصل نیست."
+                if exc.status_code == 422:
+                    return "Timeline برای رندر آماده نیست."
+                raise
+            if readiness.get("ready") is not True:
+                failed_checks = [
+                    item for item in readiness.get("checks", [])
+                    if isinstance(item, dict) and item.get("status") == "fail"
+                ]
+                lines = ["رندر ثبت نشد؛ پیش‌بررسی محلی مانع اجرا شد."]
+                for item in failed_checks[:8]:
+                    lines.append(
+                        str(item.get("code", "check"))[:60]
+                        + " — "
+                        + str(item.get("detail", "پیش‌نیاز ناموفق"))[:180]
+                    )
+                lines.append("هیچ Job یا پردازش Provider ایجاد نشد.")
+                return "\n".join(lines)
             idempotency_key = f"el-ai:{telegram_user_id}:{update_id}:video-render"
             try:
                 result = await hub.submit_video_render(
@@ -659,6 +683,7 @@ async def _owner_hub_command(
             return _format_result({
                 **result,
                 "render_kind": "deterministic_ffmpeg",
+                "preflight_warnings": readiness.get("warnings", []),
                 "note": "این رندر قطعی و محلی با FFmpeg است؛ مدل مولد یا سرویس ابری فراخوانی نمی‌شود. فایل خروجی در داشبورد Hub قابل دانلود است.",
             })
         if command == "/videorenderstatus":
