@@ -36,7 +36,7 @@ TASK_STATUSES = frozenset({
     "failed", "cancelled", "rejected",
 })
 OWNER_HUB_COMMANDS = frozenset({
-    "/pair", "/hub", "/tasks", "/memory", "/task", "/taskstatus",
+    "/pair", "/hub", "/tasks", "/memory", "/memorydream", "/task", "/taskstatus",
     "/taskresult", "/taskcancel", "/taskhistory", "/taskwatch", "/taskunwatch",
     "/taskwatches", "/videoproviders", "/videoroute",
     "/videohistory", "/videostatus", "/videocancel",
@@ -238,7 +238,7 @@ async def _owner_hub_command(
             return "اتصال انجام نشد؛ کد ممکن است نامعتبر یا منقضی شده باشد. هیچ اطلاعات محرمانه‌ای ثبت نشده است."
 
     if command not in {
-        "/hub", "/tasks", "/memory", "/task", "/taskstatus", "/taskresult", "/taskcancel",
+        "/hub", "/tasks", "/memory", "/memorydream", "/task", "/taskstatus", "/taskresult", "/taskcancel",
         "/taskhistory", "/taskwatch", "/taskunwatch", "/taskwatches",
         "/videoproviders", "/videoroute", "/videohistory", "/videostatus", "/videocancel",
         "/videodrafts", "/videorenders", "/videorender", "/videorenderstatus",
@@ -278,6 +278,12 @@ async def _owner_hub_command(
             if not argument:
                 return "روش استفاده: /memory عبارت جست‌وجو"
             return _format_result(await hub.search_memory(telegram_user_id, argument[:200]))
+        if command == "/memorydream":
+            if argument:
+                return "این دستور فعلاً بدون آرگومان اجرا می‌شود: /memorydream"
+            return _format_result(
+                await hub.preview_memory_dream(telegram_user_id, limit=100)
+            )
         if command == "/task":
             if "|" not in argument:
                 return "روش استفاده: /task task.type | توضیح وظیفه"
