@@ -633,7 +633,7 @@ async def _owner_hub_command(
             if result.get("warnings"):
                 lines.append("هشدارها مانع قطعی نیستند؛ Worker پیش از اجرا دوباره بررسی می‌کند.")
             lines.append("این نتیجه لحظه‌ای است و جایگزین بررسی نهایی Worker نمی‌شود.")
-            return "\n".join(lines);
+            return "\n".join(lines)
         if command == "/videorender":
             if not argument:
                 return "روش استفاده: /videorender DRAFT_ID"
