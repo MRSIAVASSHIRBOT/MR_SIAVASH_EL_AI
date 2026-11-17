@@ -40,7 +40,7 @@ class MessageRouter:
                 "\n/hub — وضعیت اتصال"
                 "\n/tasks [STATUS] [CURSOR] — فهرست صفحه‌بندی‌شده وظایف این ربات"
                 "\n/memory QUERY — جست‌وجوی حافظه"
-                "\n/memorydream — بازبینی تکراری‌های حافظه بدون تغییر خودکار"
+                "\n/memorydream — بازبینی تکراری‌های حافظه بدون تغییر خودکار"\n                "\n/memorycheck — بررسی تناقض‌ها و یادداشت‌های تأییدنشده"
                 "\n/task TYPE | DESCRIPTION — ثبت وظیفه"
                 "\n/taskstatus TASK_ID — مشاهده وضعیت وظیفه ثبت‌شده"
                 "\n/taskhistory TASK_ID — مشاهده تاریخچه وضعیت و رویدادهای وظیفه"
