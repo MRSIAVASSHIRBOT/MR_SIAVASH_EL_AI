@@ -238,7 +238,7 @@ async def _owner_hub_command(
             return "اتصال انجام نشد؛ کد ممکن است نامعتبر یا منقضی شده باشد. هیچ اطلاعات محرمانه‌ای ثبت نشده است."
 
     if command not in {
-        "/hub", "/tasks", "/memory", "/memorydream", "/task", "/taskstatus", "/taskresult", "/taskcancel",
+        "/hub", "/tasks", "/memory", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskresult", "/taskcancel",
         "/taskhistory", "/taskwatch", "/taskunwatch", "/taskwatches",
         "/videoproviders", "/videoroute", "/videohistory", "/videostatus", "/videocancel",
         "/videodrafts", "/videorenders", "/videorender", "/videorenderstatus",
