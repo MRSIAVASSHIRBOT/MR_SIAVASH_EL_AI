@@ -1061,3 +1061,34 @@ async def test_video_render_preflight_rejects_invalid_draft_id_before_request():
     with pytest.raises(ValueError):
         await client.preflight_video_render(123456, "not-a-uuid")
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_video_render_submit_preflight_uses_video_render_scope_route():
+    store = MemoryStore()
+    store.save("client-render-preflight", {
+        "access_token": "access-token",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "refresh-token",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["video:render"],
+    })
+    draft_id = "12345678-1234-4234-8234-123456789abc"
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"draft_id": draft_id, "ready": True, "checks": []})
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-render-preflight",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    result = await client.preflight_video_render_for_submit(123456, draft_id)
+    assert result["ready"] is True
+    assert requests[0].method == "GET"
+    assert requests[0].url.path == "/integrations/telegram/video/render-preflight-submit"
+    assert requests[0].url.params["draft_id"] == draft_id
+    await client.close()
