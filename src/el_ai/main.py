@@ -36,7 +36,7 @@ TASK_STATUSES = frozenset({
     "failed", "cancelled", "rejected",
 })
 OWNER_HUB_COMMANDS = frozenset({
-    "/pair", "/hub", "/tasks", "/memory", "/memorydream", "/task", "/taskstatus",
+    "/pair", "/hub", "/tasks", "/memory", "/memorydream", "/memorycheck", "/task", "/taskstatus",
     "/taskresult", "/taskcancel", "/taskhistory", "/taskwatch", "/taskunwatch",
     "/taskwatches", "/videoproviders", "/videoroute",
     "/videohistory", "/videostatus", "/videocancel",
@@ -283,6 +283,12 @@ async def _owner_hub_command(
                 return "این دستور فعلاً بدون آرگومان اجرا می‌شود: /memorydream"
             return _format_result(
                 await hub.preview_memory_dream(telegram_user_id, limit=100)
+            )
+        if command == "/memorycheck":
+            if argument:
+                return "این دستور فعلاً بدون آرگومان اجرا می‌شود: /memorycheck"
+            return _format_result(
+                await hub.preview_memory_validation(telegram_user_id, limit=100)
             )
         if command == "/task":
             if "|" not in argument:
@@ -636,6 +642,7 @@ OWNER_BOT_COMMANDS = (
     {"command": "tasks", "description": "فهرست وظایف"},
     {"command": "memory", "description": "جست‌وجوی حافظه"},
     {"command": "memorydream", "description": "بازبینی تکراری‌های حافظه"},
+    {"command": "memorycheck", "description": "اعتبارسنجی و بررسی تناقض حافظه"},
     {"command": "task", "description": "ثبت وظیفه"},
     {"command": "taskstatus", "description": "وضعیت یک وظیفه"},
     {"command": "taskhistory", "description": "تاریخچه یک وظیفه"},
