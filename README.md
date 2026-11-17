@@ -72,6 +72,8 @@ The preflight does not contact Telegram, Hub, or the public Gateway, does not wr
 - `/taskcancel TASK_ID`: cancel a task only while it is queued or waiting for approval.
 - `/taskwatch TASK_ID`, `/taskwatches`, and `/taskunwatch TASK_ID`: persist, list, or stop owner-only task status notifications. Watches store task IDs, Telegram owner IDs, status checkpoints, and bounded retry deadlines only; transient Hub or Telegram failures use persisted exponential backoff (30 seconds to 30 minutes). Delivery remains at-least-once when Telegram reports an unknown outcome.
 - `/memory QUERY`: search the owner's Hub memory.
+- `/memorydream`: run a bounded, read-only duplicate-memory review; every proposal requires owner review and no entry is merged or deleted.
+- `/memorycheck`: run a bounded, read-only review for possible same-category polarity conflicts, expired notes, and unapproved or low-confidence entries. Results are heuristic hints, not factual verification, and no memory is changed.
 - `/videoproviders`: inspect the non-secret configured video provider catalog.
 - `/videoroute SECONDS ASPECT [720p|1080p] [remote-ok spend-ok USD_CAP]`: request a read-only local-first route preview. It starts no generation, submits no prompt or media, and creates no provider charge.
 - `/videohistory [CURSOR]` and `/videostatus GENERATION_ID`: inspect bounded, owner-scoped video generation history and status.
