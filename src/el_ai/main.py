@@ -36,7 +36,7 @@ TASK_STATUSES = frozenset({
     "failed", "cancelled", "rejected",
 })
 OWNER_HUB_COMMANDS = frozenset({
-    "/pair", "/hub", "/tasks", "/memory", "/memorydream", "/memorycheck", "/task", "/taskstatus",
+    "/pair", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus",
     "/taskresult", "/taskcancel", "/taskhistory", "/taskwatch", "/taskunwatch",
     "/taskwatches", "/videoproviders", "/videoroute",
     "/videohistory", "/videostatus", "/videocancel",
@@ -238,7 +238,7 @@ async def _owner_hub_command(
             return "اتصال انجام نشد؛ کد ممکن است نامعتبر یا منقضی شده باشد. هیچ اطلاعات محرمانه‌ای ثبت نشده است."
 
     if command not in {
-        "/hub", "/tasks", "/memory", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskresult", "/taskcancel",
+        "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskresult", "/taskcancel",
         "/taskhistory", "/taskwatch", "/taskunwatch", "/taskwatches",
         "/videoproviders", "/videoroute", "/videohistory", "/videostatus", "/videocancel",
         "/videodrafts", "/videorenders", "/videorender", "/videorenderstatus",
@@ -278,6 +278,39 @@ async def _owner_hub_command(
             if not argument:
                 return "روش استفاده: /memory عبارت جست‌وجو"
             return _format_result(await hub.search_memory(telegram_user_id, argument[:200]))
+        if command == "/memoryentry":
+            if not argument:
+                return "روش استفاده: /memoryentry MEMORY_ID"
+            try:
+                memory_id = str(UUID(argument))
+            except ValueError:
+                return "شناسه یادداشت باید یک UUID معتبر باشد."
+            try:
+                return _format_result(await hub.get_memory_entry(telegram_user_id, memory_id))
+            except HubClientError as exc:
+                if exc.status_code == 404:
+                    return "یادداشت پیدا نشد یا منقضی شده است."
+                raise
+        if command == "/memoryapprove":
+            if not argument:
+                return "روش استفاده: /memoryapprove MEMORY_ID — فقط پس از بازبینی یادداشت"
+            try:
+                memory_id = str(UUID(argument))
+            except ValueError:
+                return "شناسه یادداشت باید یک UUID معتبر باشد."
+            try:
+                result = await hub.approve_memory_entry(telegram_user_id, memory_id)
+            except HubClientError as exc:
+                if exc.status_code == 403:
+                    return "مجوز memory:write برای این اتصال فعال نیست؛ مالک باید آن را جداگانه در پنل Hub اعطا کند."
+                if exc.status_code == 404:
+                    return "یادداشت پیدا نشد یا منقضی شده است."
+                raise
+            return (
+                "یادداشت با تأیید صریح مالک علامت‌گذاری شد."
+                if result.get("changed") is True
+                else "این یادداشت قبلاً تأیید شده است."
+            )
         if command == "/memorydream":
             if argument:
                 return "این دستور فعلاً بدون آرگومان اجرا می‌شود: /memorydream"
@@ -314,19 +347,29 @@ async def _owner_hub_command(
             return _format_result(await hub.get_task(telegram_user_id, task_id))
         if command == "/taskhistory":
             if not argument:
-                return "روش استفاده: /taskhistory TASK_ID"
+                return "روش استفاده: /taskhistory TASK_ID [CURSOR]"
+            parts = argument.split(maxsplit=1)
             try:
-                task_id = str(UUID(argument))
+                task_id = str(UUID(parts[0]))
             except ValueError:
                 return "شناسه وظیفه باید یک UUID معتبر باشد."
+            cursor = parts[1] if len(parts) > 1 else None
             try:
-                return _format_result(await hub.get_task_history(
-                    telegram_user_id, task_id, limit=20
-                ))
+                result = await hub.get_task_history(
+                    telegram_user_id, task_id, limit=20, cursor=cursor
+                )
+            except ValueError:
+                return "نشانگر صفحه تاریخچه نامعتبر است."
             except HubClientError as exc:
                 if exc.status_code == 404:
                     return "وظیفه پیدا نشد یا متعلق به این اتصال ربات نیست."
                 raise
+            next_cursor = result.get("next_cursor")
+            visible = {key: value for key, value in result.items() if key != "next_cursor"}
+            rendered = _format_result(visible)
+            if result.get("has_more") and isinstance(next_cursor, str) and next_cursor:
+                return rendered + f"\n\nصفحه بعد: /taskhistory {task_id} {next_cursor}"
+            return rendered
         if command == "/taskwatch":
             if not argument:
                 return "روش استفاده: /taskwatch TASK_ID"
@@ -641,11 +684,13 @@ OWNER_BOT_COMMANDS = (
     {"command": "hub", "description": "وضعیت اتصال Hub"},
     {"command": "tasks", "description": "فهرست وظایف"},
     {"command": "memory", "description": "جست‌وجوی حافظه"},
+    {"command": "memoryentry", "description": "مشاهده یک یادداشت حافظه"},
+    {"command": "memoryapprove", "description": "تأیید صریح یک یادداشت حافظه"},
     {"command": "memorydream", "description": "بازبینی تکراری‌های حافظه"},
     {"command": "memorycheck", "description": "اعتبارسنجی و بررسی تناقض حافظه"},
     {"command": "task", "description": "ثبت وظیفه"},
     {"command": "taskstatus", "description": "وضعیت یک وظیفه"},
-    {"command": "taskhistory", "description": "تاریخچه یک وظیفه"},
+    {"command": "taskhistory", "description": "تاریخچه صفحه‌بندی‌شده یک وظیفه"},
     {"command": "taskwatch", "description": "اعلان تغییر وضعیت وظیفه"},
     {"command": "taskunwatch", "description": "توقف اعلان‌های وظیفه"},
     {"command": "taskwatches", "description": "فهرست پایش‌های فعال"},
