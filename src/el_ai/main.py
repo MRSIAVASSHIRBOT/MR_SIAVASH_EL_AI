@@ -635,6 +635,7 @@ OWNER_BOT_COMMANDS = (
     {"command": "hub", "description": "وضعیت اتصال Hub"},
     {"command": "tasks", "description": "فهرست وظایف"},
     {"command": "memory", "description": "جست‌وجوی حافظه"},
+    {"command": "memorydream", "description": "بازبینی تکراری‌های حافظه"},
     {"command": "task", "description": "ثبت وظیفه"},
     {"command": "taskstatus", "description": "وضعیت یک وظیفه"},
     {"command": "taskhistory", "description": "تاریخچه یک وظیفه"},
