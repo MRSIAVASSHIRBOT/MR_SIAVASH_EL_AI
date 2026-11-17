@@ -846,3 +846,47 @@ async def test_video_route_preview_client_rejects_invalid_duration_cost_and_cons
             max_remote_cost_usd=float("inf")
         )
     await client.close()
+
+
+
+@pytest.mark.asyncio
+async def test_memory_dream_preview_uses_paired_private_endpoint_and_bounds():
+    store = MemoryStore()
+    store.save("client-memory-dream", {
+        "access_token": "memory-dream-access",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "memory-dream-refresh",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["memory:search"],
+    })
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={
+            "engine": "deterministic_memory_review_v1",
+            "proposal_count": 0,
+            "state_changed": False,
+            "proposals": [],
+        })
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-memory-dream",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(ValueError):
+        await client.preview_memory_dream(123456, limit=101)
+    with pytest.raises(ValueError):
+        await client.preview_memory_dream(123456, similarity_threshold=0.5)
+
+    result = await client.preview_memory_dream(123456)
+    assert result["engine"] == "deterministic_memory_review_v1"
+    assert requests[0].method == "POST"
+    assert requests[0].url.path == "/integrations/telegram/memory/dream/preview"
+    assert requests[0].headers["X-Telegram-User-Id"] == "123456"
+    assert requests[0].read().decode() == (
+        '{"limit":100,"similarity_threshold":0.82}'
+    )
+    await client.close()
