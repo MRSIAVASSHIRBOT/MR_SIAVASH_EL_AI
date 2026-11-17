@@ -637,12 +637,13 @@ async def test_task_history_uses_the_pair_scoped_audit_endpoint():
         store,
         transport=httpx.MockTransport(handler),
     )
-    result = await client.get_task_history(123456, task_id, limit=12)
+    result = await client.get_task_history(123456, task_id, limit=12, cursor="cursor_2-next")
 
     assert result["count"] == 1
     assert requests[0].method == "GET"
     assert requests[0].url.path == f"/integrations/telegram/tasks/{task_id}/events"
     assert requests[0].url.params["limit"] == "12"
+    assert requests[0].url.params["cursor"] == "cursor_2-next"
     assert requests[0].headers["X-Telegram-User-Id"] == "123456"
     await client.close()
 
@@ -654,6 +655,10 @@ async def test_task_history_rejects_invalid_id_and_limit_before_network_request(
         await client.get_task_history(123456, "../private")
     with pytest.raises(ValueError):
         await client.get_task_history(123456, "12345678-1234-4234-8234-123456789abc", limit=51)
+    with pytest.raises(ValueError):
+        await client.get_task_history(
+            123456, "12345678-1234-4234-8234-123456789abc", cursor="bad cursor"
+        )
     await client.close()
 
 
@@ -934,3 +939,76 @@ async def test_memory_validation_preview_uses_paired_private_endpoint_and_bounds
         '{"limit":100,"similarity_threshold":0.72}'
     )
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_entry_read_and_explicit_approval_use_distinct_scoped_routes():
+    memory_id = "12345678-1234-4234-8234-123456789abc"
+    read_store = MemoryStore()
+    read_store.save("client-memory-entry", {
+        "access_token": "memory-entry-access",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "memory-entry-refresh",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["memory:search"],
+    })
+    read_requests = []
+
+    def read_handler(request: httpx.Request) -> httpx.Response:
+        read_requests.append(request)
+        return httpx.Response(200, json={
+            "memory_id": memory_id,
+            "category": "preferences",
+            "content": "Concise summaries are preferred",
+            "verification_status": "user_authored",
+        })
+
+    read_client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-memory-entry",
+        read_store,
+        transport=httpx.MockTransport(read_handler),
+    )
+    entry = await read_client.get_memory_entry(123456, memory_id)
+    assert entry["verification_status"] == "user_authored"
+    assert read_requests[0].method == "GET"
+    assert read_requests[0].url.path == f"/integrations/telegram/memory/{memory_id}"
+    assert HubClient._route_template(read_requests[0].url.path) == (
+        "/integrations/telegram/memory/{memory_id}"
+    )
+    await read_client.close()
+
+    write_store = MemoryStore()
+    write_store.save("client-memory-approve", {
+        "access_token": "memory-approve-access",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "memory-approve-refresh",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["memory:write"],
+    })
+    write_requests = []
+
+    def write_handler(request: httpx.Request) -> httpx.Response:
+        write_requests.append(request)
+        return httpx.Response(200, json={
+            "memory_id": memory_id,
+            "verification_status": "user_approved",
+            "changed": True,
+        })
+
+    write_client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-memory-approve",
+        write_store,
+        transport=httpx.MockTransport(write_handler),
+    )
+    approved = await write_client.approve_memory_entry(123456, memory_id)
+    assert approved["changed"] is True
+    assert write_requests[0].method == "POST"
+    assert write_requests[0].url.path == (
+        f"/integrations/telegram/memory/{memory_id}/approve"
+    )
+    assert HubClient._route_template(write_requests[0].url.path) == (
+        "/integrations/telegram/memory/{memory_id}/approve"
+    )
+    await write_client.close()
