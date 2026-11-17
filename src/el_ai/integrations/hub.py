@@ -23,6 +23,7 @@ _STATIC_HUB_ROUTES = frozenset({
     "/integrations/telegram/status",
     "/integrations/telegram/tasks",
     "/integrations/telegram/memory/search",
+    "/integrations/telegram/memory/dream/preview",
     "/integrations/telegram/video/providers",
     "/integrations/telegram/video/route-preview",
     "/integrations/telegram/video/generations",
@@ -727,6 +728,21 @@ class HubClient:
             "/integrations/telegram/memory/search",
             telegram_user_id,
             {"query": query, "limit": 5},
+        )
+
+    async def preview_memory_dream(
+        self, telegram_user_id: int, *, limit: int = 100, similarity_threshold: float = 0.82
+    ) -> dict[str, object]:
+        """Request a read-only owner-scoped memory consolidation preview."""
+        if not 1 <= limit <= 100:
+            raise ValueError("Memory review limit must be between 1 and 100")
+        if not 0.75 <= similarity_threshold <= 1.0:
+            raise ValueError("Memory similarity threshold must be between 0.75 and 1.0")
+        return await self._authorized(
+            "POST",
+            "/integrations/telegram/memory/dream/preview",
+            telegram_user_id,
+            {"limit": limit, "similarity_threshold": similarity_threshold},
         )
 
     async def create_task(
