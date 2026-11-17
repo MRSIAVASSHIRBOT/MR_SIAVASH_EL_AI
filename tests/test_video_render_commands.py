@@ -18,9 +18,9 @@ def _settings():
 
 def test_video_render_commands_are_owner_only_and_in_the_private_menu():
     names = {item["command"] for item in OWNER_BOT_COMMANDS}
-    assert {"videodrafts", "videorenders", "videorender", "videorenderstatus", "videorenderdownload", "videorendercancel"} <= names
+    assert {"videodrafts", "videorenders", "videorendercheck", "videorender", "videorenderstatus", "videorenderdownload", "videorendercancel"} <= names
     assert {
-        "/videodrafts", "/videorenders", "/videorender", "/videorenderstatus", "/videorenderdownload", "/videorendercancel"
+        "/videodrafts", "/videorenders", "/videorendercheck", "/videorender", "/videorenderstatus", "/videorenderdownload", "/videorendercancel"
     } <= OWNER_HUB_COMMANDS
     router = MessageRouter(
         AccessController(frozenset({123}), public_enabled=False, rate_limit=20),
@@ -34,6 +34,7 @@ def test_video_render_commands_are_owner_only_and_in_the_private_menu():
     assert "/videorender DRAFT_ID" in help_text
     assert "/videorenderstatus RENDER_ID" in help_text
     assert "/videorenders [CURSOR]" in help_text
+    assert "/videorendercheck DRAFT_ID" in help_text
     assert "/videorenderdownload RENDER_ID" in help_text
 
 
@@ -68,6 +69,18 @@ def test_video_render_commands_validate_ids_and_submit_with_update_idempotency()
         async def list_video_renders(self, telegram_user_id, *, limit=10, cursor=None):
             calls.append(("list", telegram_user_id, limit, cursor))
             return {"renders": [{"render_id": render_id, "status": "completed"}], "count": 1, "next_cursor": "next"}
+
+        async def preflight_video_render(self, telegram_user_id, requested_draft_id):
+            calls.append(("preflight", telegram_user_id, requested_draft_id))
+            return {
+                "ready": True,
+                "execution": "not_started",
+                "checks": [
+                    {"code": "ffmpeg_available", "status": "pass", "detail": "FFmpeg is available."},
+                    {"code": "disk_space", "status": "warning", "detail": "Free space is low."}
+                ],
+                "warnings": ["disk_space"]
+            }
 
         async def download_video_render(self, telegram_user_id, requested_render_id):
             calls.append(("download", telegram_user_id, requested_render_id))
@@ -120,6 +133,16 @@ def test_video_render_commands_validate_ids_and_submit_with_update_idempotency()
     history_payload = json.loads(history)
     assert history_payload["renders"][0]["render_id"] == render_id
     assert calls[-1] == ("list", 123, 10, "next_cursor")
+
+    preflight = asyncio.run(_owner_hub_command(
+        f"/videorendercheck {draft_id}", telegram_user_id=123, update_id=86,
+        hub=hub, settings=settings,
+    ))
+    assert "پیش‌بررسی رندر محلی" in preflight
+    assert "هیچ Job" in preflight
+    assert "FFmpeg: موفق" in preflight
+    assert "فضای دیسک: هشدار" in preflight
+    assert calls[-1] == ("preflight", 123, draft_id)
 
     sent = []
     class FakeTelegramAPI:
