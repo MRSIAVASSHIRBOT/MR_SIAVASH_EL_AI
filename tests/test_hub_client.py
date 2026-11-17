@@ -1012,3 +1012,52 @@ async def test_memory_entry_read_and_explicit_approval_use_distinct_scoped_route
         "/integrations/telegram/memory/{memory_id}/approve"
     )
     await write_client.close()
+
+
+@pytest.mark.asyncio
+async def test_video_render_preflight_uses_owner_scoped_read_route():
+    store = MemoryStore()
+    store.save("client-preflight", {
+        "access_token": "access-token",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "refresh-token",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["video:read"],
+    })
+    draft_id = "12345678-1234-4234-8234-123456789abc"
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={
+            "draft_id": draft_id,
+            "ready": True,
+            "execution": "not_started",
+            "state_changed": False,
+            "checks": [],
+        })
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-preflight",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    result = await client.preflight_video_render(123456, draft_id)
+    assert result["ready"] is True
+    assert requests[0].method == "GET"
+    assert requests[0].url.path == "/integrations/telegram/video/render-preflight"
+    assert requests[0].url.params["draft_id"] == draft_id
+    assert requests[0].headers["X-Telegram-User-Id"] == "123456"
+    assert HubClient._route_template(requests[0].url.path + "?" + requests[0].url.query.decode()) == (
+        "/integrations/telegram/video/render-preflight"
+    )
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_video_render_preflight_rejects_invalid_draft_id_before_request():
+    client = HubClient("http://127.0.0.1:8000", "client-invalid", MemoryStore())
+    with pytest.raises(ValueError):
+        await client.preflight_video_render(123456, "not-a-uuid")
+    await client.close()
