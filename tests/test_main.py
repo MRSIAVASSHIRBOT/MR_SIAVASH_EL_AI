@@ -315,24 +315,29 @@ def test_task_history_command_uses_a_valid_uuid_and_returns_events():
     task_id = "12345678-1234-4234-8234-123456789abc"
 
     class FakeHub:
-        async def get_task_history(self, telegram_user_id, requested_id, *, limit=20):
+        async def get_task_history(self, telegram_user_id, requested_id, *, limit=20, cursor=None):
             assert telegram_user_id == 123
             assert requested_id == task_id
             assert limit == 20
+            assert cursor == "cursor-current"
             return {
                 "task_id": task_id,
                 "events": [{"event_type": "task.submitted", "outcome": "queued"}],
                 "count": 1,
+                "has_more": True,
+                "next_cursor": "cursor-next",
             }
 
     rendered = asyncio.run(_owner_hub_command(
-        f"/taskhistory {task_id}",
+        f"/taskhistory {task_id} cursor-current",
         telegram_user_id=123,
         update_id=36,
         hub=FakeHub(),
         settings=_settings(enabled=True),
     ))
-    assert json.loads(rendered)["events"][0]["event_type"] == "task.submitted"
+    payload, next_page = rendered.split("\n\nصفحه بعد: ", 1)
+    assert json.loads(payload)["events"][0]["event_type"] == "task.submitted"
+    assert next_page == f"/taskhistory {task_id} cursor-next"
 
     invalid = asyncio.run(_owner_hub_command(
         "/taskhistory not-a-uuid",
@@ -345,7 +350,7 @@ def test_task_history_command_uses_a_valid_uuid_and_returns_events():
 
 
 def test_owner_hub_dispatch_allowlist_covers_all_implemented_task_commands():
-    assert {"/tasks", "/taskstatus", "/taskhistory", "/taskresult", "/taskcancel"} <= OWNER_HUB_COMMANDS
+    assert {"/tasks", "/taskstatus", "/taskhistory", "/taskresult", "/taskcancel", "/memoryentry", "/memoryapprove"} <= OWNER_HUB_COMMANDS
 
 
 
@@ -769,3 +774,65 @@ def test_memory_validation_command_uses_read_only_hub_preview():
     ))
     assert json.loads(rendered)["state_changed"] is False
     assert "/memorycheck" in OWNER_HUB_COMMANDS
+
+
+def test_memory_entry_and_explicit_approval_commands_are_owner_scoped():
+    from el_ai.integrations.hub import HubClientError
+
+    memory_id = "12345678-1234-4234-8234-123456789abc"
+
+    class FakeHub:
+        async def get_memory_entry(self, telegram_user_id, requested_id):
+            assert telegram_user_id == 123
+            assert requested_id == memory_id
+            return {
+                "memory_id": memory_id,
+                "category": "preferences",
+                "content": "Concise summaries are preferred",
+                "verification_status": "user_authored",
+            }
+
+        async def approve_memory_entry(self, telegram_user_id, requested_id):
+            assert telegram_user_id == 123
+            assert requested_id == memory_id
+            return {"memory_id": memory_id, "changed": True}
+
+    inspected = asyncio.run(_owner_hub_command(
+        f"/memoryentry {memory_id}",
+        telegram_user_id=123,
+        update_id=80,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+    ))
+    assert json.loads(inspected)["content"] == "Concise summaries are preferred"
+
+    approved = asyncio.run(_owner_hub_command(
+        f"/memoryapprove {memory_id}",
+        telegram_user_id=123,
+        update_id=81,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+    ))
+    assert "تأیید صریح مالک" in approved
+
+    invalid = asyncio.run(_owner_hub_command(
+        "/memoryapprove not-a-uuid",
+        telegram_user_id=123,
+        update_id=82,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+    ))
+    assert "UUID" in invalid
+
+    class ScopeDeniedHub(FakeHub):
+        async def approve_memory_entry(self, telegram_user_id, requested_id):
+            raise HubClientError("scope denied", status_code=403)
+
+    denied = asyncio.run(_owner_hub_command(
+        f"/memoryapprove {memory_id}",
+        telegram_user_id=123,
+        update_id=83,
+        hub=ScopeDeniedHub(),
+        settings=_settings(enabled=True),
+    ))
+    assert "memory:write" in denied

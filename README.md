@@ -68,10 +68,12 @@ The preflight does not contact Telegram, Hub, or the public Gateway, does not wr
 - `/hub`: check the paired Hub connection.
 - `/tasks [STATUS] [CURSOR]`: list this paired bot's tasks with bounded cursor-based pagination.
 - `/task TYPE | DESCRIPTION`: submit a task through Hub policy and idempotency controls.
-- `/taskstatus TASK_ID`, `/taskhistory TASK_ID`, and `/taskresult TASK_ID`: inspect the status, event history, or final result of a task submitted by this paired client.
+- `/taskstatus TASK_ID`, `/taskhistory TASK_ID [CURSOR]`, and `/taskresult TASK_ID`: inspect the status, paged event history, or final result of a task submitted by this paired client.
 - `/taskcancel TASK_ID`: cancel a task only while it is queued or waiting for approval.
 - `/taskwatch TASK_ID`, `/taskwatches`, and `/taskunwatch TASK_ID`: persist, list, or stop owner-only task status notifications. Watches store task IDs, Telegram owner IDs, status checkpoints, and bounded retry deadlines only; transient Hub or Telegram failures use persisted exponential backoff (30 seconds to 30 minutes). Delivery remains at-least-once when Telegram reports an unknown outcome.
 - `/memory QUERY`: search the owner's Hub memory.
+- `/memoryentry MEMORY_ID`: inspect one active owner-owned entry before approving it.
+- `/memoryapprove MEMORY_ID`: explicitly mark one reviewed entry as user-approved. This requires the separately granted `memory:write` scope and cannot edit or delete memory.
 - `/memorydream`: run a bounded, read-only duplicate-memory review; every proposal requires owner review and no entry is merged or deleted.
 - `/memorycheck`: run a bounded, read-only review for possible same-category polarity conflicts, expired notes, and unapproved or low-confidence entries. Results are heuristic hints, not factual verification, and no memory is changed.
 - `/videoproviders`: inspect the non-secret configured video provider catalog.
@@ -86,7 +88,7 @@ The preflight does not contact Telegram, Hub, or the public Gateway, does not wr
 - `/health`: inspect aggregate polling health and counters (owner-only; no message or user data is exposed).
 - `/site QUERY`: query public website knowledge without sending private Hub context.
 
-Video catalog, route preview, generation history, render-draft listing, render history, render status and private render download require `video:read`. Local deterministic FFmpeg render submission separately requires the opt-in `video:render` scope; cancellation of local renders or pending provider generations requires `video:cancel`. Render submission never calls a generative provider or sends source media to a remote service. Existing pairings do not receive new scopes automatically; the authenticated Hub owner must explicitly update the client scope set.
+Video catalog, route preview, generation history, render-draft listing, render history, render status and private render download require `video:read`. Local deterministic FFmpeg render submission separately requires the opt-in `video:render` scope; cancellation of local renders or pending provider generations requires `video:cancel`. Render submission never calls a generative provider or sends source media to a remote service. Existing pairings do not receive new scopes automatically; the authenticated Hub owner must explicitly grant `memory:write` for approvals and update the client scope set
 
 When TELEGRAM_PUBLIC_ENABLED=true, public users can send normal text in a private chat and receive answers from the public website Gateway. Group chats remain blocked.
 

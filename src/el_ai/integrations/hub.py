@@ -63,6 +63,13 @@ class HubClient:
                 return f"{render_prefix}{{render_id}}"
             if len(suffix) == 2 and suffix[0] and suffix[1] == "file":
                 return f"{render_prefix}{{render_id}}/file"
+        memory_prefix = "/integrations/telegram/memory/"
+        if path_only.startswith(memory_prefix):
+            suffix = path_only[len(memory_prefix):].split("/")
+            if len(suffix) == 1 and suffix[0]:
+                return f"{memory_prefix}{{memory_id}}"
+            if len(suffix) == 2 and suffix[0] and suffix[1] == "approve":
+                return f"{memory_prefix}{{memory_id}}/approve"
         task_prefix = "/integrations/telegram/tasks/"
         if path_only.startswith(task_prefix):
             suffix = path_only[len(task_prefix):].split("/")
@@ -512,14 +519,24 @@ class HubClient:
         task_id: str,
         *,
         limit: int = 20,
+        cursor: str | None = None,
     ) -> dict[str, object]:
-        """Fetch the bounded audit timeline for this paired client's own task."""
+        """Fetch one stable, bounded audit page for this paired client's task."""
         canonical_id = str(UUID(task_id))
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 50:
             raise ValueError("Task history limit must be between 1 and 50")
+        if cursor is not None and (
+            not isinstance(cursor, str)
+            or not 1 <= len(cursor) <= 512
+            or any(character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" for character in cursor)
+        ):
+            raise ValueError("Task history cursor is invalid")
+        params = {"limit": limit}
+        if cursor is not None:
+            params["cursor"] = cursor
         return await self._authorized(
             "GET",
-            f"/integrations/telegram/tasks/{canonical_id}/events?{urlencode({'limit': limit})}",
+            f"/integrations/telegram/tasks/{canonical_id}/events?{urlencode(params)}",
             telegram_user_id,
         )
 
@@ -729,6 +746,29 @@ class HubClient:
             "/integrations/telegram/memory/search",
             telegram_user_id,
             {"query": query, "limit": 5},
+        )
+
+    async def get_memory_entry(
+        self, telegram_user_id: int, memory_id: str
+    ) -> dict[str, object]:
+        """Inspect one owner-owned memory entry through memory:search."""
+        canonical_id = str(UUID(memory_id))
+        return await self._authorized(
+            "GET",
+            f"/integrations/telegram/memory/{canonical_id}",
+            telegram_user_id,
+        )
+
+    async def approve_memory_entry(
+        self, telegram_user_id: int, memory_id: str
+    ) -> dict[str, object]:
+        """Approve one explicitly selected memory entry through memory:write."""
+        canonical_id = str(UUID(memory_id))
+        return await self._authorized(
+            "POST",
+            f"/integrations/telegram/memory/{canonical_id}/approve",
+            telegram_user_id,
+            {},
         )
 
     async def preview_memory_dream(
