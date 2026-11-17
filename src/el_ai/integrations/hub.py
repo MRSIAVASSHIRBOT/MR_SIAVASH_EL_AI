@@ -24,6 +24,7 @@ _STATIC_HUB_ROUTES = frozenset({
     "/integrations/telegram/tasks",
     "/integrations/telegram/memory/search",
     "/integrations/telegram/memory/dream/preview",
+    "/integrations/telegram/memory/validate/preview",
     "/integrations/telegram/video/providers",
     "/integrations/telegram/video/route-preview",
     "/integrations/telegram/video/generations",
@@ -741,6 +742,21 @@ class HubClient:
         return await self._authorized(
             "POST",
             "/integrations/telegram/memory/dream/preview",
+            telegram_user_id,
+            {"limit": limit, "similarity_threshold": similarity_threshold},
+        )
+
+    async def preview_memory_validation(
+        self, telegram_user_id: int, *, limit: int = 100, similarity_threshold: float = 0.72
+    ) -> dict[str, object]:
+        """Request read-only owner-scoped memory validation hints."""
+        if not 1 <= limit <= 100:
+            raise ValueError("Memory validation limit must be between 1 and 100")
+        if not 0.65 <= similarity_threshold <= 1.0:
+            raise ValueError("Memory validation threshold must be between 0.65 and 1.0")
+        return await self._authorized(
+            "POST",
+            "/integrations/telegram/memory/validate/preview",
             telegram_user_id,
             {"limit": limit, "similarity_threshold": similarity_threshold},
         )
