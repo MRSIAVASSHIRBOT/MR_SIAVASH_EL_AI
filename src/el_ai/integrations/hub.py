@@ -808,6 +808,33 @@ class HubClient:
             idempotency_key=idempotency_key.strip(),
         )
 
+    async def list_video_scene_jobs(
+        self,
+        telegram_user_id: int,
+        *,
+        limit: int = 10,
+        cursor: str | None = None,
+    ) -> dict[str, object]:
+        """List one bounded owner-scoped page of scene-analysis jobs."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 20:
+            raise ValueError("Video scene page limit must be between 1 and 20")
+        params: dict[str, str | int] = {"limit": limit}
+        if cursor is not None:
+            if (
+                not isinstance(cursor, str)
+                or not cursor
+                or len(cursor) > 512
+                or not cursor.isascii()
+                or not cursor.replace("_", "").replace("-", "").isalnum()
+            ):
+                raise ValueError("Invalid video scene page cursor")
+            params["cursor"] = cursor
+        return await self._authorized(
+            "GET",
+            f"/integrations/telegram/video/scene-jobs?{urlencode(params)}",
+            telegram_user_id,
+        )
+
     async def get_video_scene_job(
         self, telegram_user_id: int, job_id: str
     ) -> dict[str, object]:
