@@ -31,6 +31,7 @@ _STATIC_HUB_ROUTES = frozenset({
     "/integrations/telegram/video/render-drafts",
     "/integrations/telegram/video/render-preflight",
     "/integrations/telegram/video/render-preflight-submit",
+    "/integrations/telegram/video/scene-jobs",
     "/integrations/telegram/video/renders",
 })
 
@@ -58,6 +59,13 @@ class HubClient:
             suffix = path_only[len(video_prefix):].split("/")
             if len(suffix) == 1 and suffix[0]:
                 return f"{video_prefix}{{generation_id}}"
+        scene_prefix = "/integrations/telegram/video/scene-jobs/"
+        if path_only.startswith(scene_prefix):
+            suffix = path_only[len(scene_prefix):].split("/")
+            if len(suffix) == 1 and suffix[0]:
+                return f"{scene_prefix}{{job_id}}"
+            if len(suffix) == 2 and suffix[0] and suffix[1] == "cancel":
+                return f"{scene_prefix}{{job_id}}/cancel"
         render_prefix = "/integrations/telegram/video/renders/"
         if path_only.startswith(render_prefix):
             suffix = path_only[len(render_prefix):].split("/")
@@ -763,6 +771,63 @@ class HubClient:
         return await self._authorized(
             "DELETE",
             f"/integrations/telegram/video/renders/{canonical_id}",
+            telegram_user_id,
+        )
+
+    async def submit_video_scene_job(
+        self,
+        telegram_user_id: int,
+        asset_id: str,
+        *,
+        threshold: float = 0.30,
+        max_scene_changes: int = 24,
+        idempotency_key: str,
+    ) -> dict[str, object]:
+        """Queue bounded owner-scoped scene analysis through the explicit video:analyze scope."""
+        canonical_id = str(UUID(asset_id))
+        if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not 0.05 <= threshold <= 0.95:
+            raise ValueError("Scene threshold must be between 0.05 and 0.95")
+        if isinstance(max_scene_changes, bool) or not isinstance(max_scene_changes, int) or not 1 <= max_scene_changes <= 24:
+            raise ValueError("Maximum scene changes must be between 1 and 24")
+        if (
+            not isinstance(idempotency_key, str)
+            or not idempotency_key.strip()
+            or len(idempotency_key) > 255
+            or "\\r" in idempotency_key
+            or "\\n" in idempotency_key
+        ):
+            raise ValueError("Scene-job idempotency key must contain 1 to 255 safe characters")
+        return await self._authorized(
+            "POST",
+            "/integrations/telegram/video/scene-jobs",
+            telegram_user_id,
+            {
+                "asset_id": canonical_id,
+                "threshold": float(threshold),
+                "max_scene_changes": max_scene_changes,
+            },
+            idempotency_key=idempotency_key.strip(),
+        )
+
+    async def get_video_scene_job(
+        self, telegram_user_id: int, job_id: str
+    ) -> dict[str, object]:
+        """Read one owner-scoped scene-analysis job through video:read."""
+        canonical_id = str(UUID(job_id))
+        return await self._authorized(
+            "GET",
+            f"/integrations/telegram/video/scene-jobs/{canonical_id}",
+            telegram_user_id,
+        )
+
+    async def cancel_video_scene_job(
+        self, telegram_user_id: int, job_id: str
+    ) -> dict[str, object]:
+        """Cancel one owner-scoped scene-analysis job through video:cancel."""
+        canonical_id = str(UUID(job_id))
+        return await self._authorized(
+            "POST",
+            f"/integrations/telegram/video/scene-jobs/{canonical_id}/cancel",
             telegram_user_id,
         )
 
