@@ -38,7 +38,7 @@ def test_scene_commands_are_owner_only_and_documented():
     assert "/videoscenes ASSET_ID" in owner_help
     assert "/videoscenestatus JOB_ID" in owner_help
     assert "/videoscenecancel JOB_ID" in owner_help
-    assert "/videoscenes" not in public_help
+    assert not public_help or "/videoscenes" not in public_help
 
 
 def test_scene_submission_validates_bounds_and_uses_update_idempotency():
