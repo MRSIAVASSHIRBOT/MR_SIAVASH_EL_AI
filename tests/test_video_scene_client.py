@@ -46,7 +46,7 @@ async def test_scene_job_client_uses_scoped_routes_and_idempotency_header():
             return httpx.Response(202, json={
                 "job_id": job_id, "status": "queued", "created": True,
             })
-        if request.method == "POST" and request.url.path.endswith("/cancel"):
+        if request.method == "GET" and request.url.path == "/integrations/telegram/video/scene-jobs":\n            return httpx.Response(200, json={"items": [], "count": 0, "has_more": False})\n        if request.method == "POST" and request.url.path.endswith("/cancel"):
             return httpx.Response(200, json={"job_id": job_id, "status": "cancelled"})
         return httpx.Response(200, json={
             "job_id": job_id,
