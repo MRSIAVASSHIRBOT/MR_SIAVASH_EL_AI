@@ -65,6 +65,9 @@ class MessageRouter:
                 "\n/videorenderdownload RENDER_ID — ارسال فایل MP4 خصوصی در تلگرام"
                 "\n/videorenderstatus RENDER_ID — وضعیت رندر محلی"
                 "\n/videorendercancel RENDER_ID — لغو یا توقف رندر محلی"
+                "\n/videoscenes ASSET_ID [THRESHOLD] [MAX_CHANGES] — شروع تحلیل برش‌های محلی ویدئو"
+                "\n/videoscenestatus JOB_ID — وضعیت و زمان‌های برش تحلیل صحنه"
+                "\n/videoscenecancel JOB_ID — لغو تحلیل صحنه"
                 "\n/health — وضعیت و آمار زنده ربات (فقط مالک)"
                 "\n/site QUERY — پرسش عمومی از دانش سایت"
             )
