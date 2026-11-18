@@ -85,10 +85,11 @@ The preflight does not contact Telegram, Hub, or the public Gateway, does not wr
 - `/videorenders [CURSOR]`: list recent local renders with owner-scoped cursor pagination.
 - `/videorenderstatus RENDER_ID` and `/videorendercancel RENDER_ID`: inspect or cancel the local render.
 - `/videorenderdownload RENDER_ID`: explicitly send a completed private MP4 to the owner’s current private Telegram chat. The Hub verifies ownership, MP4 signature, SHA-256 and size; uploads above 48 MB remain available through the authenticated Hub dashboard.
+- `/videoscenes ASSET_ID [THRESHOLD] [MAX_CHANGES]`: queue bounded local FFmpeg scene-cut detection; `/videoscenestatus JOB_ID` reads timestamp-only results and `/videoscenecancel JOB_ID` cancels an owned job. This does not perform semantic scene recognition or call a remote provider.
 - `/health`: inspect aggregate polling health and counters (owner-only; no message or user data is exposed).
 - `/site QUERY`: query public website knowledge without sending private Hub context.
 
-Video catalog, route preview, generation history, render-draft listing, render history, render status and private render download require `video:read`. Local deterministic FFmpeg render submission separately requires the opt-in `video:render` scope; cancellation of local renders or pending provider generations requires `video:cancel`. Render submission never calls a generative provider or sends source media to a remote service. Existing pairings do not receive new scopes automatically; the authenticated Hub owner must explicitly grant `memory:write` for approvals and update the client scope set
+Video catalog, route preview, generation history, render-draft listing, render history, render status and private render download require `video:read`. Scene analysis submission separately requires the explicitly granted `video:analyze` scope; scene-job status requires `video:read`, and cancellation requires `video:cancel`. Local deterministic FFmpeg render submission separately requires the opt-in `video:render` scope; cancellation of local renders or pending provider generations requires `video:cancel`. Render submission never calls a generative provider or sends source media to a remote service. Existing pairings do not receive new scopes automatically; the authenticated Hub owner must explicitly grant `memory:write` for approvals and update the client scope set
 
 When TELEGRAM_PUBLIC_ENABLED=true, public users can send normal text in a private chat and receive answers from the public website Gateway. Group chats remain blocked.
 
