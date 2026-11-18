@@ -85,7 +85,7 @@ The preflight does not contact Telegram, Hub, or the public Gateway, does not wr
 - `/videorenders [CURSOR]`: list recent local renders with owner-scoped cursor pagination.
 - `/videorenderstatus RENDER_ID` and `/videorendercancel RENDER_ID`: inspect or cancel the local render.
 - `/videorenderdownload RENDER_ID`: explicitly send a completed private MP4 to the owner’s current private Telegram chat. The Hub verifies ownership, MP4 signature, SHA-256 and size; uploads above 48 MB remain available through the authenticated Hub dashboard.
-- `/videoscenes ASSET_ID [THRESHOLD] [MAX_CHANGES]`: queue bounded local FFmpeg scene-cut detection; `/videoscenestatus JOB_ID` reads timestamp-only results and `/videoscenecancel JOB_ID` cancels an owned job. This does not perform semantic scene recognition or call a remote provider.
+- `/videoscenes ASSET_ID [THRESHOLD] [MAX_CHANGES]`: queue bounded local FFmpeg scene-cut detection; `/videoscenestatus JOB_ID` reads timestamp-only results and `/videoscenecancel JOB_ID` cancels an owned job. This does not perform semantic scene recognition or call a remote provider. `/videoscenehistory [CURSOR]` lists owner-scoped jobs with stable pagination, and `/videosceneexport JOB_ID` returns a small CSV of scene start times for use in an editor.
 - `/health`: inspect aggregate polling health and counters (owner-only; no message or user data is exposed).
 - `/site QUERY`: query public website knowledge without sending private Hub context.
 
