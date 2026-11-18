@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+import json
 
 import httpx
 import pytest
@@ -21,9 +22,9 @@ class MemoryStore:
         self.items.pop(client_id, None)
 
 
-def _store():
+def _store(client_id="scene-client"):
     store = MemoryStore()
-    store.save("scene-client", {
+    store.save(client_id, {
         "access_token": "scene-access",
         "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
         "refresh_token": "scene-refresh",
@@ -70,7 +71,7 @@ async def test_scene_job_client_uses_scoped_routes_and_idempotency_header():
     assert status["result"]["scene_start_times"] == [0.0, 2.0]
     assert cancelled["status"] == "cancelled"
     assert calls[0].headers["Idempotency-Key"] == "el-ai:123:77:video-scene"
-    assert calls[0].json() == {
+    assert json.loads(calls[0].content.decode("utf-8")) == {
         "asset_id": asset_id, "threshold": 0.4, "max_scene_changes": 12,
     }
     assert HubClient._route_template(calls[0].url.path) == "/integrations/telegram/video/scene-jobs"
@@ -82,7 +83,7 @@ async def test_scene_job_client_uses_scoped_routes_and_idempotency_header():
 
 @pytest.mark.asyncio
 async def test_scene_job_client_rejects_invalid_ids_bounds_and_keys():
-    client = HubClient("http://127.0.0.1:8000", "scene-invalid", _store())
+    client = HubClient("http://127.0.0.1:8000", "scene-invalid", _store("scene-invalid"))
     with pytest.raises(ValueError):
         await client.submit_video_scene_job(
             123, "not-a-uuid", idempotency_key="valid-key",
