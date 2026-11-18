@@ -793,8 +793,7 @@ class HubClient:
             not isinstance(idempotency_key, str)
             or not idempotency_key.strip()
             or len(idempotency_key) > 255
-            or "\\r" in idempotency_key
-            or "\\n" in idempotency_key
+            or any(ord(char) in {10, 13} for char in idempotency_key)
         ):
             raise ValueError("Scene-job idempotency key must contain 1 to 255 safe characters")
         return await self._authorized(
