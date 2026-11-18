@@ -1092,3 +1092,84 @@ async def test_video_render_submit_preflight_uses_video_render_scope_route():
     assert requests[0].url.path == "/integrations/telegram/video/render-preflight-submit"
     assert requests[0].url.params["draft_id"] == draft_id
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_pairing_request_carries_a_canonical_request_id():
+    from uuid import UUID
+
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={
+            "access_token": "access-secret",
+            "refresh_token": "refresh-secret",
+            "client_id": "client-correlation",
+            "expires_in": 900,
+            "refresh_expires_in": 86400,
+            "scopes": ["status:read"],
+        })
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-correlation",
+        MemoryStore(),
+        transport=httpx.MockTransport(handler),
+    )
+    await client.pair("one-time-code", 123456)
+
+    request_id = requests[0].headers["X-Request-ID"]
+    assert str(UUID(request_id)) == request_id
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_authorized_request_reuses_request_id_for_401_retry_but_refresh_gets_its_own():
+    from uuid import UUID
+
+    store = MemoryStore()
+    store.save("client-correlation-retry", {
+        "access_token": "initial-access",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "refresh-secret",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["status:read"],
+    })
+    requests = []
+    status_attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal status_attempts
+        requests.append(request)
+        if request.url.path.endswith("/refresh"):
+            return httpx.Response(200, json={"access_token": "refreshed-access", "expires_in": 900})
+        status_attempts += 1
+        if status_attempts == 1:
+            return httpx.Response(401, json={"detail": "expired"})
+        return httpx.Response(200, json={"status": "authenticated"})
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-correlation-retry",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    await client.status(123456)
+
+    status_ids = [
+        request.headers["X-Request-ID"]
+        for request in requests
+        if request.url.path.endswith("/status")
+    ]
+    refresh_id = next(
+        request.headers["X-Request-ID"]
+        for request in requests
+        if request.url.path.endswith("/refresh")
+    )
+    assert len(status_ids) == 2
+    assert status_ids[0] == status_ids[1]
+    assert status_ids[0] != refresh_id
+    assert str(UUID(status_ids[0])) == status_ids[0]
+    assert str(UUID(refresh_id)) == refresh_id
+    await client.close()
