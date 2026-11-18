@@ -68,6 +68,8 @@ class MessageRouter:
                 "\n/videoscenes ASSET_ID [THRESHOLD] [MAX_CHANGES] — شروع تحلیل برش‌های محلی ویدئو"
                 "\n/videoscenestatus JOB_ID — وضعیت و زمان‌های برش تحلیل صحنه"
                 "\n/videoscenecancel JOB_ID — لغو تحلیل صحنه"
+                "\n/videoscenehistory [CURSOR] — تاریخچه صفحه‌بندی‌شده تحلیل صحنه"
+                "\n/videosceneexport JOB_ID — خروجی CSV زمان‌های برش"
                 "\n/health — وضعیت و آمار زنده ربات (فقط مالک)"
                 "\n/site QUERY — پرسش عمومی از دانش سایت"
             )
