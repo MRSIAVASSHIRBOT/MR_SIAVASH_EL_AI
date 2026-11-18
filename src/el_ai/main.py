@@ -42,6 +42,8 @@ OWNER_HUB_COMMANDS = frozenset({
     "/videohistory", "/videostatus", "/videocancel",
     "/videodrafts", "/videorenders", "/videorendercheck", "/videorender", "/videorenderstatus",
     "/videorenderdownload", "/videorendercancel",
+    "/videoscenes", "/videoscenestatus", "/videoscenecancel",
+    "/videoscenehistory", "/videosceneexport",
 })
 
 
@@ -243,6 +245,8 @@ async def _owner_hub_command(
         "/videoproviders", "/videoroute", "/videohistory", "/videostatus", "/videocancel",
         "/videodrafts", "/videorenders", "/videorendercheck", "/videorender", "/videorenderstatus",
         "/videorenderdownload", "/videorendercancel",
+    "/videoscenes", "/videoscenestatus", "/videoscenecancel",
+    "/videoscenehistory", "/videosceneexport",
     }:
         return None
     if not settings.hub_integration_enabled:
@@ -743,6 +747,126 @@ async def _owner_hub_command(
                 if exc.status_code == 404:
                     return "رندر پیدا نشد یا متعلق به حساب متصل نیست."
                 raise
+
+        if command == "/videoscenes":
+            parts = argument.split()
+            if not parts or len(parts) > 3:
+                return "روش استفاده: /videoscenes ASSET_ID [THRESHOLD] [MAX_CHANGES]"
+            try:
+                asset_id = str(UUID(parts[0]))
+                threshold = float(parts[1]) if len(parts) >= 2 else 0.30
+                max_changes = int(parts[2]) if len(parts) >= 3 else 24
+            except ValueError:
+                return "شناسه فایل، آستانه یا تعداد برش‌ها معتبر نیست."
+            if not 0.05 <= threshold <= 0.95:
+                return "آستانه تشخیص باید بین 0.05 و 0.95 باشد."
+            if not 1 <= max_changes <= 24:
+                return "حداکثر تعداد برش باید بین 1 و 24 باشد."
+            try:
+                result = await hub.submit_video_scene_job(
+                    telegram_user_id,
+                    asset_id,
+                    threshold=threshold,
+                    max_scene_changes=max_changes,
+                    idempotency_key=f"el-ai:{telegram_user_id}:{update_id}:video-scene",
+                )
+            except HubClientError as exc:
+                if exc.status_code == 403:
+                    return "مجوز video:analyze برای این ربات فعال نیست؛ مالک باید آن را صریحاً در مجوزهای اتصال Hub اعطا کند."
+                if exc.status_code == 404:
+                    return "فایل ویدئو پیدا نشد یا متعلق به حساب متصل نیست."
+                if exc.status_code == 415:
+                    return "فقط فایل MP4 یا QuickTime برای تشخیص برش پشتیبانی می‌شود."
+                if exc.status_code == 429:
+                    return "ظرفیت تحلیل صحنه موقتاً پر است؛ بعداً دوباره تلاش کن."
+                raise
+            return _format_result({
+                **result,
+                "analysis_kind": "local_ffmpeg_scene_cut_detection",
+                "note": "فقط زمان‌های احتمالی برش صحنه استخراج می‌شوند؛ تحلیل معنایی یا Provider خارجی اجرا نمی‌شود.",
+            })
+
+        if command == "/videoscenestatus":
+            if not argument:
+                return "روش استفاده: /videoscenestatus JOB_ID"
+            try:
+                job_id = str(UUID(argument))
+            except ValueError:
+                return "شناسه تحلیل صحنه باید یک UUID معتبر باشد."
+            try:
+                return _format_result(await hub.get_video_scene_job(telegram_user_id, job_id))
+            except HubClientError as exc:
+                if exc.status_code == 403:
+                    return "مجوز video:read برای این ربات فعال نیست."
+                if exc.status_code == 404:
+                    return "تحلیل صحنه پیدا نشد یا متعلق به حساب متصل نیست."
+                raise
+
+        if command == "/videoscenecancel":
+            if not argument:
+                return "روش استفاده: /videoscenecancel JOB_ID"
+            try:
+                job_id = str(UUID(argument))
+            except ValueError:
+                return "شناسه تحلیل صحنه باید یک UUID معتبر باشد."
+            try:
+                return _format_result(await hub.cancel_video_scene_job(telegram_user_id, job_id))
+            except HubClientError as exc:
+                if exc.status_code == 403:
+                    return "مجوز video:cancel برای این ربات فعال نیست."
+                if exc.status_code == 404:
+                    return "تحلیل صحنه پیدا نشد یا متعلق به حساب متصل نیست."
+                if exc.status_code == 409:
+                    return "وضعیت تحلیل تغییر کرده یا عملیات قبلاً پایان یافته است."
+                raise
+
+        if command == "/videoscenehistory":
+            try:
+                page = await hub.list_video_scene_jobs(
+                    telegram_user_id,
+                    limit=10,
+                    cursor=argument or None,
+                )
+            except HubClientError as exc:
+                if exc.status_code == 403:
+                    return "مجوز video:read برای این ربات فعال نیست."
+                raise
+            return _format_result({
+                "items": page.get("items", []),
+                "count": page.get("count", 0),
+                "has_more": page.get("has_more", False),
+                "next_cursor": page.get("next_cursor"),
+                "hint": "برای صفحه بعدی، /videoscenehistory را همراه next_cursor اجرا کن.",
+            })
+
+        if command == "/videosceneexport":
+            if not argument:
+                return "روش استفاده: /videosceneexport JOB_ID"
+            try:
+                job_id = str(UUID(argument))
+            except ValueError:
+                return "شناسه تحلیل صحنه باید یک UUID معتبر باشد."
+            try:
+                job = await hub.get_video_scene_job(telegram_user_id, job_id)
+            except HubClientError as exc:
+                if exc.status_code == 403:
+                    return "مجوز video:read برای این ربات فعال نیست."
+                if exc.status_code == 404:
+                    return "تحلیل صحنه پیدا نشد یا متعلق به حساب متصل نیست."
+                raise
+            result = job.get("result")
+            starts = result.get("scene_start_times") if isinstance(result, dict) else None
+            if job.get("status") != "succeeded" or not isinstance(starts, list):
+                return "خروجی CSV فقط پس از موفقیت تحلیل در دسترس است."
+            rows = ["scene_index,start_seconds"]
+            for index, value in enumerate(starts, start=1):
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    return "داده زمان‌بندی خروجی معتبر نیست."
+                seconds = float(value)
+                if not 0 <= seconds <= 60:
+                    return "داده زمان‌بندی خروجی خارج از محدوده مجاز است."
+                rows.append(f"{index},{seconds:.3f}")
+            return "CSV زمان‌های شروع صحنه:\n" + "\n".join(rows)
     except HubClientError:
         return "درخواست Hub ناموفق بود یا مجوز لازم وجود ندارد. وضعیت اتصال و Scopeها را بررسی کن."
     return None
@@ -783,6 +907,11 @@ OWNER_BOT_COMMANDS = (
     {"command": "videorenderstatus", "description": "وضعیت رندر محلی"},
     {"command": "videorenderdownload", "description": "دریافت فایل MP4 در تلگرام"},
     {"command": "videorendercancel", "description": "لغو رندر محلی"},
+    {"command": "videoscenes", "description": "شروع تحلیل برش‌های ویدئو"},
+    {"command": "videoscenestatus", "description": "وضعیت تحلیل صحنه"},
+    {"command": "videoscenecancel", "description": "لغو تحلیل صحنه"},
+    {"command": "videoscenehistory", "description": "تاریخچه تحلیل صحنه"},
+    {"command": "videosceneexport", "description": "خروجی CSV زمان‌های صحنه"},
     {"command": "health", "description": "سلامت و آمار ربات"},
     {"command": "site", "description": "پرسش از دانش سایت"},
 )
