@@ -67,10 +67,13 @@ async def test_scene_job_client_uses_scoped_routes_and_idempotency_header():
         idempotency_key="el-ai:123:77:video-scene",
     )
     status = await client.get_video_scene_job(123, job_id)
+    history = await client.list_video_scene_jobs(123, limit=5, cursor="cursor-token")
     cancelled = await client.cancel_video_scene_job(123, job_id)
 
     assert accepted["status"] == "queued"
     assert status["result"]["scene_start_times"] == [0.0, 2.0]
+    assert history["items"] == []
+    assert history["count"] == 0
     assert cancelled["status"] == "cancelled"
     assert calls[0].headers["Idempotency-Key"] == "el-ai:123:77:video-scene"
     assert json.loads(calls[0].content.decode("utf-8")) == {
@@ -78,7 +81,10 @@ async def test_scene_job_client_uses_scoped_routes_and_idempotency_header():
     }
     assert HubClient._route_template(calls[0].url.path) == "/integrations/telegram/video/scene-jobs"
     assert HubClient._route_template(calls[1].url.path) == "/integrations/telegram/video/scene-jobs/{job_id}"
-    assert HubClient._route_template(calls[2].url.path) == "/integrations/telegram/video/scene-jobs/{job_id}/cancel"
+    assert HubClient._route_template(calls[2].url.path) == "/integrations/telegram/video/scene-jobs"
+    assert calls[2].url.params["limit"] == "5"
+    assert calls[2].url.params["cursor"] == "cursor-token"
+    assert HubClient._route_template(calls[3].url.path) == "/integrations/telegram/video/scene-jobs/{job_id}/cancel"
     assert all(call.headers["Authorization"] == "Bearer scene-access" for call in calls)
     await client.close()
 
@@ -109,4 +115,8 @@ async def test_scene_job_client_rejects_invalid_ids_bounds_and_keys():
         await client.get_video_scene_job(123, "not-a-uuid")
     with pytest.raises(ValueError):
         await client.cancel_video_scene_job(123, "not-a-uuid")
+    with pytest.raises(ValueError):
+        await client.list_video_scene_jobs(123, limit=21)
+    with pytest.raises(ValueError):
+        await client.list_video_scene_jobs(123, cursor="invalid\ncursor")
     await client.close()
