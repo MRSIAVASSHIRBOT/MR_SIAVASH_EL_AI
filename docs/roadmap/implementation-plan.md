@@ -14,8 +14,8 @@
 - [x] Add owner command routing for the initial Hub client.
 - [x] Keep Hub integration disabled unless explicitly opted in.
 - [x] Redact bot credentials from Settings representations and provider exceptions.
-- [ ] Validate Telegram update variants with typed schemas.
-- [ ] Add persistent update cursor and duplicate-update handling.
+- [x] Validate Telegram update envelopes and bounded message variants with typed structural parsing.
+- [x] Persist the polling cursor atomically and advance only after updates are safely ignored or successfully handled; Hub task submissions use update-scoped idempotency keys.
 - [x] Add structured metrics without message content.
 - [ ] Add webhook receiver after deployment threat review.
 
@@ -35,7 +35,7 @@
 - [x] Label grounded AI responses separately from knowledge fallback.
 - [x] Add bounded message/response sizes, process-wide quota and source-link validation.
 - [x] Keep public access disabled by default and never forward private Hub context.
-- [ ] Verify live production Gateway response from the bot runtime.
+- [ ] Verify a live production Gateway response from the configured Telegram bot runtime.
 - [ ] Add a broader public help and knowledge evaluation set.
 
 ## Milestone 4 — Memory and planning
@@ -57,4 +57,14 @@
 
 ## Current truthful status
 
-The Telegram foundation, Hub pairing client, explicit opt-in and secret-redaction hardening are merged and tested. Hub pairing APIs, owner UI, and per-client task isolation are merged and tested. The public website assistant integration is in a feature PR with CI running on Python 3.11 and 3.12. Public conversations and Hub access remain disabled by default. No bot token has been configured, no live Telegram bot has been connected, and no production bot deployment has occurred.
+The Telegram foundation, Hub pairing client, explicit opt-in and secret-redaction hardening are merged and tested. Hub pairing APIs, owner UI, and per-client task isolation are merged and tested. The public website assistant client is integrated on `main` and CI-tested on Python 3.11 and 3.12. Live Telegram runtime acceptance remains unverified. Public conversations and Hub access remain disabled by default. No bot token has been configured, no live Telegram bot has been connected, and no production bot deployment has occurred.
+
+
+## Evidence refresh — 2026-11-20 UTC
+
+- Repository `main` at review: `2cca575fac240eb7c86c924b9b51f934ff57608f`.
+- Exact-main CI checks for Python 3.11 and 3.12 completed successfully; workflow-security audit and supply-chain posture checks also completed successfully.
+- Typed update parsing is implemented in `src/el_ai/telegram/updates.py` and covered by `tests/test_updates.py`.
+- The crash-safe cursor is implemented in `src/el_ai/telegram/cursor.py`; `src/el_ai/main.py` advances and persists offsets only after safe ignore or successful reply delivery. `tests/test_cursor.py` and `tests/test_update_offset.py` cover persistence and monotonic offset behavior.
+- Task creation uses an update-scoped idempotency key at the Hub boundary. This does not claim exactly-once delivery for every Telegram reply: an ambiguous send timeout is treated as unknown and the update is not acknowledged, so a retry may deliver a duplicate reply.
+- No Telegram bot token, live Telegram connection, webhook registration, or production EL_AI deployment is configured or verified.
