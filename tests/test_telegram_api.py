@@ -188,3 +188,50 @@ async def test_send_video_rejects_oversized_invalid_or_unsafe_uploads():
     with pytest.raises(ValueError, match="caption"):
         await api.send_video(900, mp4, filename="render.mp4", caption="😀" * 513)
     await api.close()
+
+
+
+@pytest.mark.asyncio
+async def test_send_document_uses_bounded_multipart_csv_upload():
+    calls = []
+    content = b"\xef\xbb\xbfscene_index,start_seconds\n1,0.000\n"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.read()
+        calls.append((request, body))
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 91}})
+
+    api = TelegramBotAPI(
+        "123:abcdefghijklmnop",
+        transport=httpx.MockTransport(handler),
+    )
+    result = await api.send_document(
+        900,
+        content,
+        filename="scene-times-12345678.csv",
+        caption="زمان‌های شروع صحنه",
+    )
+
+    assert result["message_id"] == 91
+    request, body = calls[0]
+    assert request.url.path.endswith("sendDocument")
+    assert request.headers["content-type"].startswith("multipart/form-data; boundary=")
+    assert b'name="chat_id"' in body and b"900" in body
+    assert b'filename="scene-times-12345678.csv"' in body
+    assert b"Content-Type: text/csv" in body
+    assert content in body
+    await api.close()
+
+
+@pytest.mark.asyncio
+async def test_send_document_rejects_invalid_or_unsafe_uploads():
+    api = TelegramBotAPI("123:abcdefghijklmnop")
+    with pytest.raises(ValueError, match="chat ID"):
+        await api.send_document(True, b"csv", filename="scene.csv")
+    with pytest.raises(ValueError, match="non-empty"):
+        await api.send_document(900, b"", filename="scene.csv")
+    with pytest.raises(ValueError, match="filename"):
+        await api.send_document(900, b"csv", filename="../scene.csv")
+    with pytest.raises(ValueError, match="caption"):
+        await api.send_document(900, b"csv", filename="scene.csv", caption="😀" * 513)
+    await api.close()
