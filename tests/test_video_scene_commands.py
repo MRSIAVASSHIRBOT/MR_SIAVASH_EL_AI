@@ -164,3 +164,46 @@ def test_scene_history_and_csv_export_are_owner_commands():
         ("history", 123, 10, "page-token"),
         ("export", 123, job_id),
     ]
+
+
+
+def test_scene_csv_export_sends_a_document_when_telegram_context_is_available():
+    job_id = "32345678-1234-4234-8234-123456789abc"
+    calls = []
+
+    class FakeHub:
+        async def get_video_scene_job(self, telegram_user_id, requested_job_id):
+            assert telegram_user_id == 123
+            assert requested_job_id == job_id
+            return {
+                "job_id": requested_job_id,
+                "status": "succeeded",
+                "result": {"scene_start_times": [0.0, 1.25, 4.5]},
+            }
+
+    class FakeAPI:
+        async def send_document(self, chat_id, document, *, filename, caption):
+            calls.append((chat_id, document, filename, caption))
+
+    response = asyncio.run(_owner_hub_command(
+        f"/videosceneexport {job_id}",
+        telegram_user_id=123,
+        update_id=84,
+        hub=FakeHub(),
+        settings=_settings(),
+        api=FakeAPI(),
+        chat_id=900,
+    ))
+
+    assert response == ""
+    assert len(calls) == 1
+    chat_id, document, filename, caption = calls[0]
+    assert chat_id == 900
+    assert filename == "scene-times-32345678.csv"
+    assert caption.endswith("32345678")
+    assert document.decode("utf-8-sig").splitlines() == [
+        "scene_index,start_seconds",
+        "1,0.000",
+        "2,1.250",
+        "3,4.500",
+    ]

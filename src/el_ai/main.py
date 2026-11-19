@@ -866,6 +866,15 @@ async def _owner_hub_command(
                 if not 0 <= seconds <= 60:
                     return "داده زمان‌بندی خروجی خارج از محدوده مجاز است."
                 rows.append(f"{index},{seconds:.3f}")
+            csv_content = "\ufeff" + "\n".join(rows) + "\n"
+            if api is not None and chat_id is not None:
+                await api.send_document(
+                    chat_id,
+                    csv_content.encode("utf-8"),
+                    filename=f"scene-times-{job_id[:8]}.csv",
+                    caption=f"زمان‌های شروع صحنه · {job_id[:8]}",
+                )
+                return ""
             return "CSV زمان‌های شروع صحنه:\n" + "\n".join(rows)
     except HubClientError:
         return "درخواست Hub ناموفق بود یا مجوز لازم وجود ندارد. وضعیت اتصال و Scopeها را بررسی کن."
@@ -1031,7 +1040,7 @@ async def run(settings: Settings) -> None:
                         if command_name == "/health":
                             response = _runtime_health_response(metrics)
                         elif command_name in OWNER_HUB_COMMANDS:
-                            response = await _owner_hub_command(
+                            command_response = await _owner_hub_command(
                                 text,
                                 telegram_user_id=user_id,
                                 update_id=update_id if isinstance(update_id, int) else 0,
@@ -1040,7 +1049,9 @@ async def run(settings: Settings) -> None:
                                 task_watches=task_watches,
                                 api=api,
                                 chat_id=chat_id,
-                            ) or response
+                            )
+                            if command_response is not None:
+                                response = command_response
                         elif command_name == "/site":
                             query = normalized_text.partition(" ")[2].strip()
                             if not query:

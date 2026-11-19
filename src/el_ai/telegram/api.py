@@ -9,6 +9,7 @@ import httpx
 
 
 MAX_TELEGRAM_VIDEO_BYTES = 48_000_000
+MAX_TELEGRAM_DOCUMENT_BYTES = 48_000_000
 
 
 class TelegramAPIError(RuntimeError):
@@ -201,6 +202,50 @@ class TelegramBotAPI:
             raise TelegramAPIError("Telegram video upload failed") from None
         if not isinstance(payload, dict) or payload.get("ok") is not True:
             raise TelegramAPIError("Telegram API rejected the video upload")
+        return payload.get("result")
+
+    async def send_document(
+        self,
+        chat_id: int,
+        document: bytes,
+        *,
+        filename: str,
+        caption: str | None = None,
+    ) -> Any:
+        """Upload a bounded CSV document using Telegram's multipart sendDocument method."""
+        if isinstance(chat_id, bool) or not isinstance(chat_id, int) or chat_id <= 0:
+            raise ValueError("Telegram chat ID must be a positive integer")
+        if (
+            not isinstance(document, bytes)
+            or not 1 <= len(document) <= MAX_TELEGRAM_DOCUMENT_BYTES
+        ):
+            raise ValueError("Telegram document must be non-empty and within the upload limit")
+        if not isinstance(filename, str) or not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.csv", filename
+        ):
+            raise ValueError("Telegram CSV filename is invalid")
+        if caption is not None and (
+            not isinstance(caption, str) or _utf16_length(caption) > 1024
+        ):
+            raise ValueError("Telegram document caption exceeds the UTF-16 limit")
+
+        data = {"chat_id": str(chat_id)}
+        if caption:
+            data["caption"] = caption
+        try:
+            response = await self._client.post(
+                "sendDocument",
+                data=data,
+                files={"document": (filename, document, "text/csv; charset=utf-8")},
+                timeout=httpx.Timeout(120),
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError):
+            # HTTPX exceptions retain a request URL containing the bot token.
+            raise TelegramAPIError("Telegram document upload failed") from None
+        if not isinstance(payload, dict) or payload.get("ok") is not True:
+            raise TelegramAPIError("Telegram API rejected the document upload")
         return payload.get("result")
 
     async def close(self) -> None:
