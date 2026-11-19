@@ -15,8 +15,13 @@ EL_AI owns Telegram updates, Telegram user/chat identity, command parsing, deliv
 - Treat Hub scopes as authoritative. Never infer additional permissions from Telegram owner status alone. The authenticated Hub owner can explicitly update an active paired client's scope set; the bot does not request or grant scopes itself.
 - Store credentials through the operating-system credential store adapter; never place credentials in URLs, logs, source control, or browser storage.
 - Preserve the bounded pagination, result size, and idempotency rules in the canonical manifest.
-- Keep private commands fail-closed when pairing is absent, expired, or revoked. Video commands require `video:read`; pending-only cancellation additionally requires `video:cancel`.
-- Keep `/videoproviders`, `/videohistory`, `/videostatus`, and `/videocancel` owner-only. The provider catalog is read-only; cancellation must never claim that active or ambiguous external work stopped.
+- Keep private commands fail-closed when pairing is absent, expired, or revoked.
+- Video catalog, route preview, generation history/status, render-draft/history/status, scene-job history/status, and scene CSV export are read operations requiring the explicitly granted `video:read` scope.
+- Local scene-cut analysis submission through `/videoscenes` requires the separately granted `video:analyze` scope. It queues bounded analysis of an owner-owned stored asset; it does not call a remote provider or upload the media.
+- `/videoscenecancel` requires `video:cancel` and can cancel only the paired owner's queued or running local scene-analysis job. It must not imply that a remote generation provider was stopped.
+- Local FFmpeg render submission requires `video:render`; render cancellation and pending video-generation cancellation require `video:cancel`. Provider-backed generation remains unavailable unless a provider is explicitly configured and reviewed in Hub.
+- Keep video commands owner-only. The provider catalog and route preview are read-only; active or ambiguous provider work must never be reported as cancelled.
+- Existing pairings do not receive new scopes automatically. Only the authenticated Hub owner can explicitly update the paired client's scopes.
 
 ## Security boundaries
 
