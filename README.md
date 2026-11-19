@@ -34,7 +34,7 @@ cp .env.example .env
 python -m el_ai
 ```
 
-The bot uses long polling for local development. Production webhook deployment is a separate release milestone and must use a secret-validated endpoint and TLS.
+The Python bot currently supports long polling for local development. A Cloudflare Worker named `mr-siavash-el-ir-bot` is already deployed and includes webhook ingress, encrypted queued jobs, update deduplication, and a signed bridge pull/complete API (see [observed Cloudflare edge state](docs/architecture/cloudflare-telegram-edge-bridge.md)). This does **not** establish that Telegram webhook registration, secrets, bridge runtime, or private Hub connectivity are configured or end-to-end verified. Production acceptance remains gated on those checks, secure configuration, testing, and owner/admin approval.
 
 Run the read-only local preflight before configuring or starting the bot:
 
