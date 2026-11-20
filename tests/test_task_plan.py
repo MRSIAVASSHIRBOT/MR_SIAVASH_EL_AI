@@ -73,6 +73,10 @@ def test_task_plan_store_rejects_corrupt_and_duplicate_state(tmp_path):
     with pytest.raises(TaskPlanError):
         TaskPlanStore(path).load()
 
+    path.write_text(json.dumps({"version": 1.0, "plans": []}), encoding="utf-8")
+    with pytest.raises(TaskPlanError):
+        TaskPlanStore(path).load()
+
     path.write_text(json.dumps({
         "version": 1,
         "plans": [
