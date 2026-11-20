@@ -36,7 +36,7 @@ TASK_STATUSES = frozenset({
     "failed", "cancelled", "rejected",
 })
 OWNER_HUB_COMMANDS = frozenset({
-    "/pair", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus",
+    "/pair", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress",
     "/taskresult", "/taskcancel", "/taskhistory", "/taskwatch", "/taskunwatch",
     "/taskwatches", "/videoproviders", "/videoroute",
     "/videohistory", "/videostatus", "/videocancel",
@@ -109,6 +109,100 @@ def _task_status_label(status: str) -> str:
         "cancelled": "لغوشده",
         "rejected": "ردشده",
     }.get(status, "نامشخص")
+
+
+_TASK_EVENT_LABELS = {
+    "task.submitted": "وظیفه ثبت شد",
+    "task.approved": "وظیفه تأیید شد",
+    "task.rejected": "وظیفه رد شد",
+    "task.cancelled": "وظیفه لغو شد",
+    "task.succeeded": "وظیفه تکمیل شد",
+    "task.failed": "اجرای وظیفه ناموفق بود",
+    "worker.task_started": "اجرای وظیفه آغاز شد",
+    "worker.task_succeeded": "اجرای وظیفه تکمیل شد",
+    "worker.task_failed": "اجرای وظیفه ناموفق بود",
+    "worker.task_retry_scheduled": "تلاش مجدد زمان‌بندی شد",
+    "worker.task_recovered": "وظیفه پس از وقفه بازیابی شد",
+}
+
+
+def _safe_progress_value(value: object, *, limit: int = 80) -> str:
+    """Keep untrusted task/event labels printable and bounded for Telegram."""
+    if not isinstance(value, str):
+        return ""
+    return "".join(
+        character for character in value
+        if character.isalnum() or character in "._-"
+    )[:limit]
+
+
+def _safe_progress_timestamp(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return "".join(
+        character for character in value
+        if character.isdigit() or character in "TtZz:+-._"
+    )[:40]
+
+
+def _format_task_progress(
+    task: dict[str, object],
+    history: dict[str, object] | None,
+    task_id: str,
+) -> str:
+    """Render a compact, owner-scoped task timeline without audit metadata."""
+    status = task.get("status")
+    if not isinstance(status, str) or status not in TASK_STATUSES:
+        status = "unknown"
+    lines = [
+        "گزارش پیشرفت وظیفه",
+        f"شناسه: {task_id}",
+        f"وضعیت: {_task_status_label(status)}",
+    ]
+    task_type = _safe_progress_value(task.get("task_type"))
+    if task_type:
+        lines.append(f"نوع: {task_type}")
+    created_at = _safe_progress_timestamp(task.get("created_at"))
+    updated_at = _safe_progress_timestamp(task.get("updated_at"))
+    if created_at:
+        lines.append(f"ثبت: {created_at}")
+    if updated_at:
+        lines.append(f"آخرین به‌روزرسانی: {updated_at}")
+
+    events = history.get("events") if isinstance(history, dict) else None
+    visible_events = [event for event in events if isinstance(event, dict)][:5] if isinstance(events, list) else []
+    if visible_events:
+        lines.append("رویدادهای اخیر:")
+        for event in visible_events:
+            event_type = _safe_progress_value(event.get("event_type"))
+            label = _TASK_EVENT_LABELS.get(
+                event_type,
+                event_type.replace(".", " ").replace("_", " ") or "رویداد",
+            )
+            outcome = event.get("outcome")
+            outcome_label = (
+                _task_status_label(outcome)
+                if isinstance(outcome, str) and outcome in TASK_STATUSES
+                else _safe_progress_value(outcome, limit=32)
+            )
+            timestamp = _safe_progress_timestamp(event.get("created_at"))
+            detail = " · ".join(part for part in (timestamp, label, outcome_label) if part)
+            lines.append(f"• {detail}")
+    else:
+        lines.append("هنوز رویداد قابل‌نمایشی برای این وظیفه ثبت نشده است.")
+
+    next_cursor = history.get("next_cursor") if isinstance(history, dict) else None
+    if (
+        isinstance(next_cursor, str)
+        and 1 <= len(next_cursor) <= 512
+        and next_cursor.isascii()
+        and all(character.isalnum() or character in "-_" for character in next_cursor)
+        and history.get("has_more") is True
+    ):
+        lines.append(f"ادامه تاریخچه: /taskhistory {task_id} {next_cursor}")
+    elif history is None:
+        lines.append("تاریخچه رویدادها فعلاً در دسترس نیست.")
+    return "\n".join(lines)
 
 
 def _defer_task_watch(
@@ -240,7 +334,7 @@ async def _owner_hub_command(
             return "اتصال انجام نشد؛ کد ممکن است نامعتبر یا منقضی شده باشد. هیچ اطلاعات محرمانه‌ای ثبت نشده است."
 
     if command not in {
-        "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskresult", "/taskcancel",
+        "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskresult", "/taskcancel",
         "/taskhistory", "/taskwatch", "/taskunwatch", "/taskwatches",
         "/videoproviders", "/videoroute", "/videohistory", "/videostatus", "/videocancel",
         "/videodrafts", "/videorenders", "/videorendercheck", "/videorender", "/videorenderstatus",
@@ -349,6 +443,28 @@ async def _owner_hub_command(
             except ValueError:
                 return "شناسه وظیفه باید یک UUID معتبر باشد."
             return _format_result(await hub.get_task(telegram_user_id, task_id))
+        if command == "/taskprogress":
+            if not argument:
+                return "روش استفاده: /taskprogress TASK_ID"
+            try:
+                task_id = str(UUID(argument))
+            except ValueError:
+                return "شناسه وظیفه باید یک UUID معتبر باشد."
+            try:
+                task = await hub.get_task(telegram_user_id, task_id)
+            except HubClientError as exc:
+                if exc.status_code == 404:
+                    return "وظیفه پیدا نشد یا متعلق به این اتصال ربات نیست."
+                raise
+            try:
+                history = await hub.get_task_history(
+                    telegram_user_id, task_id, limit=10
+                )
+            except HubClientError as exc:
+                if exc.status_code == 404:
+                    return "وظیفه پیدا نشد یا متعلق به این اتصال ربات نیست."
+                history = None
+            return _format_task_progress(task, history, task_id)
         if command == "/taskhistory":
             if not argument:
                 return "روش استفاده: /taskhistory TASK_ID [CURSOR]"
@@ -898,6 +1014,7 @@ OWNER_BOT_COMMANDS = (
     {"command": "memorycheck", "description": "اعتبارسنجی و بررسی تناقض حافظه"},
     {"command": "task", "description": "ثبت وظیفه"},
     {"command": "taskstatus", "description": "وضعیت یک وظیفه"},
+    {"command": "taskprogress", "description": "گزارش پیشرفت و رویدادهای اخیر وظیفه"},
     {"command": "taskhistory", "description": "تاریخچه صفحه‌بندی‌شده یک وظیفه"},
     {"command": "taskwatch", "description": "اعلان تغییر وضعیت وظیفه"},
     {"command": "taskunwatch", "description": "توقف اعلان‌های وظیفه"},
