@@ -922,7 +922,6 @@ def test_task_progress_command_validates_ids_and_handles_missing_tasks():
     assert "وظیفه پیدا نشد" in missing
 
 
-
 def test_task_plan_preview_is_local_owner_scoped_and_does_not_submit_tasks(tmp_path):
     from el_ai.telegram.task_plan import TaskPlanStore
 

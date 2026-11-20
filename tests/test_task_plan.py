@@ -102,6 +102,25 @@ def test_task_plan_store_rejects_corrupt_and_duplicate_state(tmp_path):
         TaskPlanStore(path).load()
 
 
+def test_task_plan_store_wraps_invalid_persisted_fields_as_store_errors(tmp_path):
+    path = tmp_path / "task-plans.json"
+    path.write_text(json.dumps({
+        "version": 1,
+        "plans": [{
+            "plan_id": TASK_A,
+            "telegram_user_id": True,
+            "task_type": "demo.echo",
+            "created_at": 100,
+            "steps": [
+                {"description": "one", "task_id": None},
+                {"description": "two", "task_id": None},
+            ],
+        }],
+    }), encoding="utf-8")
+    with pytest.raises(TaskPlanError, match="entry is invalid"):
+        TaskPlanStore(path).load()
+
+
 def test_task_plan_store_uses_private_file_permissions_and_rejects_symlinks(tmp_path):
     path = tmp_path / "task-plans.json"
     TaskPlanStore(path).create(123, "demo.echo", ["one", "two"], now=100)

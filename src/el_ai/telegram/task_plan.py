@@ -97,29 +97,32 @@ class TaskPlanStore:
                 "plan_id", "telegram_user_id", "task_type", "created_at", "steps"
             }:
                 raise TaskPlanError("Stored Telegram task-plan entry is invalid")
-            plan_id = self._canonical_uuid(item.get("plan_id"), "plan ID")
-            user_id = item.get("telegram_user_id")
-            task_type = item.get("task_type")
-            created_at = item.get("created_at")
-            raw_steps = item.get("steps")
-            self._validate_user_id(user_id)
-            self._validate_task_type(task_type)
-            self._validate_timestamp(created_at)
-            if not isinstance(raw_steps, list) or not (
-                MIN_TASK_PLAN_STEPS <= len(raw_steps) <= MAX_TASK_PLAN_STEPS
-            ):
-                raise TaskPlanError("Stored Telegram task-plan step count is invalid")
-            steps: list[TaskPlanStep] = []
-            for raw_step in raw_steps:
-                if not isinstance(raw_step, dict) or set(raw_step) != {
-                    "description", "task_id"
-                }:
-                    raise TaskPlanError("Stored Telegram task-plan step is invalid")
-                description = self._validate_description(raw_step.get("description"))
-                task_id = raw_step.get("task_id")
-                if task_id is not None:
-                    task_id = self._canonical_uuid(task_id, "task ID")
-                steps.append(TaskPlanStep(description, task_id))
+            try:
+                plan_id = self._canonical_uuid(item.get("plan_id"), "plan ID")
+                user_id = item.get("telegram_user_id")
+                task_type = item.get("task_type")
+                created_at = item.get("created_at")
+                raw_steps = item.get("steps")
+                self._validate_user_id(user_id)
+                self._validate_task_type(task_type)
+                self._validate_timestamp(created_at)
+                if not isinstance(raw_steps, list) or not (
+                    MIN_TASK_PLAN_STEPS <= len(raw_steps) <= MAX_TASK_PLAN_STEPS
+                ):
+                    raise TaskPlanError("Stored Telegram task-plan step count is invalid")
+                steps: list[TaskPlanStep] = []
+                for raw_step in raw_steps:
+                    if not isinstance(raw_step, dict) or set(raw_step) != {
+                        "description", "task_id"
+                    }:
+                        raise TaskPlanError("Stored Telegram task-plan step is invalid")
+                    description = self._validate_description(raw_step.get("description"))
+                    task_id = raw_step.get("task_id")
+                    if task_id is not None:
+                        task_id = self._canonical_uuid(task_id, "task ID")
+                    steps.append(TaskPlanStep(description, task_id))
+            except ValueError as exc:
+                raise TaskPlanError("Stored Telegram task-plan entry is invalid") from exc
             if plan_id in seen:
                 raise TaskPlanError("Stored Telegram task plans are duplicated")
             seen.add(plan_id)
