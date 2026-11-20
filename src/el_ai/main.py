@@ -37,7 +37,7 @@ TASK_STATUSES = frozenset({
     "failed", "cancelled", "rejected",
 })
 OWNER_HUB_COMMANDS = frozenset({
-    "/pair", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/taskplanrun", "/taskplans", "/taskplanstatus",
+    "/pair", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel",
     "/taskresult", "/taskcancel", "/taskhistory", "/taskwatch", "/taskunwatch",
     "/taskwatches", "/videoproviders", "/videoroute",
     "/videohistory", "/videostatus", "/videocancel",
@@ -348,7 +348,7 @@ async def _owner_hub_command(
             return "اتصال انجام نشد؛ کد ممکن است نامعتبر یا منقضی شده باشد. هیچ اطلاعات محرمانه‌ای ثبت نشده است."
 
     if command not in {
-        "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskresult", "/taskcancel",
+        "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskresult", "/taskcancel",
         "/taskhistory", "/taskwatch", "/taskunwatch", "/taskwatches",
         "/videoproviders", "/videoroute", "/videohistory", "/videostatus", "/videocancel",
         "/videodrafts", "/videorenders", "/videorendercheck", "/videorender", "/videorenderstatus",
@@ -524,6 +524,132 @@ async def _owner_hub_command(
                     else "نامشخص"
                 )
                 lines.append(f"{index + 1}. {status_label} — {step.task_id}")
+            return "\n".join(lines)
+        if command == "/taskplanwatch":
+            if task_plans is None or task_watches is None:
+                return "ذخیره‌سازی طرح یا پایش وظایف در دسترس نیست."
+            if not argument:
+                return "روش استفاده: /taskplanwatch PLAN_ID"
+            try:
+                plan_id = str(UUID(argument))
+                plan = task_plans.get_for_user(plan_id, telegram_user_id)
+            except (TaskPlanError, ValueError):
+                return "شناسه طرح نامعتبر است."
+            if plan is None:
+                return "طرح پیدا نشد، منقضی شده یا متعلق به این اتصال ربات نیست."
+            submitted = [
+                (index, step.task_id)
+                for index, step in enumerate(plan.steps)
+                if step.task_id is not None
+            ]
+            if not submitted:
+                return "هنوز هیچ مرحله‌ای به Hub ارسال نشده است؛ ابتدا /taskplanrun را اجرا کن."
+
+            semaphore = asyncio.Semaphore(4)
+
+            async def read_plan_step(index: int, task_id: str):
+                async with semaphore:
+                    try:
+                        task = await hub.get_task(telegram_user_id, task_id)
+                    except HubClientError as exc:
+                        return index, task_id, None, exc.status_code if exc.status_code is not None else 0
+                status = task.get("status") if isinstance(task, dict) else None
+                if not isinstance(status, str) or status not in TASK_STATUSES:
+                    return index, task_id, None, 0
+                return index, task_id, status, None
+
+            results = await asyncio.gather(
+                *(read_plan_step(index, task_id) for index, task_id in submitted)
+            )
+            active_entries = [
+                (task_id, status)
+                for _index, task_id, status, error in results
+                if error is None and isinstance(status, str) and status not in TERMINAL_TASK_STATUSES
+            ]
+            terminal_count = sum(
+                error is None and isinstance(status, str) and status in TERMINAL_TASK_STATUSES
+                for _index, _task_id, status, error in results
+            )
+            unavailable_count = sum(error is not None for _index, _task_id, _status, error in results)
+            if not active_entries:
+                return (
+                    "هیچ مرحله فعال و قابل‌پایشی پیدا نشد.\n"
+                    f"مراحل نهایی: {terminal_count} · در دسترس نبود: {unavailable_count}"
+                )
+            try:
+                added_ids = task_watches.add_many(active_entries, telegram_user_id)
+            except (TaskWatchError, ValueError):
+                return "ظرفیت پایش کافی نیست یا ذخیره‌سازی نامعتبر است؛ هیچ پایشی از این طرح ثبت نشد."
+            already_watched = len(active_entries) - len(added_ids)
+            return (
+                "پایش گروهی طرح بررسی و ثبت شد.\n"
+                f"شناسه طرح: {plan.plan_id}\n"
+                f"پایش جدید: {len(added_ids)} · از قبل فعال: {already_watched}\n"
+                f"مراحل نهایی: {terminal_count} · در دسترس نبود: {unavailable_count}\n"
+                "اعلان هر مرحله پس از تغییر وضعیت جداگانه ارسال می‌شود."
+            )
+        if command == "/taskplancancel":
+            parts = argument.split()
+            if len(parts) != 2 or parts[1].upper() != "CONFIRM":
+                return "برای لغو گروهی، دستور دقیق را با تأیید صریح بفرست: /taskplancancel PLAN_ID CONFIRM"
+            if task_plans is None:
+                return "ذخیره‌سازی طرح وظایف در دسترس نیست."
+            try:
+                plan_id = str(UUID(parts[0]))
+                plan = task_plans.get_for_user(plan_id, telegram_user_id)
+            except (TaskPlanError, ValueError):
+                return "شناسه طرح نامعتبر است."
+            if plan is None:
+                return "طرح پیدا نشد، منقضی شده یا متعلق به این اتصال ربات نیست."
+            submitted = [
+                (index, step.task_id)
+                for index, step in enumerate(plan.steps)
+                if step.task_id is not None
+            ]
+            if not submitted:
+                return "این طرح هنوز هیچ وظیفه‌ای در Hub ندارد."
+            semaphore = asyncio.Semaphore(4)
+
+            async def cancel_plan_step(index: int, task_id: str):
+                async with semaphore:
+                    try:
+                        result = await hub.cancel_task(telegram_user_id, task_id)
+                    except HubClientError as exc:
+                        if exc.status_code == 409:
+                            return index, task_id, "not_cancellable"
+                        if exc.status_code == 404:
+                            return index, task_id, "not_found"
+                        return index, task_id, "unknown"
+                status = result.get("status") if isinstance(result, dict) else None
+                if status == "cancelled":
+                    return index, task_id, "cancelled"
+                if isinstance(status, str) and status in TASK_STATUSES:
+                    return index, task_id, status
+                return index, task_id, "unknown"
+
+            results = await asyncio.gather(
+                *(cancel_plan_step(index, task_id) for index, task_id in submitted)
+            )
+            lines = [
+                "درخواست لغو گروهی طرح بررسی شد؛ وظایف درحال‌اجرا یا نهایی به‌زور متوقف نمی‌شوند.",
+                f"شناسه طرح: {plan.plan_id}",
+            ]
+            cancelled_count = 0
+            for index, task_id, outcome in results:
+                if outcome == "cancelled":
+                    label = "لغو شد"
+                    cancelled_count += 1
+                elif outcome == "not_cancellable":
+                    label = "درحال‌اجرا یا نهایی؛ لغو نشد"
+                elif outcome == "not_found":
+                    label = "پیدا نشد یا متعلق به این اتصال نیست"
+                elif outcome == "unknown":
+                    label = "نتیجه نامشخص؛ وضعیت را دوباره بررسی کن"
+                else:
+                    label = "وضعیت: " + _task_status_label(outcome)
+                lines.append(f"{index + 1}. {label} — {task_id}")
+            lines.append(f"لغوشده: {cancelled_count} از {len(submitted)} مرحله")
+            lines.append(f"وضعیت نهایی هر مرحله: /taskplanstatus {plan.plan_id}")
             return "\n".join(lines)
         if command == "/taskplanrun":
             if task_plans is None:
@@ -1170,6 +1296,8 @@ OWNER_BOT_COMMANDS = (
     {"command": "taskplanrun", "description": "ثبت صریح مراحل طرح در Hub"},
     {"command": "taskplans", "description": "فهرست طرح‌های ذخیره‌شده"},
     {"command": "taskplanstatus", "description": "وضعیت همه مراحل یک طرح"},
+    {"command": "taskplanwatch", "description": "پایش گروهی مراحل فعال یک طرح"},
+    {"command": "taskplancancel", "description": "لغو گروهی مراحل لغوپذیر یک طرح"},
     {"command": "taskhistory", "description": "تاریخچه صفحه‌بندی‌شده یک وظیفه"},
     {"command": "taskwatch", "description": "اعلان تغییر وضعیت وظیفه"},
     {"command": "taskunwatch", "description": "توقف اعلان‌های وظیفه"},
