@@ -10,6 +10,7 @@ from el_ai.telegram.task_watch import (
 
 
 TASK_A = "12345678-1234-4234-8234-123456789abc"
+TASK_B = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
 
 def test_task_watch_store_persists_owner_scoped_status_checkpoints(tmp_path):
@@ -53,6 +54,40 @@ def test_task_watch_store_enforces_a_bounded_collection(tmp_path):
     with pytest.raises(TaskWatchError, match="limit"):
         store.add("ffffffff-ffff-4fff-8fff-ffffffffffff", 123, "queued")
     assert len(store.list()) == MAX_TASK_WATCHES
+
+
+def test_task_watch_store_add_many_is_atomic_idempotent_and_owner_scoped(tmp_path):
+    store = TaskWatchStore(tmp_path / "task-watches.json")
+    store.load()
+    store.add(TASK_A, 123, "running")
+
+    added = store.add_many([(TASK_A, "running"), (TASK_B, "queued")], 123)
+
+    assert added == (TASK_B,)
+    assert {item.task_id for item in store.list_for_user(123)} == {TASK_A, TASK_B}
+    assert store.list_for_user(456) == ()
+    assert store.add_many([(TASK_B, "queued")], 123) == ()
+
+    with pytest.raises(ValueError, match="active task statuses"):
+        store.add_many([("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "succeeded")], 123)
+    assert {item.task_id for item in store.list_for_user(123)} == {TASK_A, TASK_B}
+
+
+def test_task_watch_store_add_many_checks_capacity_before_persisting(tmp_path):
+    store = TaskWatchStore(tmp_path / "task-watches.json")
+    store.load()
+    for index in range(MAX_TASK_WATCHES - 1):
+        task_id = f"12345678-1234-4234-8234-{index:012x}"
+        store.add(task_id, 123, "queued")
+    before = store.list()
+
+    with pytest.raises(TaskWatchError, match="limit"):
+        store.add_many([
+            ("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "running"),
+            ("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "queued"),
+        ], 123)
+
+    assert store.list() == before
 
 
 def test_task_watch_store_rejects_corrupt_and_duplicate_state(tmp_path):
