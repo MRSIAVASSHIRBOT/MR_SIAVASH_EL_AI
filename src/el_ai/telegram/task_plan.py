@@ -302,7 +302,7 @@ class TaskPlanStore:
                     for plan in self._ensure_loaded()
                 ],
             }
-            raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\\n"
+            raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
             if len(raw.encode("utf-8")) > MAX_TASK_PLAN_BYTES:
                 raise TaskPlanError("Telegram task-plan state exceeds its size limit")
             descriptor, temporary_path = tempfile.mkstemp(
@@ -359,10 +359,10 @@ class TaskPlanStore:
     @staticmethod
     def _validate_description(value: object) -> str:
         if not isinstance(value, str):
-            raise ValueError("Task-plan description must be text")
+            raise TaskPlanError("Task-plan description must be text")
         normalized = value.strip()
         if not normalized or len(normalized) > MAX_TASK_STEP_LENGTH:
-            raise ValueError("Task-plan descriptions must contain 1–400 characters")
+            raise TaskPlanError("Task-plan descriptions must contain 1–400 characters")
         return normalized
 
     @staticmethod
