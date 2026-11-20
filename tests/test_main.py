@@ -1082,3 +1082,90 @@ def test_task_plan_commands_reject_invalid_input_and_foreign_plan_access(tmp_pat
     ))
     assert "پیدا نشد" in foreign
     assert store.get_for_user(plan_id, 123).submitted_count == 0
+
+
+
+def test_task_plan_status_reports_each_step_without_exposing_task_payloads(tmp_path):
+    from el_ai.telegram.task_plan import TaskPlanStore
+
+    store = TaskPlanStore(tmp_path / "task-plans.json")
+    plan = store.create(123, "demo.echo", ["first", "second", "third"])
+    first_id = "12345678-1234-4234-8234-123456789abc"
+    second_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    store.mark_submitted(plan.plan_id, 123, 0, first_id)
+    store.mark_submitted(plan.plan_id, 123, 1, second_id)
+
+    class FakeHub:
+        async def get_task(self, telegram_user_id, task_id):
+            assert telegram_user_id == 123
+            if task_id == first_id:
+                return {"status": "running", "result": "private-result"}
+            if task_id == second_id:
+                return {"status": "succeeded", "output": "private-output"}
+            raise AssertionError("Unexpected task ID")
+
+    rendered = asyncio.run(_owner_hub_command(
+        f"/taskplanstatus {plan.plan_id}",
+        telegram_user_id=123,
+        update_id=120,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+        task_plans=store,
+    ))
+    assert "2 از 3" in rendered
+    assert "در حال اجرا" in rendered
+    assert "موفق" in rendered
+    assert "ثبت نشده" in rendered
+    assert "private-result" not in rendered
+    assert "private-output" not in rendered
+    assert "/taskplanstatus" in OWNER_HUB_COMMANDS
+    assert any(item["command"] == "taskplanstatus" for item in OWNER_BOT_COMMANDS)
+
+
+def test_task_watch_notifications_include_safe_progress_timeline(tmp_path):
+    task_id = "12345678-1234-4234-8234-123456789abc"
+    store = TaskWatchStore(tmp_path / "task-watches.json")
+    store.load()
+    store.add(task_id, 123, "queued")
+
+    class FakeHub:
+        async def get_task(self, telegram_user_id, requested_id):
+            assert telegram_user_id == 123
+            assert requested_id == task_id
+            return {
+                "task_id": task_id,
+                "task_type": "demo.echo",
+                "status": "running",
+                "updated_at": "2026-11-20T10:05:00+00:00",
+            }
+
+        async def get_task_history(self, telegram_user_id, requested_id, *, limit=20, cursor=None):
+            assert telegram_user_id == 123
+            assert requested_id == task_id
+            assert limit == 5
+            return {
+                "events": [{
+                    "event_type": "worker.task_started",
+                    "outcome": "running",
+                    "created_at": "2026-11-20T10:05:00+00:00",
+                    "metadata": {"private_payload": "must-not-appear"},
+                }],
+                "has_more": False,
+                "next_cursor": None,
+            }
+
+    class FakeAPI:
+        def __init__(self):
+            self.sent = []
+
+        async def send_message(self, chat_id, text):
+            self.sent.append((chat_id, text))
+
+    api = FakeAPI()
+    asyncio.run(_poll_task_watches(api, FakeHub(), store, now=100))
+    assert len(api.sent) == 1
+    assert api.sent[0][0] == 123
+    assert "گزارش پیشرفت وظیفه" in api.sent[0][1]
+    assert "اجرای وظیفه آغاز شد" in api.sent[0][1]
+    assert "must-not-appear" not in api.sent[0][1]
+    assert store.list_for_user(123)[0].last_status == "running"

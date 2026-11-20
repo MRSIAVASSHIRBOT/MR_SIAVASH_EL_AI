@@ -73,6 +73,8 @@ The preflight does not contact Telegram, Hub, or the public Gateway, does not wr
 - `/taskplan TYPE | STEP 1 ; STEP 2`: save a bounded owner-authored plan preview locally; no Hub task is created until explicit confirmation.
 - `/taskplanrun PLAN_ID`: submit each plan step as a separate policy-gated Hub task. Submission is resumable and uses stable idempotency keys after ambiguous network outcomes.
 - `/taskplans`: list the owner's saved plans and per-plan submission counts. Local plan drafts expire after seven days and are stored in a private state file; do not include credentials in step text.
+- `/taskplanstatus PLAN_ID`: inspect the current Hub status of each submitted step without exposing task result payloads.
+- `/taskwatch TASK_ID` notifications now include a bounded lifecycle timeline on status transitions; if event history is temporarily unavailable, the status notification still goes through.
 - `/taskcancel TASK_ID`: cancel a task only while it is queued or waiting for approval.
 - `/taskwatch TASK_ID`, `/taskwatches`, and `/taskunwatch TASK_ID`: persist, list, or stop owner-only task status notifications. Watches store task IDs, Telegram owner IDs, status checkpoints, and bounded retry deadlines only; transient Hub or Telegram failures use persisted exponential backoff (30 seconds to 30 minutes). Delivery remains at-least-once when Telegram reports an unknown outcome.
 - `/memory QUERY`: search the owner's Hub memory.

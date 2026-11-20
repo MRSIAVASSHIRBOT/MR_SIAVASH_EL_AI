@@ -41,7 +41,7 @@
 ## Milestone 4 — Memory and planning
 - [x] Add owner-scoped memory search through the Hub API contract.
 - [x] Add bounded task submission through Hub PolicyEngine and idempotency.
-- [x] Add owner-authored bounded task-plan previews, explicit resumable idempotent batch submission, and structured task-progress timelines.
+- [x] Add owner-authored bounded task-plan previews, explicit resumable idempotent batch submission, aggregate plan status, and structured task-watch progress notifications.
 - [ ] Add model-driven dependency-aware task planning and progress orchestration.
 - [ ] Keep public and owner context isolated in end-to-end tests.
 

@@ -37,7 +37,7 @@ TASK_STATUSES = frozenset({
     "failed", "cancelled", "rejected",
 })
 OWNER_HUB_COMMANDS = frozenset({
-    "/pair", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/taskplanrun", "/taskplans",
+    "/pair", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/taskplanrun", "/taskplans", "/taskplanstatus",
     "/taskresult", "/taskcancel", "/taskhistory", "/taskwatch", "/taskunwatch",
     "/taskwatches", "/videoproviders", "/videoroute",
     "/videohistory", "/videostatus", "/videocancel",
@@ -232,7 +232,9 @@ async def _poll_task_watches(
         return
     semaphore = asyncio.Semaphore(4)
 
-    async def read_status(watch: TaskWatch) -> tuple[TaskWatch, str | None, int | None]:
+    async def read_task(
+        watch: TaskWatch,
+    ) -> tuple[TaskWatch, dict[str, object] | None, int | None]:
         async with semaphore:
             try:
                 task = await hub.get_task(watch.telegram_user_id, watch.task_id)
@@ -241,12 +243,12 @@ async def _poll_task_watches(
             except Exception:  # noqa: BLE001 - one unavailable watch must not stop polling
                 return watch, None, 0
         status = task.get("status") if isinstance(task, dict) else None
-        if not isinstance(status, str) or status not in TASK_STATUSES:
+        if not isinstance(task, dict) or not isinstance(status, str) or status not in TASK_STATUSES:
             return watch, None, 0
-        return watch, status, None
+        return watch, task, None
 
-    results = await asyncio.gather(*(read_status(item) for item in watches))
-    for watch, status, error_code in results:
+    results = await asyncio.gather(*(read_task(item) for item in watches))
+    for watch, task, error_code in results:
         if error_code == 404:
             message = (
                 "پایش یک وظیفه متوقف شد؛ وظیفه دیگر در دسترس نیست یا به این اتصال تعلق ندارد.\n"
@@ -269,8 +271,13 @@ async def _poll_task_watches(
             LOGGER.warning("Hub task-watch lookup failed; retry scheduled")
             _defer_task_watch(store, watch, current_time)
             continue
-        if not isinstance(status, str):
+        if not isinstance(task, dict):
             LOGGER.warning("Hub task-watch response was invalid; retry scheduled")
+            _defer_task_watch(store, watch, current_time)
+            continue
+        status = task.get("status")
+        if not isinstance(status, str) or status not in TASK_STATUSES:
+            LOGGER.warning("Hub task-watch response had an invalid status; retry scheduled")
             _defer_task_watch(store, watch, current_time)
             continue
         if status == watch.last_status:
@@ -281,11 +288,16 @@ async def _poll_task_watches(
                     LOGGER.warning("Task-watch retry state could not be cleared")
             continue
 
-        message = (
-            "وضعیت وظیفه تغییر کرد.\n"
-            f"شناسه: {watch.task_id}\n"
-            f"وضعیت جدید: {_task_status_label(status)}"
-        )
+        history = None
+        history_reader = getattr(hub, "get_task_history", None)
+        if callable(history_reader):
+            try:
+                history = await history_reader(
+                    watch.telegram_user_id, watch.task_id, limit=5
+                )
+            except Exception:  # noqa: BLE001 - history is optional; status delivery must continue
+                LOGGER.warning("Task-watch history lookup failed; sending status-only progress")
+        message = _format_task_progress(task, history, watch.task_id)
         try:
             await _send_response(api, watch.telegram_user_id, message)
         except TelegramAPIError:
@@ -336,7 +348,7 @@ async def _owner_hub_command(
             return "اتصال انجام نشد؛ کد ممکن است نامعتبر یا منقضی شده باشد. هیچ اطلاعات محرمانه‌ای ثبت نشده است."
 
     if command not in {
-        "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/taskplanrun", "/taskplans", "/taskresult", "/taskcancel",
+        "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskresult", "/taskcancel",
         "/taskhistory", "/taskwatch", "/taskunwatch", "/taskwatches",
         "/videoproviders", "/videoroute", "/videohistory", "/videostatus", "/videocancel",
         "/videodrafts", "/videorenders", "/videorendercheck", "/videorender", "/videorenderstatus",
@@ -479,6 +491,40 @@ async def _owner_hub_command(
                     for plan in plans
                 ],
             })
+        if command == "/taskplanstatus":
+            if task_plans is None:
+                return "ذخیره‌سازی طرح وظایف در دسترس نیست."
+            if not argument:
+                return "روش استفاده: /taskplanstatus PLAN_ID"
+            try:
+                plan_id = str(UUID(argument))
+                plan = task_plans.get_for_user(plan_id, telegram_user_id)
+            except (TaskPlanError, ValueError):
+                return "شناسه طرح نامعتبر است."
+            if plan is None:
+                return "طرح پیدا نشد، منقضی شده یا متعلق به این اتصال ربات نیست."
+            lines = [
+                "وضعیت مراحل طرح",
+                f"شناسه طرح: {plan.plan_id}",
+                f"ارسال‌شده به Hub: {plan.submitted_count} از {len(plan.steps)}",
+            ]
+            for index, step in enumerate(plan.steps):
+                if step.task_id is None:
+                    lines.append(f"{index + 1}. ثبت نشده")
+                    continue
+                try:
+                    task = await hub.get_task(telegram_user_id, step.task_id)
+                except HubClientError:
+                    lines.append(f"{index + 1}. وضعیت در دسترس نیست — {step.task_id}")
+                    continue
+                status = task.get("status") if isinstance(task, dict) else None
+                status_label = (
+                    _task_status_label(status)
+                    if isinstance(status, str) and status in TASK_STATUSES
+                    else "نامشخص"
+                )
+                lines.append(f"{index + 1}. {status_label} — {step.task_id}")
+            return "\n".join(lines)
         if command == "/taskplanrun":
             if task_plans is None:
                 return "ذخیره‌سازی طرح وظایف در دسترس نیست."
@@ -1123,6 +1169,7 @@ OWNER_BOT_COMMANDS = (
     {"command": "taskplan", "description": "ساخت پیش‌نمایش طرح چندمرحله‌ای"},
     {"command": "taskplanrun", "description": "ثبت صریح مراحل طرح در Hub"},
     {"command": "taskplans", "description": "فهرست طرح‌های ذخیره‌شده"},
+    {"command": "taskplanstatus", "description": "وضعیت همه مراحل یک طرح"},
     {"command": "taskhistory", "description": "تاریخچه صفحه‌بندی‌شده یک وظیفه"},
     {"command": "taskwatch", "description": "اعلان تغییر وضعیت وظیفه"},
     {"command": "taskunwatch", "description": "توقف اعلان‌های وظیفه"},
