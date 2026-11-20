@@ -21,6 +21,7 @@ from el_ai.telegram.access import AccessController
 from el_ai.telegram.api import TelegramAPIError, TelegramBotAPI, split_telegram_message
 from el_ai.telegram.cursor import UpdateCursor, UpdateCursorError
 from el_ai.telegram.router import MessageRouter
+from el_ai.telegram.task_plan import TaskPlanError, TaskPlanStore
 from el_ai.telegram.task_watch import (
     TERMINAL_TASK_STATUSES,
     TaskWatch,
@@ -36,7 +37,7 @@ TASK_STATUSES = frozenset({
     "failed", "cancelled", "rejected",
 })
 OWNER_HUB_COMMANDS = frozenset({
-    "/pair", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress",
+    "/pair", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/taskplanrun", "/taskplans",
     "/taskresult", "/taskcancel", "/taskhistory", "/taskwatch", "/taskunwatch",
     "/taskwatches", "/videoproviders", "/videoroute",
     "/videohistory", "/videostatus", "/videocancel",
@@ -309,6 +310,7 @@ async def _owner_hub_command(
     hub: HubClient | None,
     settings: Settings,
     task_watches: TaskWatchStore | None = None,
+    task_plans: TaskPlanStore | None = None,
     api: TelegramBotAPI | None = None,
     chat_id: int | None = None,
 ) -> str | None:
@@ -334,7 +336,7 @@ async def _owner_hub_command(
             return "اتصال انجام نشد؛ کد ممکن است نامعتبر یا منقضی شده باشد. هیچ اطلاعات محرمانه‌ای ثبت نشده است."
 
     if command not in {
-        "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskresult", "/taskcancel",
+        "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/taskplanrun", "/taskplans", "/taskresult", "/taskcancel",
         "/taskhistory", "/taskwatch", "/taskunwatch", "/taskwatches",
         "/videoproviders", "/videoroute", "/videohistory", "/videostatus", "/videocancel",
         "/videodrafts", "/videorenders", "/videorendercheck", "/videorender", "/videorenderstatus",
@@ -435,6 +437,109 @@ async def _owner_hub_command(
                     idempotency_key=f"telegram-update-{update_id}",
                 )
             )
+        if command == "/taskplan":
+            if task_plans is None:
+                return "ذخیره‌سازی طرح وظایف در دسترس نیست."
+            if "|" not in argument:
+                return "روش استفاده: /taskplan task.type | مرحله اول ; مرحله دوم"
+            task_type, raw_steps = (part.strip() for part in argument.split("|", 1))
+            descriptions = [part.strip() for part in raw_steps.split(";")]
+            try:
+                plan = task_plans.create(telegram_user_id, task_type, descriptions)
+            except (TaskPlanError, ValueError):
+                return "طرح معتبر نیست؛ نوع وظیفه و ۲ تا ۸ مرحله غیرخالی را بررسی کن."
+            preview = "\n".join(
+                f"{index + 1}. {step.description}"
+                for index, step in enumerate(plan.steps)
+            )
+            return (
+                "پیش‌نمایش طرح ذخیره شد؛ هنوز هیچ وظیفه‌ای به Hub ارسال نشده است.\n"
+                f"شناسه طرح: {plan.plan_id}\n"
+                f"نوع: {plan.task_type}\n{preview}\n"
+                f"برای ثبت صریح همه مراحل: /taskplanrun {plan.plan_id}\n"
+                "هر مرحله یک وظیفه مستقل است و سیاست/تأیید Hub جداگانه اعمال می‌شود."
+            )
+        if command == "/taskplans":
+            if task_plans is None:
+                return "ذخیره‌سازی طرح وظایف در دسترس نیست."
+            try:
+                plans = task_plans.list_for_user(telegram_user_id)
+            except (TaskPlanError, ValueError):
+                return "فهرست طرح‌های ذخیره‌شده در دسترس نیست."
+            return _format_result({
+                "count": len(plans),
+                "plans": [
+                    {
+                        "plan_id": plan.plan_id,
+                        "task_type": plan.task_type,
+                        "submitted_steps": plan.submitted_count,
+                        "total_steps": len(plan.steps),
+                        "created_at": plan.created_at,
+                    }
+                    for plan in plans
+                ],
+            })
+        if command == "/taskplanrun":
+            if task_plans is None:
+                return "ذخیره‌سازی طرح وظایف در دسترس نیست."
+            if not argument:
+                return "روش استفاده: /taskplanrun PLAN_ID"
+            try:
+                plan_id = str(UUID(argument))
+                plan = task_plans.get_for_user(plan_id, telegram_user_id)
+            except (TaskPlanError, ValueError):
+                return "شناسه طرح نامعتبر است."
+            if plan is None:
+                return "طرح پیدا نشد، منقضی شده یا متعلق به این اتصال ربات نیست."
+            submitted_ids = [step.task_id for step in plan.steps]
+            for index, step in enumerate(plan.steps):
+                if step.task_id is not None:
+                    continue
+                idempotency_key = f"telegram-plan-{plan.plan_id}-{index + 1}"
+                try:
+                    result = await hub.create_task(
+                        telegram_user_id,
+                        plan.task_type,
+                        step.description,
+                        idempotency_key=idempotency_key,
+                    )
+                except HubClientError:
+                    submitted_count = sum(task_id is not None for task_id in submitted_ids)
+                    return (
+                        f"ثبت طرح در مرحله {index + 1} متوقف شد؛ "
+                        f"{submitted_count} از {len(plan.steps)} مرحله ثبت محلی شده است.\n"
+                        "پس از رفع خطا، همان دستور /taskplanrun را دوباره بفرست؛ "
+                        "کلیدهای idempotency از ثبت تکراری جلوگیری می‌کنند."
+                    )
+                raw_task_id = result.get("task_id") if isinstance(result, dict) else None
+                try:
+                    task_id = str(UUID(str(raw_task_id)))
+                except (ValueError, TypeError, AttributeError):
+                    return (
+                        f"پاسخ Hub برای مرحله {index + 1} شناسه معتبر نداشت. "
+                        "همان دستور را دوباره بفرست تا نتیجه با همان کلید idempotency بازیابی شود."
+                    )
+                try:
+                    task_plans.mark_submitted(
+                        plan.plan_id, telegram_user_id, index, task_id
+                    )
+                except (TaskPlanError, ValueError):
+                    return (
+                        f"مرحله {index + 1} در Hub ثبت شد، اما checkpoint محلی ذخیره نشد. "
+                        "همان دستور را دوباره بفرست؛ ثبت تکراری انجام نخواهد شد."
+                    )
+                submitted_ids[index] = task_id
+            lines = [
+                "همه مراحل طرح به‌صورت وظایف مستقل به Hub ارسال شدند.",
+                f"شناسه طرح: {plan.plan_id}",
+            ]
+            lines.extend(
+                f"{index + 1}. {task_id}"
+                for index, task_id in enumerate(submitted_ids)
+                if task_id is not None
+            )
+            lines.append("برای پیگیری هر مرحله از /taskprogress TASK_ID استفاده کن.")
+            return "\n".join(lines)
         if command == "/taskstatus":
             if not argument:
                 return "روش استفاده: /taskstatus TASK_ID"
@@ -1015,6 +1120,9 @@ OWNER_BOT_COMMANDS = (
     {"command": "task", "description": "ثبت وظیفه"},
     {"command": "taskstatus", "description": "وضعیت یک وظیفه"},
     {"command": "taskprogress", "description": "گزارش پیشرفت و رویدادهای اخیر وظیفه"},
+    {"command": "taskplan", "description": "ساخت پیش‌نمایش طرح چندمرحله‌ای"},
+    {"command": "taskplanrun", "description": "ثبت صریح مراحل طرح در Hub"},
+    {"command": "taskplans", "description": "فهرست طرح‌های ذخیره‌شده"},
     {"command": "taskhistory", "description": "تاریخچه صفحه‌بندی‌شده یک وظیفه"},
     {"command": "taskwatch", "description": "اعلان تغییر وضعیت وظیفه"},
     {"command": "taskunwatch", "description": "توقف اعلان‌های وظیفه"},
@@ -1078,6 +1186,12 @@ async def run(settings: Settings) -> None:
         task_watches.load()
     except TaskWatchError as exc:
         raise SystemExit("Stored Telegram task-watch state is invalid or inaccessible") from exc
+
+    task_plans = TaskPlanStore(settings.state_dir / "task-plans.json")
+    try:
+        task_plans.load()
+    except TaskPlanError as exc:
+        raise SystemExit("Stored Telegram task-plan state is invalid or inaccessible") from exc
 
     api = TelegramBotAPI(
         settings.telegram_bot_token,
@@ -1164,6 +1278,7 @@ async def run(settings: Settings) -> None:
                                 hub=hub,
                                 settings=settings,
                                 task_watches=task_watches,
+                                task_plans=task_plans,
                                 api=api,
                                 chat_id=chat_id,
                             )

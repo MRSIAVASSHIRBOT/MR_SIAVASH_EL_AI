@@ -920,3 +920,165 @@ def test_task_progress_command_validates_ids_and_handles_missing_tasks():
         settings=_settings(enabled=True),
     ))
     assert "وظیفه پیدا نشد" in missing
+
+
+def test_task_plan_preview_is_local_owner_scoped_and_does_not_submit_tasks(tmp_path):
+    from el_ai.telegram.task_plan import TaskPlanStore
+
+    store = TaskPlanStore(tmp_path / "task-plans.json")
+
+    class FakeHub:
+        async def create_task(self, *_args, **_kwargs):
+            raise AssertionError("Preview must not submit Hub tasks")
+
+    preview = asyncio.run(_owner_hub_command(
+        "/taskplan demo.echo | prepare inputs ; run validation ; summarize results",
+        telegram_user_id=123,
+        update_id=110,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+        task_plans=store,
+    ))
+    plan_id = preview.split("شناسه طرح: ", 1)[1].splitlines()[0]
+    assert "هیچ وظیفه‌ای به Hub ارسال نشده است" in preview
+    assert "/taskplanrun " + plan_id in preview
+    assert store.get_for_user(plan_id, 123).submitted_count == 0
+    assert store.get_for_user(plan_id, 456) is None
+
+    listed = asyncio.run(_owner_hub_command(
+        "/taskplans",
+        telegram_user_id=123,
+        update_id=111,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+        task_plans=store,
+    ))
+    payload = json.loads(listed)
+    assert payload["count"] == 1
+    assert payload["plans"][0]["submitted_steps"] == 0
+    assert "/taskplan" in OWNER_HUB_COMMANDS
+    assert "/taskplanrun" in OWNER_HUB_COMMANDS
+    assert any(item["command"] == "taskplanrun" for item in OWNER_BOT_COMMANDS)
+
+
+def test_task_plan_submission_resumes_after_ambiguous_hub_outcome_without_duplicates(tmp_path):
+    from uuid import NAMESPACE_URL, uuid5
+
+    from el_ai.telegram.task_plan import TaskPlanStore
+
+    store = TaskPlanStore(tmp_path / "task-plans.json")
+
+    class FakeHub:
+        def __init__(self):
+            self.records = {}
+            self.calls = []
+            self.ambiguous_once = True
+
+        async def create_task(self, telegram_user_id, task_type, description, *, idempotency_key):
+            assert telegram_user_id == 123
+            assert task_type == "demo.echo"
+            self.calls.append(idempotency_key)
+            if idempotency_key in self.records:
+                return self.records[idempotency_key]
+            result = {
+                "task_id": str(uuid5(NAMESPACE_URL, idempotency_key)),
+                "status": "queued",
+                "description": description,
+            }
+            self.records[idempotency_key] = result
+            if idempotency_key.endswith("-2") and self.ambiguous_once:
+                self.ambiguous_once = False
+                raise HubClientError("ambiguous network outcome")
+            return result
+
+    hub = FakeHub()
+    preview = asyncio.run(_owner_hub_command(
+        "/taskplan demo.echo | first step ; second step ; third step",
+        telegram_user_id=123,
+        update_id=112,
+        hub=hub,
+        settings=_settings(enabled=True),
+        task_plans=store,
+    ))
+    plan_id = preview.split("شناسه طرح: ", 1)[1].splitlines()[0]
+
+    interrupted = asyncio.run(_owner_hub_command(
+        f"/taskplanrun {plan_id}",
+        telegram_user_id=123,
+        update_id=113,
+        hub=hub,
+        settings=_settings(enabled=True),
+        task_plans=store,
+    ))
+    assert "1 از 3" in interrupted
+    assert store.get_for_user(plan_id, 123).submitted_count == 1
+
+    completed = asyncio.run(_owner_hub_command(
+        f"/taskplanrun {plan_id}",
+        telegram_user_id=123,
+        update_id=114,
+        hub=hub,
+        settings=_settings(enabled=True),
+        task_plans=store,
+    ))
+    assert "همه مراحل طرح" in completed
+    assert store.get_for_user(plan_id, 123).submitted_count == 3
+    assert len(hub.records) == 3
+    assert hub.calls == [
+        f"telegram-plan-{plan_id}-1",
+        f"telegram-plan-{plan_id}-2",
+        f"telegram-plan-{plan_id}-2",
+        f"telegram-plan-{plan_id}-3",
+    ]
+
+    repeated = asyncio.run(_owner_hub_command(
+        f"/taskplanrun {plan_id}",
+        telegram_user_id=123,
+        update_id=115,
+        hub=hub,
+        settings=_settings(enabled=True),
+        task_plans=store,
+    ))
+    assert "همه مراحل طرح" in repeated
+    assert len(hub.calls) == 4
+
+
+def test_task_plan_commands_reject_invalid_input_and_foreign_plan_access(tmp_path):
+    from el_ai.telegram.task_plan import TaskPlanStore
+
+    store = TaskPlanStore(tmp_path / "task-plans.json")
+
+    class FakeHub:
+        async def create_task(self, *_args, **_kwargs):
+            raise AssertionError("Invalid or foreign plan must not submit")
+
+    invalid = asyncio.run(_owner_hub_command(
+        "/taskplan invalid type | one ; two",
+        telegram_user_id=123,
+        update_id=116,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+        task_plans=store,
+    ))
+    assert "طرح معتبر نیست" in invalid
+    assert store.list_for_user(123) == ()
+
+    preview = asyncio.run(_owner_hub_command(
+        "/taskplan demo.echo | one ; two",
+        telegram_user_id=123,
+        update_id=117,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+        task_plans=store,
+    ))
+    plan_id = preview.split("شناسه طرح: ", 1)[1].splitlines()[0]
+    foreign = asyncio.run(_owner_hub_command(
+        f"/taskplanrun {plan_id}",
+        telegram_user_id=456,
+        update_id=118,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+        task_plans=store,
+    ))
+    assert "پیدا نشد" in foreign
+    assert store.get_for_user(plan_id, 123).submitted_count == 0
