@@ -68,3 +68,13 @@ The Telegram foundation, Hub pairing client, explicit opt-in and secret-redactio
 - The crash-safe cursor is implemented in `src/el_ai/telegram/cursor.py`; `src/el_ai/main.py` advances and persists offsets only after safe ignore or successful reply delivery. `tests/test_cursor.py` and `tests/test_update_offset.py` cover persistence and monotonic offset behavior.
 - Task creation uses an update-scoped idempotency key at the Hub boundary. This does not claim exactly-once delivery for every Telegram reply: an ambiguous send timeout is treated as unknown and the update is not acknowledged, so a retry may deliver a duplicate reply.
 - No Telegram bot token, live Telegram connection, webhook registration, or production EL_AI deployment is configured or verified.
+
+## Current evidence refresh — 2026-11-20 UTC
+
+- Current repository `main`: `e5eae3b026854aaf2157388cf83d82ffa6106a34`.
+- Exact-main GitHub Actions runs completed successfully: CI (run 44637623845), Workflow Security Audit (run 44637623893), and OpenSSF Scorecard (run 44637623829).
+- The implementation status above remains unchanged: task planning and structured progress messages are not implemented; public/owner context isolation still requires end-to-end coverage; live Telegram acceptance remains unverified.
+- The current source already includes owner-scoped task submission, task status/history/result commands, durable task watches, and bounded persisted retry backoff. Follow-up planning work must extend these contracts rather than duplicate them.
+- No Telegram bot token is configured, no live Telegram connection or webhook registration is verified, and no production EL_AI deployment is claimed.
+- Branch protection for `main` is currently reported as disabled by GitHub metadata. No repository access-control settings were changed.
+- This is a source and CI evidence refresh only; it does not claim live runtime acceptance or production readiness.
