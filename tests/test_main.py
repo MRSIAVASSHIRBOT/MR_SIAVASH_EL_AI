@@ -1359,3 +1359,26 @@ def test_ai_agent_plan_command_uses_local_by_default_and_never_submits_tasks(tmp
     assert "ممکن است هزینهٔ ارائه‌دهنده اعمال شود" in remote
     assert "/agentplan" in OWNER_HUB_COMMANDS
     assert any(item["command"] == "agentplan" for item in OWNER_BOT_COMMANDS)
+
+
+def test_ai_agent_plan_command_rejects_oversized_goal_before_provider_call(tmp_path):
+    from el_ai.telegram.task_plan import TaskPlanStore
+
+    calls = []
+
+    class FakeHub:
+        async def preview_agent_plan(self, *_args, **_kwargs):
+            calls.append(True)
+            raise AssertionError("oversized goals must be rejected before provider use")
+
+    response = asyncio.run(_owner_hub_command(
+        "/agentplan demo.build | " + ("x" * 1_001),
+        telegram_user_id=123,
+        update_id=132,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+        task_plans=TaskPlanStore(tmp_path / "agent-plans.json"),
+    ))
+
+    assert "حداکثر ۱۰۰۰ نویسه" in response
+    assert calls == []
