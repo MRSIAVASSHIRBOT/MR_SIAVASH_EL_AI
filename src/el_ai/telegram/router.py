@@ -48,6 +48,7 @@ class MessageRouter:
                 "\n/taskstatus TASK_ID — مشاهده وضعیت وظیفه ثبت‌شده"
                 "\n/taskprogress TASK_ID — گزارش پیشرفت و رویدادهای اخیر وظیفه"
                 "\n/taskplan TYPE | STEP 1 ; STEP 2 — پیش‌نمایش طرح چندمرحله‌ای"
+                "\n/agentplan [local|remote] TYPE | GOAL — ساخت طرح با هوش مصنوعی؛ بدون اجرای خودکار"
                 "\n/taskplanrun PLAN_ID — ثبت صریح مراحل طرح در Hub"
                 "\n/taskplans — فهرست طرح‌های ذخیره‌شده"
                 "\n/taskplanstatus PLAN_ID — وضعیت همه مراحل یک طرح"
