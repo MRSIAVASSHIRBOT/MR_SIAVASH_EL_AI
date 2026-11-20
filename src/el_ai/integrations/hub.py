@@ -21,6 +21,7 @@ _STATIC_HUB_ROUTES = frozenset({
     "/integrations/telegram/exchange",
     "/integrations/telegram/refresh",
     "/integrations/telegram/status",
+    "/integrations/telegram/agent/plan-preview",
     "/integrations/telegram/tasks",
     "/integrations/telegram/memory/search",
     "/integrations/telegram/memory/dream/preview",
@@ -916,6 +917,25 @@ class HubClient:
             "/integrations/telegram/memory/validate/preview",
             telegram_user_id,
             {"limit": limit, "similarity_threshold": similarity_threshold},
+        )
+
+    async def preview_agent_plan(
+        self,
+        telegram_user_id: int,
+        goal: str,
+        *,
+        provider_mode: str = "local",
+    ) -> dict[str, object]:
+        """Request a non-executing, bounded plan preview from the owner-scoped Hub."""
+        if not isinstance(goal, str) or not goal.strip() or len(goal) > 1_000:
+            raise ValueError("Agent planning goal must contain 1 to 1000 characters")
+        if provider_mode not in {"local", "remote"}:
+            raise ValueError("Agent planning provider mode must be local or remote")
+        return await self._authorized(
+            "POST",
+            "/integrations/telegram/agent/plan-preview",
+            telegram_user_id,
+            {"goal": goal.strip(), "provider_mode": provider_mode},
         )
 
     async def create_task(
