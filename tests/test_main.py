@@ -1307,3 +1307,55 @@ def test_task_watch_notifications_include_safe_progress_timeline(tmp_path):
     assert "اجرای وظیفه آغاز شد" in api.sent[0][1]
     assert "must-not-appear" not in api.sent[0][1]
     assert store.list_for_user(123)[0].last_status == "running"
+
+
+def test_ai_agent_plan_command_uses_local_by_default_and_never_submits_tasks(tmp_path):
+    from el_ai.telegram.task_plan import TaskPlanStore
+
+    store = TaskPlanStore(tmp_path / "agent-plans.json")
+    calls = []
+
+    class FakeHub:
+        async def preview_agent_plan(self, telegram_user_id, goal, *, provider_mode):
+            calls.append((telegram_user_id, goal, provider_mode))
+            return {
+                "provider_mode": provider_mode,
+                "provider": "local-test",
+                "steps": [
+                    {"description": "نیازمندی‌ها را مشخص کن"},
+                    {"description": "پیاده‌سازی و آزمایش را انجام بده"},
+                ],
+                "execution_started": False,
+                "tasks_created": 0,
+            }
+
+        async def create_task(self, *_args, **_kwargs):
+            raise AssertionError("AI plan preview must never submit Hub tasks")
+
+    hub = FakeHub()
+    local = asyncio.run(_owner_hub_command(
+        "/agentplan demo.build | یک ابزار ساده برای مدیریت یادداشت بساز",
+        telegram_user_id=123,
+        update_id=130,
+        hub=hub,
+        settings=_settings(enabled=True),
+        task_plans=store,
+    ))
+    plan_id = local.split("شناسه طرح: ", 1)[1].splitlines()[0]
+    assert calls == [(123, "یک ابزار ساده برای مدیریت یادداشت بساز", "local")]
+    assert "هیچ وظیفه‌ای ایجاد یا اجرا نشده است" in local
+    assert "/taskplanrun " + plan_id in local
+    assert store.get_for_user(plan_id, 123).submitted_count == 0
+
+    remote = asyncio.run(_owner_hub_command(
+        "/agentplan remote demo.build | یک ابزار را بررسی کن",
+        telegram_user_id=123,
+        update_id=131,
+        hub=hub,
+        settings=_settings(enabled=True),
+        task_plans=store,
+    ))
+    assert calls[-1] == (123, "یک ابزار را بررسی کن", "remote")
+    assert "ممکن است هزینهٔ ارائه‌دهنده اعمال شود" in remote
+    assert "/agentplan" in OWNER_HUB_COMMANDS
+    assert any(item["command"] == "agentplan" for item in OWNER_BOT_COMMANDS)

@@ -37,7 +37,7 @@ TASK_STATUSES = frozenset({
     "failed", "cancelled", "rejected",
 })
 OWNER_HUB_COMMANDS = frozenset({
-    "/pair", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel",
+    "/pair", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel",
     "/taskresult", "/taskcancel", "/taskhistory", "/taskwatch", "/taskunwatch",
     "/taskwatches", "/videoproviders", "/videoroute",
     "/videohistory", "/videostatus", "/videocancel",
@@ -348,7 +348,7 @@ async def _owner_hub_command(
             return "اتصال انجام نشد؛ کد ممکن است نامعتبر یا منقضی شده باشد. هیچ اطلاعات محرمانه‌ای ثبت نشده است."
 
     if command not in {
-        "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskresult", "/taskcancel",
+        "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskresult", "/taskcancel",
         "/taskhistory", "/taskwatch", "/taskunwatch", "/taskwatches",
         "/videoproviders", "/videoroute", "/videohistory", "/videostatus", "/videocancel",
         "/videodrafts", "/videorenders", "/videorendercheck", "/videorender", "/videorenderstatus",
@@ -448,6 +448,71 @@ async def _owner_hub_command(
                     description[:500],
                     idempotency_key=f"telegram-update-{update_id}",
                 )
+            )
+        if command == "/agentplan":
+            if task_plans is None:
+                return "ذخیره‌سازی طرح وظایف در دسترس نیست."
+            if "|" not in argument:
+                return "روش استفاده: /agentplan [local|remote] task.type | هدفی که باید به مراحل اجرایی تبدیل شود"
+            header, goal = (part.strip() for part in argument.split("|", 1))
+            options = header.split()
+            provider_mode = "local"
+            if options and options[0].lower() in {"local", "remote"}:
+                provider_mode = options.pop(0).lower()
+            if len(options) != 1 or not goal:
+                return "روش استفاده: /agentplan [local|remote] task.type | هدف"
+            task_type = options[0]
+            try:
+                result = await hub.preview_agent_plan(
+                    telegram_user_id,
+                    goal[:1_000],
+                    provider_mode=provider_mode,
+                )
+            except HubClientError as exc:
+                if exc.status_code == 403:
+                    return "مجوز tasks:create برای این اتصال فعال نیست؛ مالک باید آن را در پنل Hub اعطا کند."
+                if exc.status_code == 429:
+                    return "سهمیهٔ درخواست‌های ارائه‌دهنده موقتاً پر شده است؛ بعداً دوباره تلاش کن."
+                if exc.status_code == 503:
+                    return "ارائه‌دهندهٔ انتخاب‌شده در Hub در دسترس یا پیکربندی نشده است."
+                if exc.status_code == 502:
+                    return "مدل نتوانست یک طرح معتبر تولید کند؛ هدف را دقیق‌تر بنویس و دوباره تلاش کن."
+                raise
+            steps = result.get("steps")
+            if (
+                result.get("execution_started") is not False
+                or result.get("tasks_created") != 0
+                or not isinstance(steps, list)
+            ):
+                return "پاسخ Hub با قرارداد پیش‌نمایش امن سازگار نبود؛ هیچ طرحی ذخیره نشد."
+            descriptions = [
+                item.get("description")
+                for item in steps
+                if isinstance(item, dict) and isinstance(item.get("description"), str)
+            ]
+            if len(descriptions) != len(steps):
+                return "پاسخ مدل شامل مراحل نامعتبر بود؛ هیچ طرحی ذخیره نشد."
+            try:
+                plan = task_plans.create(telegram_user_id, task_type, descriptions)
+            except (TaskPlanError, ValueError):
+                return "طرح تولیدشده معتبر نیست؛ نوع وظیفه یا تعداد مراحل را بررسی کن."
+            preview = "\n".join(
+                f"{index + 1}. {step.description}"
+                for index, step in enumerate(plan.steps)
+            )
+            provider = _safe_progress_value(result.get("provider"), limit=40) or "unknown"
+            remote_note = (
+                "\nحالت remote استفاده شد؛ ممکن است هزینهٔ ارائه‌دهنده اعمال شود."
+                if provider_mode == "remote"
+                else ""
+            )
+            return (
+                "پیش‌نمایش هوشمند ذخیره شد؛ هیچ وظیفه‌ای ایجاد یا اجرا نشده است."
+                f"\nProvider: {provider}"
+                f"\nشناسه طرح: {plan.plan_id}"
+                f"\nنوع: {plan.task_type}\n{preview}"
+                f"\nبرای ثبت صریح مراحل: /taskplanrun {plan.plan_id}"
+                f"{remote_note}"
             )
         if command == "/taskplan":
             if task_plans is None:
@@ -1293,6 +1358,7 @@ OWNER_BOT_COMMANDS = (
     {"command": "taskstatus", "description": "وضعیت یک وظیفه"},
     {"command": "taskprogress", "description": "گزارش پیشرفت و رویدادهای اخیر وظیفه"},
     {"command": "taskplan", "description": "ساخت پیش‌نمایش طرح چندمرحله‌ای"},
+    {"command": "agentplan", "description": "ساخت طرح چندمرحله‌ای با هوش مصنوعی"},
     {"command": "taskplanrun", "description": "ثبت صریح مراحل طرح در Hub"},
     {"command": "taskplans", "description": "فهرست طرح‌های ذخیره‌شده"},
     {"command": "taskplanstatus", "description": "وضعیت همه مراحل یک طرح"},

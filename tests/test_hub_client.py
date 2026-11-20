@@ -1173,3 +1173,60 @@ async def test_authorized_request_reuses_request_id_for_401_retry_but_refresh_ge
     assert str(UUID(status_ids[0])) == status_ids[0]
     assert str(UUID(refresh_id)) == refresh_id
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_agent_plan_preview_uses_scoped_route_and_explicit_provider_mode():
+    store = MemoryStore()
+    store.save("client-plan-preview", {
+        "access_token": "plan-access",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "plan-refresh",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["tasks:create"],
+    })
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={
+            "provider_mode": "remote",
+            "provider": "kimi",
+            "model": "test-model",
+            "steps": [{"description": "مرحله اول"}, {"description": "مرحله دوم"}],
+            "execution_started": False,
+            "tasks_created": 0,
+        })
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-plan-preview",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    result = await client.preview_agent_plan(
+        123456,
+        "ساخت یک برنامهٔ آزمایشی",
+        provider_mode="remote",
+    )
+
+    assert result["tasks_created"] == 0
+    assert result["execution_started"] is False
+    assert requests[0].url.path == "/integrations/telegram/agent/plan-preview"
+    assert json.loads(requests[0].content) == {
+        "goal": "ساخت یک برنامهٔ آزمایشی",
+        "provider_mode": "remote",
+    }
+    assert requests[0].headers["Authorization"] == "Bearer plan-access"
+    assert requests[0].headers["X-Telegram-User-Id"] == "123456"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_agent_plan_preview_rejects_invalid_goal_or_provider_mode():
+    client = HubClient("http://127.0.0.1:8000", "client-invalid-plan", MemoryStore())
+    with pytest.raises(ValueError):
+        await client.preview_agent_plan(123456, " ")
+    with pytest.raises(ValueError):
+        await client.preview_agent_plan(123456, "valid goal", provider_mode="automatic")
+    await client.close()

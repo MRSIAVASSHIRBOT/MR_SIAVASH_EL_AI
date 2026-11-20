@@ -53,6 +53,7 @@ def test_help_documents_public_site_query_for_owner_and_public_user():
     assert "/taskhistory TASK_ID" in router.route(_message("/help"))
     assert "/taskplanwatch PLAN_ID" in router.route(_message("/help"))
     assert "/taskplancancel PLAN_ID CONFIRM" in router.route(_message("/help"))
+    assert "/agentplan [local|remote] TYPE | GOAL" in router.route(_message("/help"))
     assert "/videoproviders" in router.route(_message("/help"))
     assert "/videoroute SECONDS ASPECT" in router.route(_message("/help"))
     assert "/videohistory [CURSOR]" in router.route(_message("/help"))

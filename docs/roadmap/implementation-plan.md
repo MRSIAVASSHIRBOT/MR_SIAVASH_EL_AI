@@ -42,7 +42,8 @@
 - [x] Add owner-scoped memory search through the Hub API contract.
 - [x] Add bounded task submission through Hub PolicyEngine and idempotency.
 - [x] Add owner-authored bounded task-plan previews, explicit resumable idempotent batch submission, aggregate plan status, and structured task-watch progress notifications.
-- [ ] Add model-driven dependency-aware task planning and progress orchestration.
+- [x] Add bounded AI-generated sequential task-plan preview through Hub; local provider is default, remote Kimi requires explicit selection, and preview never creates or executes tasks.
+- [ ] Add dependency-aware planning and autonomous progress orchestration.
 - [ ] Keep public and owner context isolated in end-to-end tests.
 
 ## Milestone 5 — Bounded Agent capabilities
