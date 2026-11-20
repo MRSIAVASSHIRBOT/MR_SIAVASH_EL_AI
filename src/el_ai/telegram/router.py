@@ -50,6 +50,7 @@ class MessageRouter:
                 "\n/taskplan TYPE | STEP 1 ; STEP 2 — پیش‌نمایش طرح چندمرحله‌ای"
                 "\n/taskplanrun PLAN_ID — ثبت صریح مراحل طرح در Hub"
                 "\n/taskplans — فهرست طرح‌های ذخیره‌شده"
+                "\n/taskplanstatus PLAN_ID — وضعیت همه مراحل یک طرح"
                 "\n/taskhistory TASK_ID [CURSOR] — تاریخچه صفحه‌بندی‌شده وظیفه"
                 "\n/taskwatch TASK_ID — دریافت اعلان تغییر وضعیت وظیفه"
                 "\n/taskunwatch TASK_ID — توقف اعلان‌های وظیفه"
