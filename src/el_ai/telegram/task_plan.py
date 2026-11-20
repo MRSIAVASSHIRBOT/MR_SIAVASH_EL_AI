@@ -85,6 +85,7 @@ class TaskPlanStore:
             not isinstance(payload, dict)
             or set(payload) != {"version", "plans"}
             or isinstance(payload.get("version"), bool)
+            or not isinstance(payload.get("version"), int)
             or payload.get("version") != 1
             or not isinstance(payload.get("plans"), list)
         ):
