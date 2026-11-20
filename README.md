@@ -70,6 +70,9 @@ The preflight does not contact Telegram, Hub, or the public Gateway, does not wr
 - `/task TYPE | DESCRIPTION`: submit a task through Hub policy and idempotency controls.
 - `/taskstatus TASK_ID`, `/taskhistory TASK_ID [CURSOR]`, and `/taskresult TASK_ID`: inspect the status, paged event history, or final result of a task submitted by this paired client.
 - `/taskprogress TASK_ID`: view a compact status summary and the latest safe lifecycle events; audit metadata and private payloads are not included.
+- `/taskplan TYPE | STEP 1 ; STEP 2`: save a bounded owner-authored plan preview locally; no Hub task is created until explicit confirmation.
+- `/taskplanrun PLAN_ID`: submit each plan step as a separate policy-gated Hub task. Submission is resumable and uses stable idempotency keys after ambiguous network outcomes.
+- `/taskplans`: list the owner's saved plans and per-plan submission counts. Local plan drafts expire after seven days and are stored in a private state file; do not include credentials in step text.
 - `/taskcancel TASK_ID`: cancel a task only while it is queued or waiting for approval.
 - `/taskwatch TASK_ID`, `/taskwatches`, and `/taskunwatch TASK_ID`: persist, list, or stop owner-only task status notifications. Watches store task IDs, Telegram owner IDs, status checkpoints, and bounded retry deadlines only; transient Hub or Telegram failures use persisted exponential backoff (30 seconds to 30 minutes). Delivery remains at-least-once when Telegram reports an unknown outcome.
 - `/memory QUERY`: search the owner's Hub memory.
