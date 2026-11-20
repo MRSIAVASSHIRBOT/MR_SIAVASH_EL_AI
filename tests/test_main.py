@@ -836,3 +836,87 @@ def test_memory_entry_and_explicit_approval_commands_are_owner_scoped():
         settings=_settings(enabled=True),
     ))
     assert "memory:write" in denied
+
+def test_task_progress_command_renders_bounded_timeline_and_safe_next_page():
+    task_id = "12345678-1234-4234-8234-123456789abc"
+
+    class FakeHub:
+        async def get_task(self, telegram_user_id, requested_id):
+            assert telegram_user_id == 123
+            assert requested_id == task_id
+            return {
+                "task_id": task_id,
+                "task_type": "demo.echo",
+                "status": "running",
+                "created_at": "2026-11-20T10:00:00+00:00",
+                "updated_at": "2026-11-20T10:05:00+00:00",
+            }
+
+        async def get_task_history(self, telegram_user_id, requested_id, *, limit=20, cursor=None):
+            assert telegram_user_id == 123
+            assert requested_id == task_id
+            assert limit == 10
+            assert cursor is None
+            return {
+                "events": [
+                    {
+                        "event_type": "worker.task_started",
+                        "outcome": "running",
+                        "created_at": "2026-11-20T10:05:00+00:00",
+                        "metadata": {"private_payload": "must-not-appear"},
+                    },
+                    {
+                        "event_type": "task.submitted",
+                        "outcome": "queued",
+                        "created_at": "2026-11-20T10:00:00+00:00",
+                        "metadata": {"internal": "hidden"},
+                    },
+                ],
+                "has_more": True,
+                "next_cursor": "cursor-next_123",
+            }
+
+    rendered = asyncio.run(_owner_hub_command(
+        f"/taskprogress {task_id}",
+        telegram_user_id=123,
+        update_id=101,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+    ))
+
+    assert "گزارش پیشرفت وظیفه" in rendered
+    assert "وضعیت: در حال اجرا" in rendered
+    assert "demo.echo" in rendered
+    assert "اجرای وظیفه آغاز شد" in rendered
+    assert "وظیفه ثبت شد" in rendered
+    assert "must-not-appear" not in rendered
+    assert "internal" not in rendered
+    assert f"/taskhistory {task_id} cursor-next_123" in rendered
+    assert "/taskprogress" in OWNER_HUB_COMMANDS
+    assert any(item["command"] == "taskprogress" for item in OWNER_BOT_COMMANDS)
+
+
+def test_task_progress_command_validates_ids_and_handles_missing_tasks():
+    from el_ai.integrations.hub import HubClientError
+
+    class FakeHub:
+        async def get_task(self, *_args):
+            raise HubClientError("not found", status_code=404)
+
+    invalid = asyncio.run(_owner_hub_command(
+        "/taskprogress not-a-uuid",
+        telegram_user_id=123,
+        update_id=102,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+    ))
+    assert "UUID" in invalid
+
+    missing = asyncio.run(_owner_hub_command(
+        "/taskprogress 12345678-1234-4234-8234-123456789abc",
+        telegram_user_id=123,
+        update_id=103,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+    ))
+    assert "وظیفه پیدا نشد" in missing

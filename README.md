@@ -69,6 +69,7 @@ The preflight does not contact Telegram, Hub, or the public Gateway, does not wr
 - `/tasks [STATUS] [CURSOR]`: list this paired bot's tasks with bounded cursor-based pagination.
 - `/task TYPE | DESCRIPTION`: submit a task through Hub policy and idempotency controls.
 - `/taskstatus TASK_ID`, `/taskhistory TASK_ID [CURSOR]`, and `/taskresult TASK_ID`: inspect the status, paged event history, or final result of a task submitted by this paired client.
+- `/taskprogress TASK_ID`: view a compact status summary and the latest safe lifecycle events; audit metadata and private payloads are not included.
 - `/taskcancel TASK_ID`: cancel a task only while it is queued or waiting for approval.
 - `/taskwatch TASK_ID`, `/taskwatches`, and `/taskunwatch TASK_ID`: persist, list, or stop owner-only task status notifications. Watches store task IDs, Telegram owner IDs, status checkpoints, and bounded retry deadlines only; transient Hub or Telegram failures use persisted exponential backoff (30 seconds to 30 minutes). Delivery remains at-least-once when Telegram reports an unknown outcome.
 - `/memory QUERY`: search the owner's Hub memory.

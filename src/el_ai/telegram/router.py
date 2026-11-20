@@ -46,6 +46,7 @@ class MessageRouter:
                 "\n/memorycheck — بررسی تناقض‌ها و یادداشت‌های تأییدنشده"
                 "\n/task TYPE | DESCRIPTION — ثبت وظیفه"
                 "\n/taskstatus TASK_ID — مشاهده وضعیت وظیفه ثبت‌شده"
+                "\n/taskprogress TASK_ID — گزارش پیشرفت و رویدادهای اخیر وظیفه"
                 "\n/taskhistory TASK_ID [CURSOR] — تاریخچه صفحه‌بندی‌شده وظیفه"
                 "\n/taskwatch TASK_ID — دریافت اعلان تغییر وضعیت وظیفه"
                 "\n/taskunwatch TASK_ID — توقف اعلان‌های وظیفه"
