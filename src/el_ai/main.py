@@ -1358,6 +1358,7 @@ OWNER_BOT_COMMANDS = (
     {"command": "taskstatus", "description": "وضعیت یک وظیفه"},
     {"command": "taskprogress", "description": "گزارش پیشرفت و رویدادهای اخیر وظیفه"},
     {"command": "taskplan", "description": "ساخت پیش‌نمایش طرح چندمرحله‌ای"},
+    {"command": "agentplan", "description": "ساخت طرح چندمرحله‌ای با هوش مصنوعی"},
     {"command": "taskplanrun", "description": "ثبت صریح مراحل طرح در Hub"},
     {"command": "taskplans", "description": "فهرست طرح‌های ذخیره‌شده"},
     {"command": "taskplanstatus", "description": "وضعیت همه مراحل یک طرح"},
