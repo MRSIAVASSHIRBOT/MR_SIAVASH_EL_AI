@@ -51,6 +51,8 @@ class MessageRouter:
                 "\n/taskplanrun PLAN_ID — ثبت صریح مراحل طرح در Hub"
                 "\n/taskplans — فهرست طرح‌های ذخیره‌شده"
                 "\n/taskplanstatus PLAN_ID — وضعیت همه مراحل یک طرح"
+                "\n/taskplanwatch PLAN_ID — پایش همه مراحل فعال یک طرح"
+                "\n/taskplancancel PLAN_ID CONFIRM — لغو گروهی مراحل لغوپذیر"
                 "\n/taskhistory TASK_ID [CURSOR] — تاریخچه صفحه‌بندی‌شده وظیفه"
                 "\n/taskwatch TASK_ID — دریافت اعلان تغییر وضعیت وظیفه"
                 "\n/taskunwatch TASK_ID — توقف اعلان‌های وظیفه"

@@ -617,6 +617,8 @@ def test_task_watch_commands_are_owner_menu_only():
     commands = {item["command"] for item in OWNER_BOT_COMMANDS}
     assert {"taskwatch", "taskunwatch", "taskwatches"} <= commands
     assert {"/taskwatch", "/taskunwatch", "/taskwatches"} <= OWNER_HUB_COMMANDS
+    assert {"taskplanwatch", "taskplancancel"} <= commands
+    assert {"/taskplanwatch", "/taskplancancel"} <= OWNER_HUB_COMMANDS
 
 
 def test_video_route_preview_command_is_read_only_and_requires_explicit_remote_consents():
@@ -1120,6 +1122,142 @@ def test_task_plan_status_reports_each_step_without_exposing_task_payloads(tmp_p
     assert "private-output" not in rendered
     assert "/taskplanstatus" in OWNER_HUB_COMMANDS
     assert any(item["command"] == "taskplanstatus" for item in OWNER_BOT_COMMANDS)
+
+
+def test_task_plan_watch_registers_all_active_steps_atomically_and_skips_terminal_steps(tmp_path):
+    from el_ai.telegram.task_plan import TaskPlanStore
+
+    plan_store = TaskPlanStore(tmp_path / "task-plans.json")
+    watch_store = TaskWatchStore(tmp_path / "task-watches.json")
+    plan = plan_store.create(123, "demo.echo", ["first", "second", "third"])
+    task_ids = [
+        "12345678-1234-4234-8234-123456789abc",
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    ]
+    for index, task_id in enumerate(task_ids):
+        plan_store.mark_submitted(plan.plan_id, 123, index, task_id)
+
+    class FakeHub:
+        async def get_task(self, telegram_user_id, task_id):
+            assert telegram_user_id == 123
+            return {
+                task_ids[0]: {"status": "running"},
+                task_ids[1]: {"status": "succeeded"},
+                task_ids[2]: {"status": "queued"},
+            }[task_id]
+
+    rendered = asyncio.run(_owner_hub_command(
+        f"/taskplanwatch {plan.plan_id}",
+        telegram_user_id=123,
+        update_id=130,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+        task_plans=plan_store,
+        task_watches=watch_store,
+    ))
+
+    assert "پایش جدید: 2" in rendered
+    assert "مراحل نهایی: 1" in rendered
+    assert {item.task_id for item in watch_store.list_for_user(123)} == {task_ids[0], task_ids[2]}
+    repeated = asyncio.run(_owner_hub_command(
+        f"/taskplanwatch {plan.plan_id}",
+        telegram_user_id=123,
+        update_id=131,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+        task_plans=plan_store,
+        task_watches=watch_store,
+    ))
+    assert "پایش جدید: 0" in repeated
+    assert "از قبل فعال: 2" in repeated
+
+
+def test_task_plan_watch_keeps_partial_availability_visible_without_partial_storage_failure(tmp_path):
+    from el_ai.telegram.task_plan import TaskPlanStore
+
+    plan_store = TaskPlanStore(tmp_path / "task-plans.json")
+    watch_store = TaskWatchStore(tmp_path / "task-watches.json")
+    plan = plan_store.create(123, "demo.echo", ["first", "second"])
+    task_ids = [
+        "12345678-1234-4234-8234-123456789abc",
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    ]
+    for index, task_id in enumerate(task_ids):
+        plan_store.mark_submitted(plan.plan_id, 123, index, task_id)
+
+    class FakeHub:
+        async def get_task(self, telegram_user_id, task_id):
+            if task_id == task_ids[0]:
+                return {"status": "running"}
+            raise HubClientError("not found", status_code=404)
+
+    rendered = asyncio.run(_owner_hub_command(
+        f"/taskplanwatch {plan.plan_id}",
+        telegram_user_id=123,
+        update_id=132,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+        task_plans=plan_store,
+        task_watches=watch_store,
+    ))
+
+    assert "پایش جدید: 1" in rendered
+    assert "در دسترس نبود: 1" in rendered
+    assert [item.task_id for item in watch_store.list_for_user(123)] == [task_ids[0]]
+
+
+def test_task_plan_cancel_requires_confirmation_and_continues_after_partial_failures(tmp_path):
+    from el_ai.telegram.task_plan import TaskPlanStore
+
+    plan_store = TaskPlanStore(tmp_path / "task-plans.json")
+    plan = plan_store.create(123, "demo.echo", ["first", "second", "third", "not submitted"])
+    task_ids = [
+        "12345678-1234-4234-8234-123456789abc",
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    ]
+    for index, task_id in enumerate(task_ids):
+        plan_store.mark_submitted(plan.plan_id, 123, index, task_id)
+
+    class FakeHub:
+        def __init__(self):
+            self.calls = []
+
+        async def cancel_task(self, telegram_user_id, task_id):
+            assert telegram_user_id == 123
+            self.calls.append(task_id)
+            if task_id == task_ids[0]:
+                return {"status": "cancelled"}
+            if task_id == task_ids[1]:
+                raise HubClientError("not cancellable", status_code=409)
+            raise HubClientError("not found", status_code=404)
+
+    hub = FakeHub()
+    missing_confirmation = asyncio.run(_owner_hub_command(
+        f"/taskplancancel {plan.plan_id}",
+        telegram_user_id=123,
+        update_id=133,
+        hub=hub,
+        settings=_settings(enabled=True),
+        task_plans=plan_store,
+    ))
+    assert "CONFIRM" in missing_confirmation
+    assert hub.calls == []
+
+    rendered = asyncio.run(_owner_hub_command(
+        f"/taskplancancel {plan.plan_id} CONFIRM",
+        telegram_user_id=123,
+        update_id=134,
+        hub=hub,
+        settings=_settings(enabled=True),
+        task_plans=plan_store,
+    ))
+    assert len(hub.calls) == 3
+    assert "لغوشده: 1 از 3" in rendered
+    assert "درحال‌اجرا یا نهایی" in rendered
+    assert "پیدا نشد" in rendered
+    assert "/taskplanstatus " + plan.plan_id in rendered
 
 
 def test_task_watch_notifications_include_safe_progress_timeline(tmp_path):
