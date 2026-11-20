@@ -496,22 +496,22 @@ async def _owner_hub_command(
                 plan = task_plans.create(telegram_user_id, task_type, descriptions)
             except (TaskPlanError, ValueError):
                 return "طرح تولیدشده معتبر نیست؛ نوع وظیفه یا تعداد مراحل را بررسی کن."
-            preview = "\\n".join(
+            preview = "\n".join(
                 f"{index + 1}. {step.description}"
                 for index, step in enumerate(plan.steps)
             )
             provider = _safe_progress_value(result.get("provider"), limit=40) or "unknown"
             remote_note = (
-                "\\nحالت remote استفاده شد؛ ممکن است هزینهٔ ارائه‌دهنده اعمال شود."
+                "\nحالت remote استفاده شد؛ ممکن است هزینهٔ ارائه‌دهنده اعمال شود."
                 if provider_mode == "remote"
                 else ""
             )
             return (
                 "پیش‌نمایش هوشمند ذخیره شد؛ هیچ وظیفه‌ای ایجاد یا اجرا نشده است."
-                f"\\nProvider: {provider}"
-                f"\\nشناسه طرح: {plan.plan_id}"
-                f"\\nنوع: {plan.task_type}\\n{preview}"
-                f"\\nبرای ثبت صریح مراحل: /taskplanrun {plan.plan_id}"
+                f"\nProvider: {provider}"
+                f"\nشناسه طرح: {plan.plan_id}"
+                f"\nنوع: {plan.task_type}\n{preview}"
+                f"\nبرای ثبت صریح مراحل: /taskplanrun {plan.plan_id}"
                 f"{remote_note}"
             )
         if command == "/taskplan":
