@@ -174,6 +174,46 @@ class TaskWatchStore:
         self._replace(watches + [TaskWatch(canonical_id, telegram_user_id, status)])
         return True
 
+    def add_many(
+        self,
+        entries: list[tuple[str, str]] | tuple[tuple[str, str], ...],
+        telegram_user_id: int,
+    ) -> tuple[str, ...]:
+        """Atomically add a bounded batch of active watches for one owner."""
+        self._validate_user_id(telegram_user_id)
+        if not isinstance(entries, (list, tuple)) or not 1 <= len(entries) <= MAX_TASK_WATCHES:
+            raise ValueError("Task-watch batch must contain 1 to 20 entries")
+
+        normalized: list[TaskWatch] = []
+        seen: set[str] = set()
+        for entry in entries:
+            if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+                raise ValueError("Task-watch batch entry is invalid")
+            task_id, status = entry
+            canonical_id = self._canonical_task_id(task_id)
+            if canonical_id in seen:
+                raise ValueError("Task-watch batch contains duplicate task IDs")
+            if (
+                not isinstance(status, str)
+                or status not in TASK_WATCH_STATUSES
+                or status in TERMINAL_TASK_STATUSES
+            ):
+                raise ValueError("Only active task statuses can be watched")
+            seen.add(canonical_id)
+            normalized.append(TaskWatch(canonical_id, telegram_user_id, status))
+
+        watches = self._ensure_loaded()
+        existing = {
+            item.task_id for item in watches
+            if item.telegram_user_id == telegram_user_id
+        }
+        additions = [item for item in normalized if item.task_id not in existing]
+        if len(watches) + len(additions) > MAX_TASK_WATCHES:
+            raise TaskWatchError("The Telegram task-watch limit has been reached")
+        if additions:
+            self._replace(watches + additions)
+        return tuple(item.task_id for item in additions)
+
     def remove(self, task_id: str, telegram_user_id: int) -> bool:
         canonical_id = self._canonical_task_id(task_id)
         self._validate_user_id(telegram_user_id)
