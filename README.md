@@ -71,6 +71,7 @@ The preflight does not contact Telegram, Hub, or the public Gateway, does not wr
 - `/taskstatus TASK_ID`, `/taskhistory TASK_ID [CURSOR]`, and `/taskresult TASK_ID`: inspect the status, paged event history, or final result of a task submitted by this paired client.
 - `/taskprogress TASK_ID`: view a compact status summary and the latest safe lifecycle events; audit metadata and private payloads are not included.
 - `/taskplan TYPE | STEP 1 ; STEP 2`: save a bounded owner-authored plan preview locally; no Hub task is created until explicit confirmation.
+- `/agentplan [local|remote] TYPE | GOAL`: generate a bounded AI plan preview through Hub and save it locally; local inference is the default, remote Kimi is explicit, and no task is created or executed.
 - `/taskplanrun PLAN_ID`: submit each plan step as a separate policy-gated Hub task. Submission is resumable and uses stable idempotency keys after ambiguous network outcomes.
 - `/taskplans`: list the owner's saved plans and per-plan submission counts. Local plan drafts expire after seven days and are stored in a private state file; do not include credentials in step text.
 - `/taskplanstatus PLAN_ID`: inspect the current Hub status of each submitted step without exposing task result payloads.
