@@ -31,6 +31,9 @@ class TaskPlanError(RuntimeError):
 class TaskPlanStep:
     description: str
     task_id: str | None = None
+    depends_on: tuple[int, ...] = ()
+    blocked_by: tuple[int, ...] = ()
+    blocked_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -86,7 +89,7 @@ class TaskPlanStore:
             or set(payload) != {"version", "plans"}
             or isinstance(payload.get("version"), bool)
             or not isinstance(payload.get("version"), int)
-            or payload.get("version") != 1
+            or payload.get("version") not in {1, 2}
             or not isinstance(payload.get("plans"), list)
         ):
             raise TaskPlanError("Stored Telegram task-plan state is unsupported")
@@ -112,16 +115,39 @@ class TaskPlanStore:
                 ):
                     raise TaskPlanError("Stored Telegram task-plan step count is invalid")
                 steps: list[TaskPlanStep] = []
-                for raw_step in raw_steps:
-                    if not isinstance(raw_step, dict) or set(raw_step) != {
-                        "description", "task_id"
-                    }:
+                for step_index, raw_step in enumerate(raw_steps):
+                    expected_keys = (
+                        {"description", "task_id"}
+                        if payload["version"] == 1
+                        else {"description", "task_id", "depends_on", "blocked_by", "blocked_reason"}
+                    )
+                    if not isinstance(raw_step, dict) or set(raw_step) != expected_keys:
                         raise TaskPlanError("Stored Telegram task-plan step is invalid")
                     description = self._validate_description(raw_step.get("description"))
                     task_id = raw_step.get("task_id")
                     if task_id is not None:
                         task_id = self._canonical_uuid(task_id, "task ID")
-                    steps.append(TaskPlanStep(description, task_id))
+                    if payload["version"] == 1:
+                        dependencies = () if step_index == 0 else (step_index - 1,)
+                        blocked_by = ()
+                        blocked_reason = None
+                    else:
+                        dependencies = self._validate_dependency_group(
+                            raw_step.get("depends_on"), step_index
+                        )
+                        blocked_by = self._validate_blocked_by(
+                            raw_step.get("blocked_by"), dependencies
+                        )
+                        blocked_reason = self._validate_blocked_reason(
+                            raw_step.get("blocked_reason")
+                        )
+                    if blocked_by and not blocked_reason:
+                        raise TaskPlanError("Stored blocked task-plan step has no reason")
+                    if blocked_reason and task_id is not None:
+                        raise TaskPlanError("A submitted task-plan step cannot be blocked")
+                    steps.append(TaskPlanStep(
+                        description, task_id, dependencies, blocked_by, blocked_reason
+                    ))
             except ValueError as exc:
                 raise TaskPlanError("Stored Telegram task-plan entry is invalid") from exc
             if plan_id in seen:
@@ -138,6 +164,9 @@ class TaskPlanStore:
         if len(plans) > MAX_TASK_PLANS:
             raise TaskPlanError("Stored Telegram task-plan collection exceeds its limit")
         self._plans = plans
+        if payload["version"] == 1:
+            # One-way migration: v1 plans become sequential v2 dependency graphs.
+            self._replace(plans)
         return tuple(plans)
 
     def create(
@@ -146,6 +175,7 @@ class TaskPlanStore:
         task_type: str,
         descriptions: list[str] | tuple[str, ...],
         *,
+        dependencies: list[list[int]] | tuple[tuple[int, ...], ...] | None = None,
         now: int | None = None,
     ) -> TaskPlan:
         self._validate_user_id(telegram_user_id)
@@ -156,9 +186,13 @@ class TaskPlanStore:
             raise TaskPlanError(
                 f"A task plan must contain {MIN_TASK_PLAN_STEPS}–{MAX_TASK_PLAN_STEPS} steps"
             )
+        normalized_dependencies = self._normalize_dependencies(dependencies, len(descriptions))
         steps = tuple(
-            TaskPlanStep(self._validate_description(description))
-            for description in descriptions
+            TaskPlanStep(
+                self._validate_description(description),
+                depends_on=normalized_dependencies[index],
+            )
+            for index, description in enumerate(descriptions)
         )
         current_time = int(time.time()) if now is None else now
         self._validate_timestamp(current_time)
@@ -240,13 +274,80 @@ class TaskPlanStore:
             if not 0 <= step_index < len(plan.steps):
                 raise ValueError("Task-plan step index is out of range")
             steps = list(plan.steps)
-            existing = steps[step_index].task_id
+            current_step = steps[step_index]
+            existing = current_step.task_id
             if existing == canonical_task_id:
                 updated.append(plan)
                 continue
             if existing is not None:
                 raise TaskPlanError("A different task is already recorded for this plan step")
-            steps[step_index] = TaskPlanStep(steps[step_index].description, canonical_task_id)
+            if current_step.blocked_reason or current_step.blocked_by:
+                raise TaskPlanError("A blocked task-plan step cannot be submitted")
+            if any(steps[dependency].task_id is None for dependency in current_step.depends_on):
+                raise TaskPlanError("Task-plan dependencies must be submitted before this step")
+            steps[step_index] = TaskPlanStep(
+                current_step.description,
+                canonical_task_id,
+                current_step.depends_on,
+                current_step.blocked_by,
+                current_step.blocked_reason,
+            )
+            updated.append(TaskPlan(
+                plan.plan_id,
+                plan.telegram_user_id,
+                plan.task_type,
+                plan.created_at,
+                tuple(steps),
+            ))
+            changed = True
+        if not found:
+            raise TaskPlanError("Task plan is unavailable")
+        if changed:
+            self._replace(updated)
+        return changed
+
+    def mark_blocked(
+        self,
+        plan_id: str,
+        telegram_user_id: int,
+        step_index: int,
+        *,
+        blocked_by: list[int] | tuple[int, ...] = (),
+        reason: str,
+    ) -> bool:
+        canonical_plan_id = self._canonical_uuid(plan_id, "plan ID")
+        self._validate_user_id(telegram_user_id)
+        if isinstance(step_index, bool) or not isinstance(step_index, int):
+            raise ValueError("Task-plan step index is invalid")
+        normalized_reason = self._validate_blocked_reason(reason)
+        if normalized_reason is None:
+            raise ValueError("A blocked task-plan step requires a reason")
+        plans = self._ensure_loaded()
+        updated: list[TaskPlan] = []
+        changed = False
+        found = False
+        for plan in plans:
+            if plan.plan_id != canonical_plan_id or plan.telegram_user_id != telegram_user_id:
+                updated.append(plan)
+                continue
+            found = True
+            if not 0 <= step_index < len(plan.steps):
+                raise ValueError("Task-plan step index is out of range")
+            steps = list(plan.steps)
+            step = steps[step_index]
+            normalized_blockers = self._validate_blocked_by(list(blocked_by), step.depends_on)
+            if step.task_id is not None:
+                raise TaskPlanError("A submitted task-plan step cannot be blocked")
+            if step.blocked_reason == normalized_reason and step.blocked_by == normalized_blockers:
+                updated.append(plan)
+                continue
+            steps[step_index] = TaskPlanStep(
+                step.description,
+                step.task_id,
+                step.depends_on,
+                normalized_blockers,
+                normalized_reason,
+            )
             updated.append(TaskPlan(
                 plan.plan_id,
                 plan.telegram_user_id,
@@ -287,7 +388,7 @@ class TaskPlanStore:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             payload = {
-                "version": 1,
+                "version": 2,
                 "plans": [
                     {
                         "plan_id": plan.plan_id,
@@ -295,7 +396,13 @@ class TaskPlanStore:
                         "task_type": plan.task_type,
                         "created_at": plan.created_at,
                         "steps": [
-                            {"description": step.description, "task_id": step.task_id}
+                            {
+                                "description": step.description,
+                                "task_id": step.task_id,
+                                "depends_on": list(step.depends_on),
+                                "blocked_by": list(step.blocked_by),
+                                "blocked_reason": step.blocked_reason,
+                            }
                             for step in plan.steps
                         ],
                     }
@@ -336,6 +443,71 @@ class TaskPlanStore:
                     os.unlink(temporary_path)
                 except FileNotFoundError:
                     pass
+
+    @classmethod
+    def _normalize_dependencies(
+        cls,
+        dependencies: list[list[int]] | tuple[tuple[int, ...], ...] | None,
+        step_count: int,
+    ) -> tuple[tuple[int, ...], ...]:
+        if dependencies is None:
+            return tuple(() if index == 0 else (index - 1,) for index in range(step_count))
+        if not isinstance(dependencies, (list, tuple)) or len(dependencies) != step_count:
+            raise TaskPlanError("Task-plan dependency groups must match the step count")
+        return tuple(
+            cls._validate_dependency_group(group, index)
+            for index, group in enumerate(dependencies)
+        )
+
+    @staticmethod
+    def _validate_dependency_group(value: object, step_index: int) -> tuple[int, ...]:
+        if not isinstance(value, (list, tuple)):
+            raise TaskPlanError("Task-plan dependencies must be lists of earlier step indexes")
+        normalized: list[int] = []
+        seen: set[int] = set()
+        for dependency in value:
+            if (
+                isinstance(dependency, bool)
+                or not isinstance(dependency, int)
+                or dependency < 0
+                or dependency >= step_index
+            ):
+                raise TaskPlanError("Task-plan dependencies must point to earlier steps")
+            if dependency in seen:
+                raise TaskPlanError("Task-plan dependencies cannot be duplicated")
+            seen.add(dependency)
+            normalized.append(dependency)
+        return tuple(sorted(normalized))
+
+    @staticmethod
+    def _validate_blocked_by(value: object, dependencies: tuple[int, ...]) -> tuple[int, ...]:
+        if not isinstance(value, (list, tuple)):
+            raise TaskPlanError("Blocked dependency indexes must be a list")
+        normalized: list[int] = []
+        seen: set[int] = set()
+        for blocker in value:
+            if (
+                isinstance(blocker, bool)
+                or not isinstance(blocker, int)
+                or blocker not in dependencies
+                or blocker in seen
+            ):
+                raise TaskPlanError("Blocked dependency indexes are invalid")
+            seen.add(blocker)
+            normalized.append(blocker)
+        return tuple(sorted(normalized))
+
+    @staticmethod
+    def _validate_blocked_reason(value: object) -> str | None:
+        if value is None:
+            return None
+        if value not in {
+            "dependency_failed",
+            "dependency_blocked",
+            "hub_policy_denied",
+        }:
+            raise TaskPlanError("Task-plan blocked reason is invalid")
+        return value
 
     @staticmethod
     def _validate_user_id(value: object) -> None:
