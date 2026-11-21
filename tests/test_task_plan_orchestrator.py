@@ -19,7 +19,10 @@ class FakeHub:
         self.fail_create = None
 
     async def get_task(self, _owner_id, task_id):
-        return self.tasks[task_id]
+        try:
+            return self.tasks[task_id]
+        except KeyError:
+            raise HubClientError("task status is temporarily unavailable") from None
 
     async def create_task(self, _owner_id, task_type, description, *, idempotency_key):
         if self.fail_create is not None:
