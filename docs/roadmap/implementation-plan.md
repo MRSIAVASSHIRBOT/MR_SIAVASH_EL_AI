@@ -43,7 +43,7 @@
 - [x] Add bounded task submission through Hub PolicyEngine and idempotency.
 - [x] Add owner-authored bounded task-plan previews, explicit resumable idempotent batch submission, aggregate plan status, and structured task-watch progress notifications.
 - [x] Add bounded AI-generated sequential task-plan preview through Hub; local provider is default, remote Kimi requires explicit selection, and preview never creates or executes tasks.
-- [ ] Add dependency-aware planning and autonomous progress orchestration.
+- [x] Add bounded dependency-aware task-plan DAGs, explicit root-first plan start, success-gated progression, persisted blocked checkpoints, idempotent recovery, and structured progress notifications.
 - [x] Add runtime-level owner/public message-routing isolation coverage: owner private text never reaches the public Gateway, and public messages send only their own text (PR #67).
 - [x] Extend isolation coverage to prove private Hub results and task context never cross into the public Gateway or public Telegram replies (PR #67).
 
@@ -76,8 +76,8 @@ The Telegram foundation, Hub pairing client, explicit opt-in and secret-redactio
 
 - Current repository `main`: `e5eae3b026854aaf2157388cf83d82ffa6106a34`.
 - Exact-main GitHub Actions runs completed successfully: CI (run 44637623845), Workflow Security Audit (run 44637623893), and OpenSSF Scorecard (run 44637623829).
-- The implementation status above remains unchanged: task planning and structured progress messages are not implemented; runtime-level public/owner privacy regression coverage is merged in PR #67; live Telegram acceptance remains unverified.
-- The current source already includes owner-scoped task submission, task status/history/result commands, durable task watches, and bounded persisted retry backoff. Follow-up planning work must extend these contracts rather than duplicate them.
+- Runtime-level public/owner privacy regression coverage is merged in PR #67. Dependency-aware plan DAGs and bounded root-first advancement are implemented on current `main`; live Telegram acceptance, production deployment, and full release security/dependency review remain unverified.
+- The current source already includes owner-scoped task submission, task status/history/result commands, durable task watches, and bounded persisted retry backoff. Further planning work must extend these contracts rather than duplicate them.
 - No Telegram bot token is configured, no live Telegram connection or webhook registration is verified, and no production EL_AI deployment is claimed.
 - Branch protection for `main` is currently reported as disabled by GitHub metadata. No repository access-control settings were changed.
 - This is a source and CI evidence refresh only; it does not claim live runtime acceptance or production readiness.
@@ -89,3 +89,16 @@ The Telegram foundation, Hub pairing client, explicit opt-in and secret-redactio
 - The fake public Gateway records every prompt; tests assert that private owner text, Hub result markers, and private task metadata never enter that prompt or a non-owner reply.
 - Telegram, Hub, and website Gateway clients are mocked. No live bot token, production endpoint, or device credential is used.
 - PR #67 CI passed on Python 3.11 and 3.12, including Ruff, the full pytest suite, and Workflow Security Audit. This is code/CI coverage only; live Telegram acceptance and deployment remain separate release gates.
+
+
+## Current dependency-aware planning evidence — 2026-11-21 UTC
+
+- Current repository `main`: `ff31209cb1d6c380b8cb3df55de17339353a2fec`.
+- `/taskplan` preserves sequential shorthand and accepts bounded explicit 1-based dependency DAGs (2–8 steps). The plan is a local preview; no Hub task is created until the owner explicitly invokes `/taskplanrun PLAN_ID`.
+- `/taskplanrun` submits only root steps initially. The polling loop advances eligible steps at its bounded 30-second cadence only after all prerequisites report `succeeded`. Failed, rejected, cancelled, or blocked prerequisites produce durable blocked checkpoints; unavailable Hub status never unlocks a dependent step.
+- Stable per-plan/per-step idempotency keys support retries after ambiguous Hub outcomes. Active submitted steps are registered for owner-scoped task-watch notifications. Hub PolicyEngine and approval requirements remain authoritative for each submitted task.
+- AI-generated plan previews preserve validated dependency metadata when supplied by the Hub planner. Preview alone never creates or executes tasks; remote provider use remains explicit.
+- Backward-compatible task-plan storage accepts the previous version-1 sequential format and the new version-2 dependency fields.
+- Exact-main Python 3.11 and 3.12 tests, Workflow Security Audit, and OpenSSF Scorecard completed successfully (runs 44928644306, 44928644348, 44928644369). These are hosted CI results; no local test execution is claimed here.
+- No Telegram bot token is configured, no live Telegram connection or webhook registration is verified, and no production EL_AI deployment is claimed.
+
