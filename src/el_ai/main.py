@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import math
+import re
 import signal
 import time
 from uuid import UUID
@@ -22,6 +23,7 @@ from el_ai.telegram.api import TelegramAPIError, TelegramBotAPI, split_telegram_
 from el_ai.telegram.cursor import UpdateCursor, UpdateCursorError
 from el_ai.telegram.router import MessageRouter
 from el_ai.telegram.task_plan import TaskPlanError, TaskPlanStore
+from el_ai.telegram.task_plan_orchestrator import advance_ready_plan_steps
 from el_ai.telegram.task_watch import (
     TERMINAL_TASK_STATUSES,
     TaskWatch,
@@ -70,6 +72,46 @@ def _advance_update_cursor(
 def _format_result(value: dict[str, object]) -> str:
     """Serialize owner-scoped Hub results without dropping response content."""
     return json.dumps(value, ensure_ascii=False, indent=2, default=str)
+
+
+def _parse_task_plan_spec(raw_steps: str) -> tuple[list[str], list[list[int]] | None]:
+    """Parse sequential shorthand or an explicit 1-based dependency DAG.
+
+    Explicit syntax: 1: Collect ; 2: Validate <- 1 ; 3: Publish <- 1,2.
+    Dependencies must refer to earlier numbered steps; the store validates again.
+    """
+    parts = [part.strip() for part in raw_steps.split(";")]
+    if any(not part for part in parts):
+        raise ValueError("Task-plan steps cannot be empty")
+    explicit = any("<-" in part or re.match(r"^\d+\s*:", part) for part in parts)
+    if not explicit:
+        return parts, None
+
+    descriptions: list[str] = []
+    dependencies: list[list[int]] = []
+    for index, part in enumerate(parts):
+        match = re.fullmatch(
+            r"(\d+)\s*:\s*(.+?)(?:\s*<-\s*([\d,\s]+))?",
+            part,
+        )
+        if match is None or int(match.group(1)) != index + 1:
+            raise ValueError("Explicit task-plan steps must be numbered in order")
+        description = match.group(2).strip()
+        if not description:
+            raise ValueError("Task-plan step description is empty")
+        raw_dependencies = match.group(3)
+        dependency_indexes: list[int] = []
+        if raw_dependencies:
+            for raw_dependency in raw_dependencies.split(","):
+                number = int(raw_dependency.strip())
+                if number < 1 or number > index:
+                    raise ValueError("Dependencies must refer to earlier numbered steps")
+                dependency_indexes.append(number - 1)
+        if len(set(dependency_indexes)) != len(dependency_indexes):
+            raise ValueError("A dependency cannot be repeated")
+        descriptions.append(description)
+        dependencies.append(dependency_indexes)
+    return descriptions, dependencies
 
 
 def _runtime_health_response(metrics: RuntimeMetrics) -> str:
@@ -488,17 +530,34 @@ async def _owner_hub_command(
                 or not isinstance(steps, list)
             ):
                 return "پاسخ Hub با قرارداد پیش‌نمایش امن سازگار نبود؛ هیچ طرحی ذخیره نشد."
-            descriptions = [
-                item.get("description")
-                for item in steps
-                if isinstance(item, dict) and isinstance(item.get("description"), str)
-            ]
-            if len(descriptions) != len(steps):
-                return "پاسخ مدل شامل مراحل نامعتبر بود؛ هیچ طرحی ذخیره نشد."
+            descriptions: list[str] = []
+            dependencies: list[list[int]] | None = None
+            has_dependency_metadata = any(
+                isinstance(item, dict) and "depends_on" in item for item in steps
+            )
+            parsed_dependencies: list[list[int]] = []
+            for index, item in enumerate(steps):
+                if not isinstance(item, dict) or not isinstance(item.get("description"), str):
+                    return "پاسخ مدل شامل مراحل نامعتبر بود؛ هیچ طرحی ذخیره نشد."
+                descriptions.append(item["description"])
+                if has_dependency_metadata:
+                    raw_dependencies = item.get("depends_on", [] if index == 0 else [index])
+                    if not isinstance(raw_dependencies, list):
+                        return "گراف وابستگی مدل نامعتبر بود؛ هیچ طرحی ذخیره نشد."
+                    converted: list[int] = []
+                    for dependency in raw_dependencies:
+                        if isinstance(dependency, bool) or not isinstance(dependency, int):
+                            return "شماره پیش‌نیاز مدل نامعتبر بود؛ هیچ طرحی ذخیره نشد."
+                        converted.append(dependency - 1)
+                    parsed_dependencies.append(converted)
+            if has_dependency_metadata:
+                dependencies = parsed_dependencies
             try:
-                plan = task_plans.create(telegram_user_id, task_type, descriptions)
+                plan = task_plans.create(
+                    telegram_user_id, task_type, descriptions, dependencies=dependencies
+                )
             except (TaskPlanError, ValueError):
-                return "طرح تولیدشده معتبر نیست؛ نوع وظیفه یا تعداد مراحل را بررسی کن."
+                return "طرح تولیدشده یا گراف وابستگی آن معتبر نیست؛ هیچ طرحی ذخیره نشد."
             preview = "\n".join(
                 f"{index + 1}. {step.description}"
                 for index, step in enumerate(plan.steps)
@@ -523,21 +582,33 @@ async def _owner_hub_command(
             if "|" not in argument:
                 return "روش استفاده: /taskplan task.type | مرحله اول ; مرحله دوم"
             task_type, raw_steps = (part.strip() for part in argument.split("|", 1))
-            descriptions = [part.strip() for part in raw_steps.split(";")]
             try:
-                plan = task_plans.create(telegram_user_id, task_type, descriptions)
+                descriptions, dependencies = _parse_task_plan_spec(raw_steps)
+                plan = task_plans.create(
+                    telegram_user_id,
+                    task_type,
+                    descriptions,
+                    dependencies=dependencies,
+                )
             except (TaskPlanError, ValueError):
-                return "طرح معتبر نیست؛ نوع وظیفه و ۲ تا ۸ مرحله غیرخالی را بررسی کن."
+                return (
+                    "طرح معتبر نیست؛ ۲ تا ۸ مرحله غیرخالی لازم است. برای وابستگی صریح از "
+                    "«1: آماده‌سازی ; 2: بررسی <- 1 ; 3: انتشار <- 1,2» استفاده کن."
+                )
             preview = "\n".join(
                 f"{index + 1}. {step.description}"
+                + (
+                    " · پیش‌نیاز: " + ",".join(str(item + 1) for item in step.depends_on)
+                    if step.depends_on else " · بدون پیش‌نیاز"
+                )
                 for index, step in enumerate(plan.steps)
             )
             return (
-                "پیش‌نمایش طرح ذخیره شد؛ هنوز هیچ وظیفه‌ای به Hub ارسال نشده است.\n"
+                "پیش‌نمایش گراف وظایف ذخیره شد؛ هنوز هیچ وظیفه‌ای به Hub ارسال نشده است.\n"
                 f"شناسه طرح: {plan.plan_id}\n"
                 f"نوع: {plan.task_type}\n{preview}\n"
-                f"برای ثبت صریح همه مراحل: /taskplanrun {plan.plan_id}\n"
-                "هر مرحله یک وظیفه مستقل است و سیاست/تأیید Hub جداگانه اعمال می‌شود."
+                f"برای شروع صریح اجرا: /taskplanrun {plan.plan_id}\n"
+                "فقط مراحل ریشه ابتدا ارسال می‌شوند؛ مراحل وابسته پس از موفقیت همه پیش‌نیازها به‌طور خودکار ثبت می‌شوند."
             )
         if command == "/taskplans":
             if task_plans is None:
@@ -553,6 +624,11 @@ async def _owner_hub_command(
                         "plan_id": plan.plan_id,
                         "task_type": plan.task_type,
                         "submitted_steps": plan.submitted_count,
+                        "blocked_steps": sum(bool(step.blocked_reason) for step in plan.steps),
+                        "ready_root_steps": sum(
+                            step.task_id is None and not step.blocked_reason and not step.depends_on
+                            for step in plan.steps
+                        ),
                         "total_steps": len(plan.steps),
                         "created_at": plan.created_at,
                     }
@@ -577,8 +653,20 @@ async def _owner_hub_command(
                 f"ارسال‌شده به Hub: {plan.submitted_count} از {len(plan.steps)}",
             ]
             for index, step in enumerate(plan.steps):
+                dependencies_label = (
+                    " · پیش‌نیاز: " + ",".join(str(item + 1) for item in step.depends_on)
+                    if step.depends_on else ""
+                )
+                if step.blocked_reason:
+                    blocked_by = (
+                        " · وابستگی ناموفق: " + ",".join(str(item + 1) for item in step.blocked_by)
+                        if step.blocked_by else ""
+                    )
+                    lines.append(f"{index + 1}. مسدود ({step.blocked_reason}){blocked_by}{dependencies_label}")
+                    continue
                 if step.task_id is None:
-                    lines.append(f"{index + 1}. ثبت نشده")
+                    label = "آماده ارسال" if not step.depends_on else "در انتظار موفقیت پیش‌نیازها"
+                    lines.append(f"{index + 1}. {label}{dependencies_label}")
                     continue
                 try:
                     task = await hub.get_task(telegram_user_id, step.task_id)
@@ -591,7 +679,7 @@ async def _owner_hub_command(
                     if isinstance(status, str) and status in TASK_STATUSES
                     else "نامشخص"
                 )
-                lines.append(f"{index + 1}. {status_label} — {step.task_id}")
+                lines.append(f"{index + 1}. {status_label} — {step.task_id}{dependencies_label}")
             return "\n".join(lines)
         if command == "/taskplanwatch":
             if task_plans is None or task_watches is None:
@@ -732,7 +820,14 @@ async def _owner_hub_command(
             if plan is None:
                 return "طرح پیدا نشد، منقضی شده یا متعلق به این اتصال ربات نیست."
             submitted_ids = [step.task_id for step in plan.steps]
-            for index, step in enumerate(plan.steps):
+            root_indices = [
+                index for index, step in enumerate(plan.steps)
+                if not step.depends_on and not step.blocked_reason
+            ]
+            if not root_indices:
+                return "این طرح مرحله ریشهٔ قابل‌ارسال ندارد؛ وضعیت طرح را بررسی کن."
+            for index in root_indices:
+                step = plan.steps[index]
                 if step.task_id is not None:
                     continue
                 idempotency_key = f"telegram-plan-{plan.plan_id}-{index + 1}"
@@ -769,16 +864,29 @@ async def _owner_hub_command(
                         "همان دستور را دوباره بفرست؛ ثبت تکراری انجام نخواهد شد."
                     )
                 submitted_ids[index] = task_id
+            root_submitted = [
+                (index, submitted_ids[index])
+                for index in root_indices
+                if submitted_ids[index] is not None
+            ]
+            if task_watches is not None and root_submitted:
+                try:
+                    task_watches.add_many(
+                        [(task_id, "queued") for _index, task_id in root_submitted],
+                        telegram_user_id,
+                    )
+                except (TaskWatchError, ValueError):
+                    LOGGER.warning("Root task watches could not be registered for plan %s", plan.plan_id)
             lines = [
-                "همه مراحل طرح به‌صورت وظایف مستقل به Hub ارسال شدند.",
+                "مراحل ریشهٔ طرح به Hub ارسال شدند؛ مراحل وابسته خودکار و فقط پس از موفقیت پیش‌نیازها ثبت می‌شوند.",
                 f"شناسه طرح: {plan.plan_id}",
             ]
             lines.extend(
                 f"{index + 1}. {task_id}"
-                for index, task_id in enumerate(submitted_ids)
-                if task_id is not None
+                for index, task_id in root_submitted
             )
-            lines.append("برای پیگیری هر مرحله از /taskprogress TASK_ID استفاده کن.")
+            lines.append("برای مشاهدهٔ گراف و وضعیت همه مراحل: /taskplanstatus " + plan.plan_id)
+            lines.append("برای دریافت اعلان تغییر وضعیت: /taskplanwatch " + plan.plan_id)
             return "\n".join(lines)
         if command == "/taskstatus":
             if not argument:
@@ -1571,6 +1679,34 @@ async def run(settings: Settings) -> None:
                     and time.monotonic() - last_task_watch_poll >= 30
                 ):
                     await _poll_task_watches(api, hub, task_watches)
+                    try:
+                        events = await advance_ready_plan_steps(
+                            hub, task_plans, task_watches, settings.owner_ids
+                        )
+                    except Exception:  # noqa: BLE001 - plan advancement must not stop Telegram polling
+                        LOGGER.exception("Dependency-aware task-plan advancement failed")
+                        events = ()
+                    for event in events:
+                        if event.kind == "submitted" and event.task_id:
+                            message = (
+                                f"پیش‌نیازهای مرحله {event.step_index + 1} طرح {event.plan_id} کامل شد؛ "
+                                f"وظیفه به Hub ارسال شد.\nشناسه: {event.task_id}\n"
+                                f"پیگیری: /taskprogress {event.task_id}"
+                            )
+                        else:
+                            reason = {
+                                "dependency_failed": "یکی از پیش‌نیازها ناموفق یا لغوشده است",
+                                "dependency_blocked": "یکی از پیش‌نیازهای قبلی مسدود شده است",
+                                "hub_policy_denied": "Hub به دلیل مجوز یا سیاست اجرا، ثبت مرحله را رد کرد",
+                            }.get(event.reason or "", "پیش‌نیازها کامل نشدند")
+                            message = (
+                                f"مرحله {event.step_index + 1} طرح {event.plan_id} مسدود شد: {reason}.\n"
+                                f"وضعیت کامل: /taskplanstatus {event.plan_id}"
+                            )
+                        try:
+                            await _send_response(api, event.telegram_user_id, message)
+                        except TelegramAPIError:
+                            LOGGER.warning("Task-plan advancement notification failed or has unknown outcome")
                     last_task_watch_poll = time.monotonic()
                 metrics.emit(LOGGER)
             except TelegramAPIError:

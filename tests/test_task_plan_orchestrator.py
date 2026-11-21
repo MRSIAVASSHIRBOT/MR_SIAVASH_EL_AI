@@ -1,0 +1,146 @@
+from __future__ import annotations
+
+import time
+
+from el_ai.integrations.hub import HubClientError
+from el_ai.telegram.task_plan import TaskPlanStore
+from el_ai.telegram.task_plan_orchestrator import advance_ready_plan_steps
+from el_ai.telegram.task_watch import TaskWatchStore
+
+TASK_A = "12345678-1234-4234-8234-123456789abc"
+TASK_B = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+TASK_C = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+
+
+class FakeHub:
+    def __init__(self):
+        self.tasks = {}
+        self.created = []
+        self.fail_create = None
+
+    async def get_task(self, _owner_id, task_id):
+        try:
+            return self.tasks[task_id]
+        except KeyError:
+            raise HubClientError("task status is temporarily unavailable") from None
+
+    async def create_task(self, _owner_id, task_type, description, *, idempotency_key):
+        if self.fail_create is not None:
+            raise self.fail_create
+        existing = next(
+            (item for item in self.created if item["idempotency_key"] == idempotency_key),
+            None,
+        )
+        if existing is not None:
+            return {"task_id": existing["task_id"], "status": self.tasks[existing["task_id"]]["status"]}
+        task_id = (TASK_B, TASK_C)[len(self.created)]
+        self.created.append({
+            "task_id": task_id,
+            "task_type": task_type,
+            "description": description,
+            "idempotency_key": idempotency_key,
+        })
+        self.tasks[task_id] = {"status": "queued"}
+        return {"task_id": task_id, "status": "queued"}
+
+
+async def test_plan_advances_only_after_all_dependencies_succeed(tmp_path):
+    plans = TaskPlanStore(tmp_path / "plans.json")
+    watches = TaskWatchStore(tmp_path / "watches.json")
+    hub = FakeHub()
+    plan = plans.create(
+        123,
+        "demo.echo",
+        ["collect", "inspect", "publish"],
+        dependencies=[[], [0], [0, 1]],
+        now=int(time.time()),
+    )
+    plans.mark_submitted(plan.plan_id, 123, 0, TASK_A)
+    hub.tasks[TASK_A] = {"status": "succeeded"}
+
+    first = await advance_ready_plan_steps(hub, plans, watches, {123})
+    assert [(event.kind, event.step_index, event.task_id) for event in first] == [
+        ("submitted", 1, TASK_B)
+    ]
+    loaded = plans.get_for_user(plan.plan_id, 123, now=int(time.time()) + 1)
+    assert loaded is not None
+    assert loaded.steps[1].task_id == TASK_B
+    assert loaded.steps[2].task_id is None
+    assert watches.list_due(10**10)[0].task_id == TASK_B
+
+    hub.tasks[TASK_B] = {"status": "running"}
+    second = await advance_ready_plan_steps(hub, plans, watches, {123})
+    assert second == ()
+    assert len(hub.created) == 1
+
+    hub.tasks[TASK_B] = {"status": "succeeded"}
+    third = await advance_ready_plan_steps(hub, plans, watches, {123})
+    assert [(event.kind, event.step_index, event.task_id) for event in third] == [
+        ("submitted", 2, TASK_C)
+    ]
+    assert len(hub.created) == 2
+
+    hub.tasks[TASK_C] = {"status": "queued"}
+    assert await advance_ready_plan_steps(hub, plans, watches, {123}) == ()
+    assert len(hub.created) == 2
+
+
+async def test_failed_dependency_blocks_all_descendants_without_submitting_them(tmp_path):
+    plans = TaskPlanStore(tmp_path / "plans.json")
+    watches = TaskWatchStore(tmp_path / "watches.json")
+    hub = FakeHub()
+    plan = plans.create(
+        123,
+        "demo.echo",
+        ["collect", "inspect", "publish"],
+        dependencies=[[], [0], [1]],
+        now=int(time.time()),
+    )
+    plans.mark_submitted(plan.plan_id, 123, 0, TASK_A)
+    hub.tasks[TASK_A] = {"status": "failed"}
+
+    events = await advance_ready_plan_steps(hub, plans, watches, {123})
+    assert [(event.kind, event.step_index, event.reason) for event in events] == [
+        ("blocked", 1, "dependency_failed"),
+        ("blocked", 2, "dependency_blocked"),
+    ]
+    loaded = plans.get_for_user(plan.plan_id, 123, now=int(time.time()) + 1)
+    assert loaded is not None
+    assert loaded.steps[1].blocked_by == (0,)
+    assert loaded.steps[2].blocked_by == (1,)
+    assert not hub.created
+
+
+async def test_unavailable_dependency_status_never_unlocks_a_step(tmp_path):
+    plans = TaskPlanStore(tmp_path / "plans.json")
+    watches = TaskWatchStore(tmp_path / "watches.json")
+    hub = FakeHub()
+    plan = plans.create(123, "demo.echo", ["first", "second"], now=int(time.time()))
+    plans.mark_submitted(plan.plan_id, 123, 0, TASK_A)
+
+    events = await advance_ready_plan_steps(hub, plans, watches, {123})
+    assert events == ()
+    assert not hub.created
+
+
+async def test_hub_policy_denial_blocks_step_and_is_not_retried(tmp_path):
+    plans = TaskPlanStore(tmp_path / "plans.json")
+    watches = TaskWatchStore(tmp_path / "watches.json")
+    hub = FakeHub()
+    plan = plans.create(123, "demo.echo", ["first", "second"], now=int(time.time()))
+    plans.mark_submitted(plan.plan_id, 123, 0, TASK_A)
+    hub.tasks[TASK_A] = {"status": "succeeded"}
+    hub.fail_create = HubClientError("permission denied", status_code=403)
+
+    events = await advance_ready_plan_steps(hub, plans, watches, {123})
+    assert [(event.kind, event.step_index, event.reason) for event in events] == [
+        ("blocked", 1, "hub_policy_denied")
+    ]
+    loaded = plans.get_for_user(plan.plan_id, 123, now=int(time.time()) + 1)
+    assert loaded is not None
+    assert loaded.steps[1].blocked_reason == "hub_policy_denied"
+
+    # The durable blocked checkpoint prevents a second API submission attempt.
+    hub.fail_create = None
+    assert await advance_ready_plan_steps(hub, plans, watches, {123}) == ()
+    assert not hub.created

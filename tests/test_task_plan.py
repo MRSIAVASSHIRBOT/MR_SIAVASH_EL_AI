@@ -139,3 +139,94 @@ def test_task_plan_store_uses_private_file_permissions_and_rejects_symlinks(tmp_
     link.symlink_to(target)
     with pytest.raises(TaskPlanError):
         TaskPlanStore(link).load()
+
+
+def test_task_plan_store_defaults_to_sequential_dependencies_and_persists_dag(tmp_path):
+    path = tmp_path / "task-plans.json"
+    store = TaskPlanStore(path)
+    sequential = store.create(123, "demo.echo", ["one", "two", "three"], now=100)
+    assert [step.depends_on for step in sequential.steps] == [(), (0,), (1,)]
+
+    dag = store.create(
+        123,
+        "demo.echo",
+        ["collect", "inspect", "publish"],
+        dependencies=[[], [0], [0, 1]],
+        now=101,
+    )
+    assert [step.depends_on for step in dag.steps] == [(), (0,), (0, 1)]
+    assert store.mark_submitted(dag.plan_id, 123, 0, TASK_A) is True
+    with pytest.raises(TaskPlanError, match="dependencies must be submitted"):
+        store.mark_submitted(dag.plan_id, 123, 2, TASK_B)
+    assert store.mark_blocked(
+        dag.plan_id, 123, 2, blocked_by=[1], reason="dependency_failed"
+    ) is True
+
+    restored = TaskPlanStore(path)
+    loaded = restored.get_for_user(dag.plan_id, 123, now=102)
+    assert loaded is not None
+    assert loaded.steps[2].blocked_by == (1,)
+    assert loaded.steps[2].blocked_reason == "dependency_failed"
+    assert loaded.steps[2].task_id is None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["version"] == 2
+    assert payload["plans"][1]["steps"][2]["depends_on"] == [0, 1]
+
+
+@pytest.mark.parametrize(
+    "dependencies",
+    [
+        [[0], [], []],
+        [[1], [], []],
+        [[], [0, 0], []],
+        [[], [True], []],
+        [[], [0], [3]],
+        [[], [0]],
+    ],
+)
+def test_task_plan_store_rejects_invalid_dependency_graphs(tmp_path, dependencies):
+    store = TaskPlanStore(tmp_path / "task-plans.json")
+    with pytest.raises(TaskPlanError):
+        store.create(
+            123,
+            "demo.echo",
+            ["one", "two", "three"],
+            dependencies=dependencies,
+            now=100,
+        )
+
+
+def test_task_plan_store_migrates_v1_plans_to_v2_without_losing_checkpoints(tmp_path):
+    path = tmp_path / "task-plans.json"
+    path.write_text(json.dumps({
+        "version": 1,
+        "plans": [{
+            "plan_id": TASK_A,
+            "telegram_user_id": 123,
+            "task_type": "demo.echo",
+            "created_at": 100,
+            "steps": [
+                {"description": "one", "task_id": TASK_B},
+                {"description": "two", "task_id": None},
+            ],
+        }],
+    }), encoding="utf-8")
+
+    store = TaskPlanStore(path)
+    loaded = store.get_for_user(TASK_A, 123, now=101)
+    assert loaded is not None
+    assert loaded.steps[0].task_id == TASK_B
+    assert loaded.steps[0].depends_on == ()
+    assert loaded.steps[1].depends_on == (0,)
+    migrated = json.loads(path.read_text(encoding="utf-8"))
+    assert migrated["version"] == 2
+    assert migrated["plans"][0]["steps"][1]["depends_on"] == [0]
+
+
+def test_task_plan_store_rejects_blocked_state_that_conflicts_with_submission(tmp_path):
+    path = tmp_path / "task-plans.json"
+    store = TaskPlanStore(path)
+    plan = store.create(123, "demo.echo", ["one", "two"], now=100)
+    store.mark_submitted(plan.plan_id, 123, 0, TASK_A)
+    with pytest.raises(TaskPlanError, match="submitted task-plan step"):
+        store.mark_blocked(plan.plan_id, 123, 0, reason="hub_policy_denied")
