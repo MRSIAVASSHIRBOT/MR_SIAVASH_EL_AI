@@ -1230,3 +1230,42 @@ async def test_agent_plan_preview_rejects_invalid_goal_or_provider_mode():
     with pytest.raises(ValueError):
         await client.preview_agent_plan(123456, "valid goal", provider_mode="automatic")
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_authorized_hub_request_does_not_follow_redirects():
+    store = MemoryStore()
+    access_token = "redirect-access-token-secret"
+    store.save("client-redirect", {
+        "access_token": access_token,
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "redirect-refresh-token-secret",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["status:read"],
+    })
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            302,
+            headers={"Location": "https://redirect.example/collect"},
+        )
+
+    client = HubClient(
+        "https://hub.example.com",
+        "client-redirect",
+        store,
+        allow_remote=True,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        with pytest.raises(HubClientError) as captured:
+            await client.status(123456)
+
+        assert captured.value.status_code == 302
+        assert len(requests) == 1
+        assert requests[0].url.host == "hub.example.com"
+        assert requests[0].headers["Authorization"] == f"Bearer {access_token}"
+    finally:
+        await client.close()

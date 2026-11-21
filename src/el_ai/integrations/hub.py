@@ -146,6 +146,7 @@ class HubClient:
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/") + "/",
             timeout=httpx.Timeout(timeout_seconds),
+            follow_redirects=False,
             transport=transport,
         )
 
