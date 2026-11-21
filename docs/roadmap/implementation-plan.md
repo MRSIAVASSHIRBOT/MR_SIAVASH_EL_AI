@@ -45,7 +45,7 @@
 - [x] Add bounded AI-generated sequential task-plan preview through Hub; local provider is default, remote Kimi requires explicit selection, and preview never creates or executes tasks.
 - [ ] Add dependency-aware planning and autonomous progress orchestration.
 - [x] Add runtime-level owner/public message-routing isolation coverage: owner private text never reaches the public Gateway, and public messages send only their own text (PR #67).
-- [ ] Extend isolation coverage to prove private Hub results and task context never cross into the public Gateway or public Telegram replies.
+- [x] Extend isolation coverage to prove private Hub results and task context never cross into the public Gateway or public Telegram replies (PR #67).
 
 ## Milestone 5 — Bounded Agent capabilities
 - [ ] Expose named Agent capabilities only after a separate scope and policy review.
