@@ -967,12 +967,16 @@ def test_task_plan_submission_resumes_after_ambiguous_hub_outcome_without_duplic
     from uuid import NAMESPACE_URL, uuid5
 
     from el_ai.telegram.task_plan import TaskPlanStore
+    from el_ai.telegram.task_plan_orchestrator import advance_ready_plan_steps
+    from el_ai.telegram.task_watch import TaskWatchStore
 
     store = TaskPlanStore(tmp_path / "task-plans.json")
+    watches = TaskWatchStore(tmp_path / "task-watches.json")
 
     class FakeHub:
         def __init__(self):
             self.records = {}
+            self.tasks = {}
             self.calls = []
             self.ambiguous_once = True
 
@@ -988,10 +992,15 @@ def test_task_plan_submission_resumes_after_ambiguous_hub_outcome_without_duplic
                 "description": description,
             }
             self.records[idempotency_key] = result
-            if idempotency_key.endswith("-2") and self.ambiguous_once:
+            self.tasks[result["task_id"]] = {"status": "queued"}
+            if idempotency_key.endswith("-1") and self.ambiguous_once:
                 self.ambiguous_once = False
                 raise HubClientError("ambiguous network outcome")
             return result
+
+        async def get_task(self, telegram_user_id, task_id):
+            assert telegram_user_id == 123
+            return self.tasks[task_id]
 
     hub = FakeHub()
     preview = asyncio.run(_owner_hub_command(
@@ -1011,27 +1020,40 @@ def test_task_plan_submission_resumes_after_ambiguous_hub_outcome_without_duplic
         hub=hub,
         settings=_settings(enabled=True),
         task_plans=store,
+        task_watches=watches,
     ))
-    assert "1 از 3" in interrupted
-    assert store.get_for_user(plan_id, 123).submitted_count == 1
+    assert "0 از 3" in interrupted
+    assert store.get_for_user(plan_id, 123).submitted_count == 0
 
-    completed = asyncio.run(_owner_hub_command(
+    resumed = asyncio.run(_owner_hub_command(
         f"/taskplanrun {plan_id}",
         telegram_user_id=123,
         update_id=114,
         hub=hub,
         settings=_settings(enabled=True),
         task_plans=store,
+        task_watches=watches,
     ))
-    assert "همه مراحل طرح" in completed
-    assert store.get_for_user(plan_id, 123).submitted_count == 3
+    assert "مراحل ریشهٔ طرح به Hub ارسال شدند" in resumed
+    plan = store.get_for_user(plan_id, 123)
+    assert plan is not None and plan.submitted_count == 1
+    first_task_id = plan.steps[0].task_id
+    assert first_task_id is not None
+
+    hub.tasks[first_task_id] = {"status": "succeeded"}
+    first_advance = asyncio.run(advance_ready_plan_steps(hub, store, watches, {123}))
+    assert [(event.kind, event.step_index) for event in first_advance] == [("submitted", 1)]
+    plan = store.get_for_user(plan_id, 123)
+    assert plan is not None and plan.submitted_count == 2
+    second_task_id = plan.steps[1].task_id
+    assert second_task_id is not None
+
+    hub.tasks[second_task_id] = {"status": "succeeded"}
+    second_advance = asyncio.run(advance_ready_plan_steps(hub, store, watches, {123}))
+    assert [(event.kind, event.step_index) for event in second_advance] == [("submitted", 2)]
+    plan = store.get_for_user(plan_id, 123)
+    assert plan is not None and plan.submitted_count == 3
     assert len(hub.records) == 3
-    assert hub.calls == [
-        f"telegram-plan-{plan_id}-1",
-        f"telegram-plan-{plan_id}-2",
-        f"telegram-plan-{plan_id}-2",
-        f"telegram-plan-{plan_id}-3",
-    ]
 
     repeated = asyncio.run(_owner_hub_command(
         f"/taskplanrun {plan_id}",
@@ -1040,9 +1062,17 @@ def test_task_plan_submission_resumes_after_ambiguous_hub_outcome_without_duplic
         hub=hub,
         settings=_settings(enabled=True),
         task_plans=store,
+        task_watches=watches,
     ))
-    assert "همه مراحل طرح" in repeated
-    assert len(hub.calls) == 4
+    assert "مراحل ریشهٔ طرح به Hub ارسال شدند" in repeated
+    assert len(hub.records) == 3
+    assert hub.calls == [
+        f"telegram-plan-{plan_id}-1",
+        f"telegram-plan-{plan_id}-1",
+        f"telegram-plan-{plan_id}-2",
+        f"telegram-plan-{plan_id}-3",
+    ]
+
 
 
 def test_task_plan_commands_reject_invalid_input_and_foreign_plan_access(tmp_path):
@@ -1117,7 +1147,7 @@ def test_task_plan_status_reports_each_step_without_exposing_task_payloads(tmp_p
     assert "2 از 3" in rendered
     assert "در حال اجرا" in rendered
     assert "موفق" in rendered
-    assert "ثبت نشده" in rendered
+    assert "در انتظار موفقیت پیش‌نیازها" in rendered
     assert "private-result" not in rendered
     assert "private-output" not in rendered
     assert "/taskplanstatus" in OWNER_HUB_COMMANDS
