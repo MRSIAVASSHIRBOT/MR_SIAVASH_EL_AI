@@ -319,6 +319,8 @@ class TaskPlanStore:
         self._validate_user_id(telegram_user_id)
         if isinstance(step_index, bool) or not isinstance(step_index, int):
             raise ValueError("Task-plan step index is invalid")
+        if not isinstance(blocked_by, (list, tuple)):
+            raise ValueError("Blocked dependency indexes must be a list")
         normalized_reason = self._validate_blocked_reason(reason)
         if normalized_reason is None:
             raise ValueError("A blocked task-plan step requires a reason")
@@ -501,7 +503,7 @@ class TaskPlanStore:
     def _validate_blocked_reason(value: object) -> str | None:
         if value is None:
             return None
-        if value not in {
+        if not isinstance(value, str) or value not in {
             "dependency_failed",
             "dependency_blocked",
             "hub_policy_denied",
