@@ -76,7 +76,7 @@ The Telegram foundation, Hub pairing client, explicit opt-in and secret-redactio
 
 - Current repository `main`: `e5eae3b026854aaf2157388cf83d82ffa6106a34`.
 - Exact-main GitHub Actions runs completed successfully: CI (run 44637623845), Workflow Security Audit (run 44637623893), and OpenSSF Scorecard (run 44637623829).
-- The implementation status above remains unchanged: task planning and structured progress messages are not implemented; runtime-level public/owner privacy regression coverage is now present on this branch; live Telegram acceptance remains unverified.
+- The implementation status above remains unchanged: task planning and structured progress messages are not implemented; runtime-level public/owner privacy regression coverage is merged in PR #67; live Telegram acceptance remains unverified.
 - The current source already includes owner-scoped task submission, task status/history/result commands, durable task watches, and bounded persisted retry backoff. Follow-up planning work must extend these contracts rather than duplicate them.
 - No Telegram bot token is configured, no live Telegram connection or webhook registration is verified, and no production EL_AI deployment is claimed.
 - Branch protection for `main` is currently reported as disabled by GitHub metadata. No repository access-control settings were changed.
@@ -85,7 +85,7 @@ The Telegram foundation, Hub pairing client, explicit opt-in and secret-redactio
 
 ## Privacy-boundary regression coverage — 2026-11-21 UTC
 
-- Added runtime-level tests for ordinary owner-private messages and owner-only Hub result/progress commands.
+- PR #67 merged runtime-level tests for ordinary owner-private messages and owner-only Hub result/progress commands.
 - The fake public Gateway records every prompt; tests assert that private owner text, Hub result markers, and private task metadata never enter that prompt or a non-owner reply.
 - Telegram, Hub, and website Gateway clients are mocked. No live bot token, production endpoint, or device credential is used.
-- This is code/CI coverage only. Live Telegram acceptance and deployment remain separate release gates.
+- PR #67 CI passed on Python 3.11 and 3.12, including Ruff, the full pytest suite, and Workflow Security Audit. This is code/CI coverage only; live Telegram acceptance and deployment remain separate release gates.
