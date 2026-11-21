@@ -54,3 +54,34 @@ The next safe implementation slice is to add a bridge client/worker interface to
 - Complete owner/admin review before production secret/configuration changes or deployment.
 
 No Worker, Telegram webhook, D1 schema, secrets, route, domain or production setting was changed during this inspection.
+
+
+## Live read-only checkpoint — 2026-11-22 UTC
+
+The Cloudflare account and deployed Worker were re-read without changing configuration or requesting secret values.
+
+### Deployment and binding metadata
+
+- Worker: `mr-siavash-el-ir-bot`.
+- Latest listed deployment: `4b27150f-3aa8-42a5-a88f-72933887d3a8`, created 2026-11-11 16:41:09 UTC.
+- The deployment assigns 100% traffic to version `ce36c4e3-25b4-4a3d-b6fb-53f572bdf98c` (version number 17).
+- The Worker subdomain is `mrsiavashirbot`; the Worker has its `workers.dev` subdomain enabled and preview URLs disabled. The account-level Worker Domains query returned no custom Worker domains.
+- The secret-binding inventory contains these names, all with type `secret_text`: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `WEBHOOK_SETUP_SECRET`, `BRIDGE_SHARED_SECRET`, and `QUEUE_ENCRYPTION_KEY`. **No secret values were read, printed, or changed.**
+
+### Live endpoint checks
+
+- `GET https://mr-siavash-el-ir-bot.mrsiavashirbot.workers.dev/health` returned HTTP-success content: `{"status":"ok","service":"mr-siavash-el-ir-bot-edge"}`.
+- `GET https://mr-siavash-el-ir-bot.mrsiavashirbot.workers.dev/ready` returned HTTP-success content: `{"status":"ready","service":"mr-siavash-el-ir-bot-edge"}`.
+
+The deployed source shows that `/ready` checks the presence of the Telegram token and webhook secret, a D1 binding with a `prepare` method, a numeric owner-ID environment value, and the webhook-secret format. It does **not** call Telegram to validate the token or read back webhook registration. The bridge routes separately validate the bridge shared-secret length and queue-encryption-key format; those checks are not part of the `/ready` predicate.
+
+### What remains unverified
+
+- Telegram token validity and `getWebhookInfo` / webhook registration state.
+- Delivery of a real owner Telegram message through the webhook.
+- D1 schema and table availability; no SQL or rows were queried.
+- A signed `/bridge/pull` and `/bridge/complete` round-trip.
+- EL_AI Python bridge-client connectivity and private Hub integration.
+- End-to-end owner command routing and response delivery.
+
+No webhook setup call, Telegram API request, D1 query, bridge request, secret mutation, Worker deployment, route change, or production configuration change was performed. The edge Worker is live and ready according to its own health predicate, but the Telegram bot is **not** yet accepted as end-to-end operational.
