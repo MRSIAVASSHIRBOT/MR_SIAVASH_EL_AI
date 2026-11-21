@@ -76,15 +76,16 @@ The Telegram foundation, Hub pairing client, explicit opt-in and secret-redactio
 
 - Current repository `main`: `e5eae3b026854aaf2157388cf83d82ffa6106a34`.
 - Exact-main GitHub Actions runs completed successfully: CI (run 44637623845), Workflow Security Audit (run 44637623893), and OpenSSF Scorecard (run 44637623829).
-- The implementation status above remains unchanged: task planning and structured progress messages are not implemented; public/owner context isolation still requires end-to-end coverage; live Telegram acceptance remains unverified.
+- The implementation status above remains unchanged: task planning and structured progress messages are not implemented; runtime-level public/owner privacy regression coverage is now present on this branch; live Telegram acceptance remains unverified.
 - The current source already includes owner-scoped task submission, task status/history/result commands, durable task watches, and bounded persisted retry backoff. Follow-up planning work must extend these contracts rather than duplicate them.
 - No Telegram bot token is configured, no live Telegram connection or webhook registration is verified, and no production EL_AI deployment is claimed.
 - Branch protection for `main` is currently reported as disabled by GitHub metadata. No repository access-control settings were changed.
 - This is a source and CI evidence refresh only; it does not claim live runtime acceptance or production readiness.
 
 
-## Evidence refresh — 2026-11-21 UTC
+## Privacy-boundary regression coverage — 2026-11-21 UTC
 
-- Draft PR #67 adds `tests/test_privacy_boundary.py`, a runtime-level test with mocked Telegram and Gateway transports. It verifies that an owner's ordinary private message is handled locally and never passed to the public Gateway, while a non-owner public message is forwarded as message text only.
-- Exact-head CI passed on Python 3.11 and 3.12, including Ruff and the full pytest suite (workflow run 44897061838). Workflow Security Audit passed (run 44897061845).
-- The test uses no live Telegram token, network request, Hub credential, or production service. It does not yet prove every possible private Hub result/task payload path is isolated; that remains a separate coverage item.
+- Added runtime-level tests for ordinary owner-private messages and owner-only Hub result/progress commands.
+- The fake public Gateway records every prompt; tests assert that private owner text, Hub result markers, and private task metadata never enter that prompt or a non-owner reply.
+- Telegram, Hub, and website Gateway clients are mocked. No live bot token, production endpoint, or device credential is used.
+- This is code/CI coverage only. Live Telegram acceptance and deployment remain separate release gates.
