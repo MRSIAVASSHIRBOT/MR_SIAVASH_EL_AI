@@ -70,11 +70,12 @@ The preflight does not contact Telegram, Hub, or the public Gateway, does not wr
 - `/task TYPE | DESCRIPTION`: submit a task through Hub policy and idempotency controls.
 - `/taskstatus TASK_ID`, `/taskhistory TASK_ID [CURSOR]`, and `/taskresult TASK_ID`: inspect the status, paged event history, or final result of a task submitted by this paired client.
 - `/taskprogress TASK_ID`: view a compact status summary and the latest safe lifecycle events; audit metadata and private payloads are not included.
-- `/taskplan TYPE | STEP 1 ; STEP 2`: save a bounded owner-authored plan preview locally; no Hub task is created until explicit confirmation.
-- `/agentplan [local|remote] TYPE | GOAL`: generate a bounded AI plan preview through Hub and save it locally; local inference is the default, remote Kimi is explicit, and no task is created or executed.
-- `/taskplanrun PLAN_ID`: submit each plan step as a separate policy-gated Hub task. Submission is resumable and uses stable idempotency keys after ambiguous network outcomes.
+- `/taskplan TYPE | STEP 1 ; STEP 2`: save a bounded owner-authored plan preview locally. Sequential shorthand remains supported; explicit 1-based dependencies use `1: Collect ; 2: Validate <- 1 ; 3: Publish <- 1,2`. Plans contain 2–8 non-empty steps, and preview creates no Hub task.
+- `/agentplan [local|remote] TYPE | GOAL`: generate a bounded AI plan preview through Hub and save it locally; local inference is the default, remote Kimi is explicit, and no task is created or executed during preview. Validated dependency metadata is preserved when returned by the planner.
+- `/taskplanrun PLAN_ID`: explicitly start a saved plan. Only root steps are initially submitted as separate policy-gated Hub tasks; dependent steps are submitted automatically only after every prerequisite reports `succeeded`. Advancement is bounded, checkpointed, and uses stable idempotency keys for ambiguous network outcomes. Failed or blocked prerequisites block descendants; unavailable status never unlocks a step.
 - `/taskplans`: list the owner's saved plans and per-plan submission counts. Local plan drafts expire after seven days and are stored in a private state file; do not include credentials in step text.
-- `/taskplanstatus PLAN_ID`: inspect the current Hub status of each submitted step without exposing task result payloads.
+- `/taskplanstatus PLAN_ID`: inspect each step, its dependencies, and persisted blocked reason without exposing task result payloads.
+- `/taskplanwatch PLAN_ID`: add active submitted steps in the plan to owner-only progress notifications.
 - `/taskwatch TASK_ID` notifications now include a bounded lifecycle timeline on status transitions; if event history is temporarily unavailable, the status notification still goes through.
 - `/taskcancel TASK_ID`: cancel a task only while it is queued or waiting for approval.
 - `/taskwatch TASK_ID`, `/taskwatches`, and `/taskunwatch TASK_ID`: persist, list, or stop owner-only task status notifications. Watches store task IDs, Telegram owner IDs, status checkpoints, and bounded retry deadlines only; transient Hub or Telegram failures use persisted exponential backoff (30 seconds to 30 minutes). Delivery remains at-least-once when Telegram reports an unknown outcome.
