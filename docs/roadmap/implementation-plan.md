@@ -44,7 +44,8 @@
 - [x] Add owner-authored bounded task-plan previews, explicit resumable idempotent batch submission, aggregate plan status, and structured task-watch progress notifications.
 - [x] Add bounded AI-generated sequential task-plan preview through Hub; local provider is default, remote Kimi requires explicit selection, and preview never creates or executes tasks.
 - [ ] Add dependency-aware planning and autonomous progress orchestration.
-- [ ] Keep public and owner context isolated in end-to-end tests.
+- [x] Add runtime-level owner/public message-routing isolation coverage: owner private text never reaches the public Gateway, and public messages send only their own text (PR #67).
+- [ ] Extend isolation coverage to prove private Hub results and task context never cross into the public Gateway or public Telegram replies.
 
 ## Milestone 5 — Bounded Agent capabilities
 - [ ] Expose named Agent capabilities only after a separate scope and policy review.
@@ -80,3 +81,10 @@ The Telegram foundation, Hub pairing client, explicit opt-in and secret-redactio
 - No Telegram bot token is configured, no live Telegram connection or webhook registration is verified, and no production EL_AI deployment is claimed.
 - Branch protection for `main` is currently reported as disabled by GitHub metadata. No repository access-control settings were changed.
 - This is a source and CI evidence refresh only; it does not claim live runtime acceptance or production readiness.
+
+
+## Evidence refresh — 2026-11-21 UTC
+
+- Draft PR #67 adds `tests/test_privacy_boundary.py`, a runtime-level test with mocked Telegram and Gateway transports. It verifies that an owner's ordinary private message is handled locally and never passed to the public Gateway, while a non-owner public message is forwarded as message text only.
+- Exact-head CI passed on Python 3.11 and 3.12, including Ruff and the full pytest suite (workflow run 44897061838). Workflow Security Audit passed (run 44897061845).
+- The test uses no live Telegram token, network request, Hub credential, or production service. It does not yet prove every possible private Hub result/task payload path is isolated; that remains a separate coverage item.
