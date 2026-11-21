@@ -461,11 +461,13 @@ async def _owner_hub_command(
                 provider_mode = options.pop(0).lower()
             if len(options) != 1 or not goal:
                 return "روش استفاده: /agentplan [local|remote] task.type | هدف"
+            if len(goal) > 1_000:
+                return "هدف طرح حداکثر ۱۰۰۰ نویسه است؛ متن را کوتاه‌تر کن."
             task_type = options[0]
             try:
                 result = await hub.preview_agent_plan(
                     telegram_user_id,
-                    goal[:1_000],
+                    goal,
                     provider_mode=provider_mode,
                 )
             except HubClientError as exc:
@@ -480,7 +482,8 @@ async def _owner_hub_command(
                 raise
             steps = result.get("steps")
             if (
-                result.get("execution_started") is not False
+                result.get("provider_mode") != provider_mode
+                or result.get("execution_started") is not False
                 or result.get("tasks_created") != 0
                 or not isinstance(steps, list)
             ):
