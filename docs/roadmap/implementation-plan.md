@@ -76,7 +76,7 @@ The Telegram foundation, Hub pairing client, explicit opt-in and secret-redactio
 
 - Current repository `main`: `e5eae3b026854aaf2157388cf83d82ffa6106a34`.
 - Exact-main GitHub Actions runs completed successfully: CI (run 44637623845), Workflow Security Audit (run 44637623893), and OpenSSF Scorecard (run 44637623829).
-- The implementation status above remains unchanged: task planning and structured progress messages are not implemented; runtime-level public/owner privacy regression coverage is merged in PR #67; live Telegram acceptance remains unverified.
+- Current code includes owner-authored and AI-generated sequential plan previews, explicit resumable idempotent submission, aggregate plan status, structured progress notifications, durable task watches, and owner/public privacy regression coverage. Dependency-aware planning and autonomous progress orchestration remain open; live Telegram acceptance and full security/dependency review remain unverified.
 - The current source already includes owner-scoped task submission, task status/history/result commands, durable task watches, and bounded persisted retry backoff. Follow-up planning work must extend these contracts rather than duplicate them.
 - No Telegram bot token is configured, no live Telegram connection or webhook registration is verified, and no production EL_AI deployment is claimed.
 - Branch protection for `main` is currently reported as disabled by GitHub metadata. No repository access-control settings were changed.
