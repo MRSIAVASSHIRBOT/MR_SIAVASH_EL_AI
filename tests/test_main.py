@@ -1,5 +1,6 @@
 import asyncio
 import json
+import pytest
 import time
 
 from el_ai.config import Settings
