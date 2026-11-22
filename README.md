@@ -115,8 +115,6 @@ Pairing is owner-initiated from the local Hub. The bot must run in a private Tel
 
 For the Cloudflare bridge runtime, configure the bridge variables and Hub settings in the trusted Python host environment, then run the same `python -m el_ai` entrypoint. The Worker queues only `/pair`, `/status`, and `/tasks`; the Python consumer validates the owner/private-chat identity and delegates to the existing Hub command handler. The pairing code must meet the Worker’s 32–128 character bound. See [Cloudflare bridge runtime configuration](docs/architecture/cloudflare-telegram-edge-bridge.md).
 
-For the Cloudflare bridge runtime, configure the bridge variables and Hub settings in the trusted Python host environment, then run the same `python -m el_ai` entrypoint. The Worker queues only `/pair`, `/status`, and `/tasks`; the Python consumer validates the owner/private-chat identity and delegates to the existing Hub command handler. The pairing code must meet the Worker’s 32–128 character bound. See [Cloudflare bridge runtime configuration](docs/architecture/cloudflare-telegram-edge-bridge.md).
-
 ## Safety
 
 Public users cannot access owner commands or private state. All privileged operations must be explicitly allowlisted by capability and authorized by Hub policy. Sensitive or consequential actions require Hub approval. See the security documentation before enabling integrations.
