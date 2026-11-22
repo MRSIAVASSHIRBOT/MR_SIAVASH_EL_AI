@@ -54,9 +54,11 @@ No third-party Node dependencies are required.
 
 ## Deployment boundary
 
-**This directory is not yet a production deployment configuration.** No production account ID, D1 database ID, token, secret, or Wrangler deployment target is committed. The source retains the observed non-secret production `workers.dev` webhook URL as a default for parity with the deployed Worker; it must be overridden or replaced in a separately designed development configuration. There is intentionally no production `wrangler.jsonc` yet: local/dev deployment must first have a separate D1 database, a separate test Telegram bot, dedicated development secrets, and a non-production webhook URL.
+**This directory is not yet a production deployment configuration.** No production account ID, D1 database ID, token, secret, or Wrangler deployment target is committed. The Worker no longer hard-codes a production webhook URL: every environment must provide the non-secret `TELEGRAM_WEBHOOK_URL` variable. The runtime accepts only an HTTPS URL with the exact `/telegram/webhook` path and no credentials, query string, or fragment; readiness fails closed when the value is absent or invalid.
 
-Do not deploy this snapshot directly to the live Worker. The currently deployed Worker remains unchanged until a separate reviewed release updates the source, bindings, migrations, and deployment target together.
+The live Worker settings inspected on 2026-11-22 did not include `TELEGRAM_WEBHOOK_URL`. **Do not deploy this source to the production Worker until that plain-text variable is added to the live configuration and read back with the current production webhook URL.** The development sample uses a different Worker URL and a different D1 name. There is intentionally no production `wrangler.jsonc` in this branch.
+
+Do not deploy this snapshot directly to the live Worker. The live Worker, webhook, bindings, secrets, D1 data and deployment settings remain unchanged; production rollout requires a separately reviewed configuration change and release.
 
 ## Non-production development setup
 
