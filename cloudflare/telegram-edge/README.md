@@ -38,11 +38,14 @@ Workers Logs and Traces were enabled at inspection. The D1 snapshot contains fou
 
 ## Tests
 
-The tests use Node's built-in test runner and mock only the outbound Telegram HTTP boundary. They cover:
+The tests use Node's built-in test runner and require no third-party Node packages. The suites cover:
 
-- bounded network failure diagnostics for `setWebhook`;
-- rejection of unknown error codes to prevent arbitrary diagnostic data from entering logs; and
-- successful `setWebhook` plus `getWebhookInfo` read-back.
+- bounded webhook-registration network diagnostics and rejection of unknown error codes;
+- successful `setWebhook` plus `getWebhookInfo` read-back;
+- fail-closed readiness for missing or invalid `TELEGRAM_WEBHOOK_URL` values; and
+- a Worker-level bridge round-trip using an in-memory D1 test double: private owner webhook ingress, encrypted queue insertion, duplicate-update idempotency, signed HMAC pull, lease-fenced completion, Telegram reply delivery through a mocked HTTP boundary, and replayed-nonce rejection.
+
+This integration test exercises Worker routes and the queue contract. It does not start the Python EL_AI consumer or contact Telegram/Cloudflare; real Telegram-to-Hub acceptance remains a separate release gate.
 
 Run from this directory:
 

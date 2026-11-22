@@ -226,7 +226,7 @@ async function withTelegramFetchMock(callback) {
 test("private owner update is deduplicated, encrypted, leased, and delivered through the signed bridge", async () => {
   const db = new InMemoryD1();
   const env = {
-    TELEGRAM_BOT_TOKEN: "123456789:TEST_ONLY_DUMMY_TOKEN",
+    TELEGRAM_BOT_TOKEN: "DUMMY_BOT_TOKEN_FOR_LOCAL_E2E_TESTS",
     TELEGRAM_WEBHOOK_SECRET: "W".repeat(32),
     TELEGRAM_WEBHOOK_URL: "https://edge.example.test/telegram/webhook",
     ALLOWED_TELEGRAM_USER_ID: String(OWNER_ID),
