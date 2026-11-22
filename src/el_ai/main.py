@@ -54,6 +54,15 @@ OWNER_HUB_COMMANDS = frozenset({
     "/videoscenehistory", "/videosceneexport",
 })
 
+# The bridge is a request/response transport, not a background notification
+# channel or binary upload channel. Keep commands requiring those features out
+# until the bridge supports them explicitly.
+BRIDGE_UNAVAILABLE_COMMANDS = frozenset({
+    "/taskwatch", "/taskunwatch", "/taskwatches", "/taskplanwatch",
+    "/videorenderdownload",
+})
+BRIDGE_HUB_COMMANDS = OWNER_HUB_COMMANDS - BRIDGE_UNAVAILABLE_COMMANDS
+
 
 def _next_update_offset(offset: int | None, update_id: object) -> int | None:
     """Return the next Telegram offset after an update has been fully handled."""
@@ -1590,7 +1599,7 @@ def _bridge_update_id(job: BridgeJob) -> int:
 
 
 def _bridge_job_command(job: BridgeJob, owner_ids: frozenset[int]) -> str | None:
-    """Translate only the edge Worker’s documented owner commands."""
+    """Validate an owner-only bridge command against the local command allowlist."""
     if job.telegram_user_id not in owner_ids or job.chat_id != job.telegram_user_id:
         return None
     payload = job.payload
@@ -1608,7 +1617,23 @@ def _bridge_job_command(job: BridgeJob, owner_ids: frozenset[int]) -> str | None
             and not any(character.isspace() for character in code)
         ):
             return f"/pair {code}"
-    return None
+        return None
+    if command != "dispatch" or set(payload) != {"command", "text"}:
+        return None
+
+    text = payload.get("text")
+    if (
+        not isinstance(text, str)
+        or not 1 <= len(text) <= 4096
+        or text != text.strip()
+        or any(ord(character) < 32 or ord(character) == 127 for character in text)
+    ):
+        return None
+    first_token = text.split(maxsplit=1)[0]
+    command_name = first_token.split("@", 1)[0].lower()
+    if command_name not in BRIDGE_HUB_COMMANDS:
+        return None
+    return text
 
 
 async def _run_cloudflare_bridge(settings: Settings) -> None:
@@ -1629,6 +1654,12 @@ async def _run_cloudflare_bridge(settings: Settings) -> None:
             "Secure Hub credentials are unavailable; configure a trusted OS keyring before starting bridge mode"
         )
 
+    task_plans = TaskPlanStore(settings.state_dir / "task-plans.json")
+    try:
+        task_plans.load()
+    except TaskPlanError as exc:
+        raise SystemExit("Stored task-plan state is invalid or inaccessible") from exc
+
     bridge = TelegramBridgeClient(
         settings.telegram_bridge_url,
         settings.telegram_bridge_shared_secret,
@@ -1645,6 +1676,7 @@ async def _run_cloudflare_bridge(settings: Settings) -> None:
             update_id=_bridge_update_id(job),
             hub=hub,
             settings=settings,
+            task_plans=task_plans,
         )
         return response or "این فرمان در Bridge پشتیبانی نمی‌شود."
 
