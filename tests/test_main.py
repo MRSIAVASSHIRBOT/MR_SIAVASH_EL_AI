@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 
 from el_ai.config import Settings
 from el_ai.integrations.hub import HubClientError
@@ -1508,8 +1509,9 @@ def test_main_loads_dotenv_without_overriding_process_environment(monkeypatch):
 
 
 def test_task_plan_pause_and_resume_are_owner_scoped_and_resume_requires_confirmation(tmp_path):
+    now = int(time.time())
     plans = TaskPlanStore(tmp_path / "task-plans.json")
-    plan = plans.create(123, "demo.echo", ["prepare", "publish"], now=100)
+    plan = plans.create(123, "demo.echo", ["prepare", "publish"], now=now)
     plans.mark_submitted(plan.plan_id, 123, 0, "12345678-1234-4234-8234-123456789abc")
 
     class FakeHub:
@@ -1525,7 +1527,7 @@ def test_task_plan_pause_and_resume_are_owner_scoped_and_resume_requires_confirm
         task_plans=plans,
     ))
     assert "در حالت مکث" in paused
-    assert plans.get_for_user(plan.plan_id, 123, now=101).paused is True
+    assert plans.get_for_user(plan.plan_id, 123, now=now + 1).paused is True
 
     unconfirmed = asyncio.run(_owner_hub_command(
         f"/taskplanresume {plan.plan_id}",
@@ -1536,7 +1538,7 @@ def test_task_plan_pause_and_resume_are_owner_scoped_and_resume_requires_confirm
         task_plans=plans,
     ))
     assert "CONFIRM" in unconfirmed
-    assert plans.get_for_user(plan.plan_id, 123, now=102).paused is True
+    assert plans.get_for_user(plan.plan_id, 123, now=now + 2).paused is True
 
     foreign = asyncio.run(_owner_hub_command(
         f"/taskplanresume {plan.plan_id} CONFIRM",
@@ -1557,12 +1559,13 @@ def test_task_plan_pause_and_resume_are_owner_scoped_and_resume_requires_confirm
         task_plans=plans,
     ))
     assert "مکث طرح برداشته شد" in resumed
-    assert plans.get_for_user(plan.plan_id, 123, now=103).paused is False
+    assert plans.get_for_user(plan.plan_id, 123, now=now + 3).paused is False
 
 
 def test_task_plan_cannot_be_paused_before_explicit_start(tmp_path):
+    now = int(time.time())
     plans = TaskPlanStore(tmp_path / "task-plans.json")
-    plan = plans.create(123, "demo.echo", ["prepare", "publish"], now=100)
+    plan = plans.create(123, "demo.echo", ["prepare", "publish"], now=now)
 
     class FakeHub:
         pass
@@ -1576,7 +1579,7 @@ def test_task_plan_cannot_be_paused_before_explicit_start(tmp_path):
         task_plans=plans,
     ))
     assert "هنوز شروع نشده" in rendered
-    assert plans.get_for_user(plan.plan_id, 123, now=101).paused is False
+    assert plans.get_for_user(plan.plan_id, 123, now=now + 1).paused is False
 
 
 def test_task_plan_pause_controls_are_owner_menu_only():
