@@ -155,7 +155,7 @@ async def test_shutdown_wins_if_handler_and_stop_signal_finish_together():
 
     async def handler(_received):
         stop.set()
-        await asyncio.sleep(0)
+        await asyncio.sleep(0.01)
         return "reply"
 
     worker = TelegramBridgeWorker(client, handler, idle_seconds=0.01, metrics=metrics)
