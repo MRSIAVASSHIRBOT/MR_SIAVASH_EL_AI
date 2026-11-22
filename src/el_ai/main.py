@@ -960,7 +960,8 @@ async def _owner_hub_command(
                 for index, task_id in root_submitted
             )
             lines.append("برای مشاهدهٔ گراف و وضعیت همه مراحل: /taskplanstatus " + plan.plan_id)
-            lines.append("برای دریافت اعلان تغییر وضعیت: /taskplanwatch " + plan.plan_id)
+            if task_watches is not None:
+                lines.append("برای دریافت اعلان تغییر وضعیت: /taskplanwatch " + plan.plan_id)
             return "\n".join(lines)
         if command == "/taskstatus":
             if not argument:
@@ -1679,6 +1680,7 @@ async def _run_cloudflare_bridge(settings: Settings) -> None:
             update_id=_bridge_update_id(job),
             hub=hub,
             settings=settings,
+            task_plans=task_plans,
         )
         return response or "این فرمان در Bridge پشتیبانی نمی‌شود."
 
