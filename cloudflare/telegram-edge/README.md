@@ -43,7 +43,8 @@ The tests use Node's built-in test runner and require no third-party Node packag
 - bounded webhook-registration network diagnostics and rejection of unknown error codes;
 - successful `setWebhook` plus `getWebhookInfo` read-back;
 - fail-closed readiness for missing or invalid `TELEGRAM_WEBHOOK_URL` values; and
-- a Worker-level bridge round-trip using an in-memory D1 test double: private owner webhook ingress and non-owner filtering, encrypted queue insertion, duplicate-update idempotency, signed HMAC pull and nonce replay rejection, invalid/expired lease fencing with recovery, re-queue and fresh-lease retry after a transient Telegram delivery failure, Telegram reply delivery through a mocked HTTP boundary, duplicate-completion prevention, and empty-queue read-back after completion.
+- a Worker-level bridge round-trip using an in-memory D1 test double: private owner webhook ingress and non-owner filtering, encrypted queue insertion, duplicate-update idempotency, signed HMAC pull and nonce replay rejection, invalid/expired lease fencing with recovery, re-queue and fresh-lease retry after a transient Telegram delivery failure, Telegram reply delivery through a mocked HTTP boundary, duplicate-completion prevention, and empty-queue read-back after completion;
+- command-dispatch regression proving allowlisted Hub commands enter the encrypted bridge queue while background-notification commands remain outside the bridge.
 
 A shared deterministic HMAC-SHA256 vector at `test/fixtures/bridge-hmac-v1.json` is consumed by both the Worker E2E test and the Python `TelegramBridgeClient` unit tests. This catches cross-language drift in newline separators, body serialization, hashing, and signature generation.
 
@@ -58,6 +59,12 @@ npm test
 ```
 
 No third-party Node dependencies are required.
+
+## Owner command dispatch
+
+The Worker forwards a fixed allowlist of owner Hub commands as encrypted `{ command: "dispatch", text: ... }` jobs after checking the private-chat owner identity, bridge configuration and bounded single-line text. The Python consumer applies a second independent owner check, exact payload-key validation, text bounds and its own command allowlist before invoking the existing Hub handler. `/pair` remains a distinct one-time-code payload.
+
+Background notification commands (`/taskwatch`, `/taskunwatch`, `/taskwatches`, `/taskplanwatch`) and binary `/videorenderdownload` are intentionally excluded. The Python bridge consumer does not yet run the periodic notifier or Telegram binary upload path. `/taskplanrun` remains available, but bridge mode does not silently enable background task watches.
 
 ## Deployment boundary
 
