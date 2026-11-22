@@ -126,6 +126,10 @@ class TelegramBridgeWorker:
                 (handler_task, stop_task),
                 return_when=asyncio.FIRST_COMPLETED,
             )
+            # If shutdown and handler completion become ready together, prefer
+            # leaving the lease unacknowledged. The edge can redeliver safely.
+            if stop_task in done:
+                return _STOPPED
             if handler_task in done:
                 return await handler_task
             return _STOPPED
@@ -143,6 +147,12 @@ class TelegramBridgeWorker:
                 try:
                     job = await self._client.pull()
                     self._metrics.record_pull(job is not None)
+                    # A shutdown requested while pull was in flight must not start
+                    # application work or acknowledge the lease.
+                    if stop.is_set():
+                        if job is not None:
+                            self._metrics.record_shutdown_cancellation()
+                        break
                     if job is None:
                         backoff = self._min_backoff
                         await self._wait_or_stop(stop, self._idle_seconds)
