@@ -1434,7 +1434,7 @@ def test_bridge_job_maps_only_the_documented_owner_commands():
     assert _bridge_job_command(_bridge_job({"command": "status"}), owners) == "/hub"
     assert _bridge_job_command(_bridge_job({"command": "tasks"}), owners) == "/tasks"
     assert _bridge_job_command(
-        _bridge_job({"command": "pair", "pairing_code": "P".repeat(32)}), owners
+        _bridge_job({"command": "pair", "pairing_code": "P" * 32}), owners
     ) == "/pair " + "P" * 32
 
 
