@@ -252,7 +252,7 @@ def collect_report() -> dict[str, object]:
                 DoctorCheck(
                     "hub_credential_store",
                     "ok",
-                    "a trusted operating-system credential backend is available",
+                    "the configured protected credential backend is available",
                 )
             )
         except SecretStoreError:
