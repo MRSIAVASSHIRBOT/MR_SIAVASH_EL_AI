@@ -32,7 +32,7 @@ function createMemoryD1() {
 
   const DB = {
     prepare(sql) {
-      const query = sql.replace(/\\s+/g, " ").trim();
+      const query = sql.replace(/\s+/g, " ").trim();
 
       return {
         bind(...values) {
@@ -200,7 +200,7 @@ async function signedBridgeRequest(env, path, body, options = {}) {
   const timestamp = options.timestamp || String(Math.floor(Date.now() / 1000));
   const nonce = options.nonce || `nonce-${randomUUID()}`;
   const bodyHash = createHash("sha256").update(bodyText).digest("hex");
-  const message = [timestamp, nonce, "POST", path, bodyHash].join("\\n");
+  const message = [timestamp, nonce, "POST", path, bodyHash].join("\n");
   const signature = createHmac("sha256", env.BRIDGE_SHARED_SECRET)
     .update(message)
     .digest("hex");
