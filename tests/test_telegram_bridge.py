@@ -291,13 +291,25 @@ async def test_pull_rejects_unreasonably_long_content_length_header():
 
 @pytest.mark.asyncio
 async def test_pull_rejects_compressed_response_before_any_decompression():
+    class CompressedStream(httpx.AsyncByteStream):
+        def __init__(self):
+            self.consumed = False
+
+        async def __aiter__(self):
+            self.consumed = True
+            yield b"compressed response body"
+
+        async def aclose(self):
+            return None
+
+    stream = CompressedStream()
     client = TelegramBridgeClient(
         "https://bridge.example.test",
         SECRET,
         transport=httpx.MockTransport(
-            lambda request: httpx.Response(
+            lambda _request: httpx.Response(
                 200,
-                content=b"compressed response body",
+                stream=stream,
                 headers={
                     "content-type": "application/json",
                     "content-encoding": "gzip",
@@ -307,4 +319,5 @@ async def test_pull_rejects_compressed_response_before_any_decompression():
     )
     with pytest.raises(TelegramBridgeError, match="invalid response"):
         await client.pull()
+    assert stream.consumed is False
     await client.close()
