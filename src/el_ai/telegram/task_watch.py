@@ -18,9 +18,15 @@ TASK_WATCH_STATUSES = frozenset({
 TERMINAL_TASK_STATUSES = frozenset({"succeeded", "failed", "cancelled", "rejected"})
 
 _ALLOWED_STATUS_TRANSITIONS = {
-    "queued": frozenset({"running", "waiting_approval", "succeeded", "failed", "cancelled", "rejected"}),
-    "waiting_approval": frozenset({"queued", "running", "failed", "cancelled", "rejected"}),
-    "running": frozenset({"waiting_approval", "succeeded", "failed", "cancelled", "rejected"}),
+    "queued": frozenset({
+        "running", "waiting_approval", "succeeded", "failed", "cancelled", "rejected"
+    }),
+    "waiting_approval": frozenset({
+        "queued", "running", "failed", "cancelled", "rejected"
+    }),
+    "running": frozenset({
+        "waiting_approval", "succeeded", "failed", "cancelled", "rejected"
+    }),
     "succeeded": frozenset(),
     "failed": frozenset(),
     "cancelled": frozenset(),
@@ -196,7 +202,8 @@ class TaskWatchStore:
 
         normalized: list[TaskWatch] = []
         seen: set[str] = set()
-        for entry in entries:            if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+        for entry in entries:
+            if not isinstance(entry, (list, tuple)) or len(entry) != 2:
                 raise ValueError("Task-watch batch entry is invalid")
             task_id, status = entry
             canonical_id = self._canonical_task_id(task_id)
@@ -248,19 +255,26 @@ class TaskWatchStore:
         updated: list[TaskWatch] = []
         changed = False
         for item in watches:
-            if item.task_id != canonical_id or item.telegram_user_id != telegram_user_id:
+            if (
+                item.task_id != canonical_id
+                or item.telegram_user_id != telegram_user_id
+            ):
                 updated.append(item)
                 continue
             if item.last_status == status:
                 updated.append(item)
                 continue
-            allowed = _ALLOWED_STATUS_TRANSITIONS.get(item.last_status, frozenset())
+            allowed = _ALLOWED_STATUS_TRANSITIONS.get(
+                item.last_status, frozenset()
+            )
             if status not in allowed:
                 # Ignore stale or out-of-order observations. In particular, a
                 # terminal task must never be reopened by a delayed poll result.
                 updated.append(item)
                 continue
-            updated.append(TaskWatch(item.task_id, item.telegram_user_id, status))
+            updated.append(
+                TaskWatch(item.task_id, item.telegram_user_id, status)
+            )
             changed = True
         if not changed:
             return False
@@ -398,3 +412,9 @@ class TaskWatchStore:
             raise
         except OSError as exc:
             raise TaskWatchError("Could not persist Telegram task-watch state") from exc
+        finally:
+            if temporary_path is not None:
+                try:
+                    os.unlink(temporary_path)
+                except FileNotFoundError:
+                    pass
