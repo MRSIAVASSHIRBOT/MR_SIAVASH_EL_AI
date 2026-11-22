@@ -38,7 +38,7 @@ cp .env.example .env
 python -m el_ai
 ```
 
-The Python bot currently supports long polling for local development. A Cloudflare Worker named `mr-siavash-el-ir-bot` is already deployed and includes webhook ingress, encrypted queued jobs, update deduplication, and a signed bridge pull/complete API (see [observed Cloudflare edge state](docs/architecture/cloudflare-telegram-edge-bridge.md)). This does **not** establish that Telegram webhook registration, secrets, bridge runtime, or private Hub connectivity are configured or end-to-end verified. Production acceptance remains gated on those checks, secure configuration, testing, and owner/admin approval.
+The default Python transport is local Telegram long polling. The merged Cloudflare bridge runtime is an alternative: it consumes the signed queue from the deployed `mr-siavash-el-ir-bot` Worker and deliberately does not start `getUpdates`. The Worker has webhook ingress, encrypted queued jobs, update deduplication, and signed bridge pull/complete routes (see [observed Cloudflare edge state](docs/architecture/cloudflare-telegram-edge-bridge.md)). The Python consumer must still be started on a trusted machine with Hub reachability and a trusted OS keyring. A deployed Worker and green repository CI do **not** prove Telegram webhook registration, token validity, private Hub pairing, or end-to-end message delivery.
 
 Run the read-only local preflight before configuring or starting the bot:
 
@@ -53,7 +53,11 @@ The preflight does not contact Telegram, Hub, or the public Gateway, does not wr
 
 ## Configuration
 
-- TELEGRAM_BOT_TOKEN: required runtime secret.
+- TELEGRAM_BOT_TOKEN: required only for `TELEGRAM_TRANSPORT=local_polling`; the Cloudflare Worker owns Telegram ingress and delivery in bridge mode.
+- TELEGRAM_TRANSPORT: `local_polling` (default) or `cloudflare_bridge`. Select exactly one; bridge mode never starts the local Telegram update poller.
+- TELEGRAM_BRIDGE_URL: HTTPS base URL of the Cloudflare Telegram Worker; required in bridge mode.
+- TELEGRAM_BRIDGE_SHARED_SECRET: bridge HMAC secret, at least 32 characters; keep it only in the local runtime secret environment and Cloudflare secret binding, never in Git.
+- TELEGRAM_BRIDGE_TIMEOUT_SECONDS: bridge HTTP timeout from 3 to 30 seconds (default 8).
 - TELEGRAM_OWNER_IDS: comma-separated numeric Telegram user IDs allowed to use owner commands.
 - TELEGRAM_PUBLIC_ENABLED: whether public conversations are enabled (default false).
 - EL_AI_ENVIRONMENT: development, test or production.
@@ -61,6 +65,7 @@ The preflight does not contact Telegram, Hub, or the public Gateway, does not wr
 - HUB_API_BASE_URL: local Hub URL (example: http://127.0.0.1:8000); remote URLs are rejected by default.
 - HUB_INTEGRATION_ENABLED: opt-in for paired Hub commands; defaults to false.
 - HUB_ALLOW_REMOTE: defaults to false; enabling remote Hub URLs requires a separate hosting/security decision and HTTPS.
+- Bridge mode additionally requires a non-empty `TELEGRAM_OWNER_IDS` allowlist, `HUB_INTEGRATION_ENABLED=true`, a reachable Hub URL, and a trusted OS keyring. The Python owner ID must match the Worker’s `ALLOWED_TELEGRAM_USER_ID`.
 - SITE_PUBLIC_API_BASE_URL: public-only MR_SIAVASH_AI Gateway URL.
 - SITE_PUBLIC_WEB_BASE_URL: base URL used to validate and render public source links.
 
@@ -106,6 +111,8 @@ Video catalog, route preview, generation history, render-draft listing, render h
 When TELEGRAM_PUBLIC_ENABLED=true, public users can send normal text in a private chat and receive answers from the public website Gateway. Group chats remain blocked.
 
 Pairing is owner-initiated from the local Hub. The bot must run in a private Telegram chat. Never send the Hub owner password or access/refresh tokens to Telegram.
+
+For the Cloudflare bridge runtime, configure the bridge variables and Hub settings in the trusted Python host environment, then run the same `python -m el_ai` entrypoint. The Worker queues only `/pair`, `/status`, and `/tasks`; the Python consumer validates the owner/private-chat identity and delegates to the existing Hub command handler. The pairing code must meet the Worker’s 32–128 character bound. See [Cloudflare bridge runtime configuration](docs/architecture/cloudflare-telegram-edge-bridge.md).
 
 ## Safety
 
