@@ -1537,6 +1537,9 @@ def test_bridge_job_rejects_unknown_extra_fields_and_non_private_chats():
         _bridge_job({"command": "dispatch", "text": "/not-allowed"}), owners
     ) is None
     assert _bridge_job_command(
+        _bridge_job({"command": "dispatch", "text": "/pair " + "P" * 32}), owners
+    ) is None
+    assert _bridge_job_command(
         _bridge_job({"command": "dispatch", "text": "/taskwatch 12345678-1234-4234-8234-123456789abc"}), owners
     ) is None
     assert _bridge_job_command(
