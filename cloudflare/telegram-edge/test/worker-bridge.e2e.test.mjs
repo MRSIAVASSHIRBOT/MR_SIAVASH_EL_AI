@@ -15,7 +15,7 @@ class InMemoryD1 {
   }
 
   prepare(statement) {
-    const sql = statement.replace(/\\s+/g, " ").trim();
+    const sql = statement.replace(/\s+/g, " ").trim();
     return {
       bind: (...values) => ({
         first: () => this.first(sql, values),
