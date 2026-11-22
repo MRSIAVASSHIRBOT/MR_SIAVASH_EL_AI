@@ -140,3 +140,59 @@ def test_doctor_rejects_malformed_bot_token_without_disclosing_it(
     assert _check(report, "telegram_bot_token")["status"] == "error"
     assert token not in rendered
     assert "TELEGRAM_BOT_TOKEN" in rendered
+
+
+
+def test_doctor_accepts_cloudflare_bridge_without_bot_token_and_redacts_bridge_secret(
+    monkeypatch, tmp_path
+):
+    _base_environment(monkeypatch, tmp_path)
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("TELEGRAM_TRANSPORT", "cloudflare_bridge")
+    monkeypatch.setenv("TELEGRAM_BRIDGE_URL", "https://bridge.example.test")
+    secret = "bridge-shared-secret-value-at-least-32"
+    monkeypatch.setenv("TELEGRAM_BRIDGE_SHARED_SECRET", secret)
+    monkeypatch.setenv("HUB_INTEGRATION_ENABLED", "true")
+    monkeypatch.setenv("HUB_API_BASE_URL", "http://127.0.0.1:8000")
+    monkeypatch.setattr(doctor, "KeyringCredentialStore", lambda: object())
+
+    report = doctor.collect_report()
+    rendered = doctor.render_json(report)
+
+    assert report["ready"] is True
+    assert _check(report, "telegram_transport")["status"] == "ok"
+    assert _check(report, "telegram_bot_token")["status"] == "disabled"
+    assert _check(report, "telegram_bridge_url")["status"] == "ok"
+    assert _check(report, "telegram_bridge_secret")["status"] == "ok"
+    assert secret not in rendered
+    assert report["network_requests"] == 0
+    assert report["filesystem_writes"] == 0
+
+
+def test_doctor_blocks_cloudflare_bridge_with_missing_bridge_settings(
+    monkeypatch, tmp_path
+):
+    _base_environment(monkeypatch, tmp_path)
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("TELEGRAM_TRANSPORT", "cloudflare_bridge")
+    monkeypatch.delenv("TELEGRAM_BRIDGE_URL", raising=False)
+    monkeypatch.delenv("TELEGRAM_BRIDGE_SHARED_SECRET", raising=False)
+    monkeypatch.setenv("HUB_INTEGRATION_ENABLED", "false")
+
+    report = doctor.collect_report()
+
+    assert report["ready"] is False
+    assert _check(report, "telegram_bot_token")["status"] == "disabled"
+    assert _check(report, "telegram_bridge_url")["status"] == "error"
+    assert _check(report, "telegram_bridge_secret")["status"] == "error"
+    assert _check(report, "cloudflare_bridge_hub_requirement")["status"] == "error"
+
+
+def test_doctor_rejects_unknown_telegram_transport(monkeypatch, tmp_path):
+    _base_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("TELEGRAM_TRANSPORT", "not-a-transport")
+
+    report = doctor.collect_report()
+
+    assert report["ready"] is False
+    assert _check(report, "telegram_transport")["status"] == "error"

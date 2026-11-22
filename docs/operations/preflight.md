@@ -16,10 +16,12 @@ python -m el_ai doctor
 
 ## What it checks
 
-- Telegram bot token presence and basic shape only (ASCII numeric bot ID, colon, and non-empty token part); the value is always redacted.
+- Runtime transport selection (`local_polling` or `cloudflare_bridge`).
+- Telegram bot token presence and basic shape only for local polling (ASCII numeric bot ID, colon, and non-empty token part); the value is always redacted. Bridge mode correctly marks the bot token as not required.
 - At least one positive numeric Telegram owner ID.
 - Supported environment and boolean configuration values.
-- Polling timeout, request timeout, and rate-limit ranges.
+- Polling timeout (local mode only), request timeout, and rate-limit ranges.
+- In bridge mode, the HTTPS bridge URL, minimum shared-secret length (without displaying the value), bridge timeout range, owner allowlist, and required Hub opt-in.
 - Public website and Gateway base URL syntax and HTTPS policy.
 - Hub integration opt-in, Hub URL loopback/HTTPS policy, and trusted OS keyring availability when Hub integration is enabled.
 - Whether the configured state directory exists and is locally accessible; it does not create the directory.
