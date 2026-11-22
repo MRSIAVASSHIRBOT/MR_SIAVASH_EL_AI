@@ -325,6 +325,23 @@ async def test_pull_rejects_compressed_response_before_any_decompression():
     await client.close()
 
 @pytest.mark.asyncio
+async def test_complete_rejects_replies_over_telegram_utf16_limit():
+    job = TelegramBridgeClient._parse_job(_job_payload())
+    client = TelegramBridgeClient(
+        "https://bridge.example.test",
+        SECRET,
+        transport=httpx.MockTransport(
+            lambda _request: pytest.fail("oversized replies must fail before HTTP")
+        ),
+    )
+
+    with pytest.raises(ValueError, match="UTF-16"):
+        await client.complete(job, "😀" * 2001)
+
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_python_client_matches_shared_worker_hmac_contract_vector(monkeypatch):
     fixture_path = (
         Path(__file__).resolve().parents[1]
