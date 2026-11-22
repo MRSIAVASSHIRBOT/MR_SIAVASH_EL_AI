@@ -651,3 +651,41 @@ test("requeues a job after Telegram reply delivery fails and accepts a fresh lea
   });
 });
 
+test("rejects stale timestamps and tampered HMAC signatures before consuming bridge nonces", async () => {
+  const env = createEnv();
+  const d1 = createMemoryD1();
+  env.DB = d1.DB;
+  env.BRIDGE_SHARED_SECRET = "bridge-shared-secret-for-tests-only-0123456789";
+  env.QUEUE_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64url");
+
+  const stale = await signedBridgeRequest(env, "/bridge/pull", {}, {
+    timestamp: String(Math.floor(Date.now() / 1000) - 61),
+    nonce: "nonce-stale-timestamp-00000001",
+  });
+  const staleResponse = await worker.fetch(stale.request, env);
+  assert.equal(staleResponse.status, 401);
+  assert.equal(d1.nonces.size, 0, "stale timestamps must be rejected before nonce storage");
+
+  const valid = await signedBridgeRequest(env, "/bridge/pull", {}, {
+    nonce: "nonce-tampered-signature-000001",
+  });
+  const tamperedHeaders = new Headers(valid.request.headers);
+  tamperedHeaders.set("X-Bridge-Signature", "0".repeat(64));
+  const tamperedRequest = new Request("https://edge.test/bridge/pull", {
+    method: "POST",
+    headers: tamperedHeaders,
+    body: JSON.stringify({}),
+  });
+  const tamperedResponse = await worker.fetch(tamperedRequest, env);
+  assert.equal(tamperedResponse.status, 401);
+  assert.equal(d1.nonces.size, 0, "invalid signatures must be rejected before nonce storage");
+
+  const legitimate = await signedBridgeRequest(env, "/bridge/pull", {}, {
+    nonce: "nonce-legitimate-signature-00001",
+  });
+  const legitimateResponse = await worker.fetch(legitimate.request, env);
+  assert.equal(legitimateResponse.status, 200);
+  assert.deepEqual(await legitimateResponse.json(), { job: null });
+  assert.equal(d1.nonces.size, 1, "only a valid, fresh signature may consume a nonce");
+});
+
