@@ -1537,7 +1537,7 @@ def _bridge_job_command(job: BridgeJob, owner_ids: frozenset[int]) -> str | None
         code = payload.get("pairing_code")
         if (
             isinstance(code, str)
-            and 1 <= len(code) <= 128
+            and 32 <= len(code) <= 128
             and code == code.strip()
             and not any(character.isspace() for character in code)
         ):
