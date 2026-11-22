@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 from el_ai.config import ConfigurationError, Settings
 from el_ai.integrations.hub import HubClient, HubClientError
 from el_ai.integrations.identity import InstanceIdentityError, load_or_create_client_id
-from el_ai.integrations.secrets import KeyringCredentialStore, SecretStoreError
+from el_ai.integrations.secrets import SecretStoreError, build_credential_store
 from el_ai.integrations.site_gateway import SiteGatewayClient, SiteGatewayError
 from el_ai.observability import RuntimeMetrics
 from el_ai.telegram.access import AccessController
@@ -134,7 +134,7 @@ def _build_hub_client(settings: Settings, client_id: str) -> HubClient | None:
     if not settings.hub_integration_enabled or not settings.hub_api_base_url:
         return None
     try:
-        store = KeyringCredentialStore()
+        store = build_credential_store(settings.state_dir)
         return HubClient(
             settings.hub_api_base_url,
             client_id,
