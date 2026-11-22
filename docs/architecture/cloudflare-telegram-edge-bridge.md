@@ -96,3 +96,17 @@ The Python-side transport adapter is implemented in `src/el_ai/telegram/bridge.p
 - Validates the leased job envelope, UUID, positive numeric identifiers, attempts, payload object, and 64-character hexadecimal lease token.
 - Completes a job only by sending the matching job ID and lease token; HTTP 409 lease rejection is exposed as a sanitized status-only error.
 - The adapter is transport-only. It does not yet dispatch commands, persist local state, retry failed jobs, or run continuously. Runtime wiring and end-to-end acceptance remain separate work.
+
+
+## Bounded Python worker loop — feature branch
+
+The feature branch `feat/telegram-bridge-worker-loop` adds `TelegramBridgeWorker` in `src/el_ai/telegram/bridge_worker.py`.
+
+- Polls one durable edge job at a time and sleeps on an empty queue.
+- Calls the injected application handler and acknowledges only after it returns a reply successfully.
+- Leaves failed jobs unacknowledged so the edge lease can expire and permit retry.
+- Uses bounded exponential backoff for bridge transport failures and stop-aware waits.
+- Closes the HTTP client on normal stop or cancellation.
+- Does not log job payloads, replies, credentials, or owner message content.
+
+This is a reusable worker primitive. It is not yet selected by the CLI runtime, and no production Worker, Telegram webhook, or Hub configuration has been changed. Runtime-mode selection and an application handler for the Worker queue's currently supported `pair`, `status`, and `tasks` payloads remain the next integration slice.
