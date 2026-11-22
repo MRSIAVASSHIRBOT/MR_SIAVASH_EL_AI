@@ -141,6 +141,10 @@ class TelegramBridgeClient:
         if media_type != "application/json":
             raise TelegramBridgeError("Telegram bridge returned an invalid response")
 
+        content_encoding = response.headers.get("content-encoding", "identity").strip().lower()
+        if content_encoding not in {"", "identity"}:
+            raise TelegramBridgeError("Telegram bridge returned an invalid response")
+
         content_length = response.headers.get("content-length")
         if content_length is not None and (
             not content_length.isascii()
@@ -153,7 +157,7 @@ class TelegramBridgeClient:
         chunks: list[bytes] = []
         total_bytes = 0
         try:
-            async for chunk in response.aiter_bytes():
+            async for chunk in response.aiter_raw():
                 total_bytes += len(chunk)
                 if total_bytes > _MAX_RESPONSE_BYTES:
                     raise TelegramBridgeError(
@@ -176,11 +180,13 @@ class TelegramBridgeClient:
     async def _post(self, path: str, payload: dict[str, object]) -> dict[str, object]:
         body = _serialize_payload(payload)
         try:
+            request_headers = self._headers("POST", "/" + path.lstrip("/"), body)
+            request_headers["Accept-Encoding"] = "identity"
             async with self._client.stream(
                 "POST",
                 path,
                 content=body,
-                headers=self._headers("POST", "/" + path.lstrip("/"), body),
+                headers=request_headers,
             ) as response:
                 response.raise_for_status()
                 result = await self._decode_response(response)
