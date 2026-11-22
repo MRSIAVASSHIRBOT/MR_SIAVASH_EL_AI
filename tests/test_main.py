@@ -1446,6 +1446,9 @@ def test_bridge_job_rejects_unknown_extra_fields_and_non_private_chats():
         _bridge_job({"command": "memory"}), owners
     ) is None
     assert _bridge_job_command(
+        _bridge_job({"command": ["status"]}), owners
+    ) is None
+    assert _bridge_job_command(
         _bridge_job({"command": "status"}, chat_id=-100, user_id=123), owners
     ) is None
     assert _bridge_job_command(
