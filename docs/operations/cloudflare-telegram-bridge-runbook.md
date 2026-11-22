@@ -7,7 +7,7 @@ This runbook covers the Cloudflare webhook ingress and the Python EL_AI bridge c
 - **Local polling**: the Python runtime calls Telegram `getUpdates`. Use this for local development and only when the webhook is not active.
 - **Cloudflare bridge**: Telegram sends webhook updates to the edge Worker. The Python consumer pulls signed, encrypted jobs from Cloudflare and sends completion acknowledgements. In bridge mode, EL_AI does not start `getUpdates`.
 - Run exactly one Telegram update transport at a time. Do not run local polling while webhook ingress is active.
-- The Worker is not the complete bot runtime. The bridge consumer needs a trusted machine with EL_AI installed, Hub connectivity, owner allowlist configuration, and a trusted OS keyring.
+- The Worker is not the complete bot runtime. The bridge consumer needs a trusted machine with EL_AI installed, Hub connectivity, owner allowlist configuration, and protected credential storage.
 
 ## Preflight (read-only)
 
@@ -61,11 +61,11 @@ The Python runtime requires the following settings in its trusted local environm
 - `TELEGRAM_OWNER_IDS` containing the numeric owner ID
 - `HUB_INTEGRATION_ENABLED=true`
 - `HUB_API_BASE_URL` reachable by the local consumer
-- a trusted OS keyring for Hub credentials
+- `EL_AI_CREDENTIAL_STORE=encrypted_file` with `EL_AI_CREDENTIAL_ENCRYPTION_KEY` set to a base64-encoded 32-byte host secret on POSIX hosts; local Windows installations should retain the OS keyring
 
 The Worker owner allowlist and local `TELEGRAM_OWNER_IDS` must match. Public chat is disabled by default; this bridge runbook does not enable it.
 
-Start the consumer only after the local preflight passes and Hub/keyring access is confirmed. Stop it with a normal SIGINT/SIGTERM so the worker cancels active handlers without acknowledging their lease; the lease can then expire and allow redelivery.
+Start the consumer only after the local preflight passes and the configured credential backend is confirmed. The encrypted-file backend is POSIX-only and uses AES-256-GCM; Windows hosts must use the OS keyring. No plaintext fallback is supported. Stop it with a normal SIGINT/SIGTERM so the worker cancels active handlers without acknowledging their lease; the lease can then expire and allow redelivery.
 
 ## Acceptance checklist
 
@@ -84,7 +84,7 @@ Mark each gate independently:
 
 - **Telegram API timeout**: a client-side timeout is not proof of token rejection. Check whether the request received an HTTP/API response before diagnosing credentials.
 - **Worker healthy but webhook absent**: health/readiness do not register a webhook; use the guarded registration route and read-back.
-- **Webhook succeeds but no bot reply**: check the local consumer process, bridge pull/completion telemetry, Hub opt-in, keyring, and owner allowlist. Do not enable public mode as a workaround.
+- **Webhook succeeds but no bot reply**: check the local consumer process, bridge pull/completion telemetry, Hub opt-in, protected credential storage, and owner allowlist. Do not enable public mode as a workaround.
 - **No logs available**: use supported Worker Tail/telemetry surfaces, filtering for sanitized error events. Never dump complete request headers or payloads.
 - **Rollback**: use the last known-good Worker deployment/version after reviewing traffic assignments. Do not delete the Worker, D1 database, queues, or secrets as a diagnostic shortcut.
 
