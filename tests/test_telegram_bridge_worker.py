@@ -223,6 +223,35 @@ async def _stop_after(stop, delay):
 
 
 @pytest.mark.asyncio
+async def test_handler_failure_uses_bounded_exponential_backoff():
+    stop = asyncio.Event()
+    job = _job()
+    client = FakeBridgeClient([job])
+    delays = []
+
+    async def handler(_received):
+        raise RuntimeError("sanitized handler failure")
+
+    worker = TelegramBridgeWorker(
+        client,
+        handler,
+        min_backoff_seconds=0.25,
+        max_backoff_seconds=1,
+    )
+
+    async def capture_wait(_stop, delay):
+        delays.append(delay)
+        stop.set()
+
+    worker._wait_or_stop = capture_wait
+    await worker.run(stop)
+
+    assert delays == [0.25]
+    assert client.completed == []
+    assert client.closed
+
+
+@pytest.mark.asyncio
 async def test_completion_transport_failure_uses_exponential_backoff():
     stop = asyncio.Event()
     job = _job()
