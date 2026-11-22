@@ -111,3 +111,16 @@ HUB_ALLOW_REMOTE=true
 ```
 
 This is runtime code, not a hosted deployment. The Python consumer must run on a trusted machine with access to the Hub and its OS keyring. The runtime code was merged to main, but no Cloudflare Worker, webhook, secret, or production configuration was changed. End-to-end operation remains unverified until a consumer is started with the actual environment and a real owner command is round-tripped.
+
+
+## Production observability checkpoint — 2026-11-22 UTC
+
+The Cloudflare Worker settings were inspected and the query-string redaction flag was enabled. A subsequent settings read-back verified:
+
+- Query-string redaction: enabled.
+- Observability: enabled.
+- Invocation logs: enabled, persisted, with sampling configured at 1.0.
+- Traces: enabled and persisted, with head sampling configured at 0.1.
+- The latest deployment metadata after the settings update showed 100% traffic assigned to deployment `c22cef09-77f8-494f-a668-e22d51bd497c`, version `f8ec5020-6041-4436-bfa4-f5a8ad89d1b6`.
+
+This is a settings/deployment-metadata observation only. It does not constitute a verified live HTTP health check, Telegram webhook confirmation, D1 query, or end-to-end bridge test. The earlier 2026-11-20 checkpoint above describes the earlier observed state; this section supersedes its observability and deployment snapshot where values differ.
