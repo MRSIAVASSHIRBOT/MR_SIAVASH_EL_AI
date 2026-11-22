@@ -117,6 +117,25 @@ class TelegramBridgeWorker:
         except TimeoutError:
             return
 
+    async def _pull_or_stop(self, stop: asyncio.Event) -> BridgeJob | None | object:
+        """Cancel a blocked bridge pull promptly when shutdown is requested."""
+        pull_task = asyncio.create_task(self._client.pull())
+        stop_task = asyncio.create_task(stop.wait())
+        try:
+            done, _pending = await asyncio.wait(
+                (pull_task, stop_task),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            # If pull completed, return it; run() checks stop before handling a job.
+            if pull_task in done:
+                return await pull_task
+            return _STOPPED
+        finally:
+            for task in (pull_task, stop_task):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(pull_task, stop_task, return_exceptions=True)
+
     async def _handle_or_stop(self, stop: asyncio.Event, job: BridgeJob) -> str | object:
         """Cancel application work on shutdown and leave the edge lease unacknowledged."""
         handler_task = asyncio.create_task(self._handler(job))
@@ -145,7 +164,9 @@ class TelegramBridgeWorker:
         try:
             while not stop.is_set():
                 try:
-                    job = await self._client.pull()
+                    job = await self._pull_or_stop(stop)
+                    if job is _STOPPED:
+                        break
                     self._metrics.record_pull(job is not None)
                     # A shutdown requested while pull was in flight must not start
                     # application work or acknowledge the lease.
