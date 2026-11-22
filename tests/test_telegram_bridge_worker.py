@@ -169,6 +169,33 @@ async def test_shutdown_wins_if_handler_and_stop_signal_finish_together():
 
 
 @pytest.mark.asyncio
+async def test_shutdown_cancels_blocked_pull_and_closes_client():
+    stop = asyncio.Event()
+    pull_started = asyncio.Event()
+    pull_cancelled = asyncio.Event()
+
+    class BlockingPullClient(FakeBridgeClient):
+        async def pull(self):
+            pull_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                pull_cancelled.set()
+                raise
+
+    client = BlockingPullClient()
+    worker = TelegramBridgeWorker(client, lambda _job: asyncio.sleep(0), idle_seconds=0.01)
+    task = asyncio.create_task(worker.run(stop))
+    await asyncio.wait_for(pull_started.wait(), timeout=1)
+    stop.set()
+    await asyncio.wait_for(task, timeout=1)
+
+    assert pull_cancelled.is_set()
+    assert client.completed == []
+    assert client.closed
+
+
+@pytest.mark.asyncio
 async def test_pull_transport_failure_uses_stop_aware_backoff_and_closes_client():
     stop = asyncio.Event()
     client = FakeBridgeClient()
