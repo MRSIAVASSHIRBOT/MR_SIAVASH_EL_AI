@@ -63,7 +63,7 @@ The Python runtime requires the following settings in its trusted local environm
 - `HUB_API_BASE_URL` reachable by the local consumer
 - `EL_AI_CREDENTIAL_STORE=encrypted_file` with `EL_AI_CREDENTIAL_ENCRYPTION_KEY` set to a base64-encoded 32-byte host secret on POSIX hosts; local Windows installations should retain the OS keyring
 
-The Worker owner allowlist and local `TELEGRAM_OWNER_IDS` must match. Public chat is disabled by default; this bridge runbook does not enable it.
+The Worker currently uses the plain-text binding `ALLOWED_TELEGRAM_USER_ID` (singular). Its numeric value must match the single owner ID configured in the Python runtime's `TELEGRAM_OWNER_IDS`. Verify the names and compare values only inside the authorized secret/configuration interfaces; do not copy the ID into Git, logs, screenshots, or chat. Public chat is disabled by default; this bridge runbook does not enable it.
 
 Start the consumer only after the local preflight passes and the configured credential backend is confirmed. The encrypted-file backend is POSIX-only and uses AES-256-GCM; Windows hosts must use the OS keyring. No plaintext fallback is supported. Stop it with a normal SIGINT/SIGTERM so the worker cancels active handlers without acknowledging their lease; the lease can then expire and allow redelivery.
 
