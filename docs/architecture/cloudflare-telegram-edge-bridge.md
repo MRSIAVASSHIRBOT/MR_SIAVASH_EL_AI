@@ -32,7 +32,7 @@ MR_SIAVASH_AI's public Gateway is not a substitute for the private Hub API. It m
 
 ## Integration gap / next engineering slice
 
-The Python repository currently documents local long-polling as its implemented runtime. Its current main branch does not document or verify a Cloudflare bridge adapter. The deployed edge script has a pull/complete bridge contract, but the complete bridge runtime, durable hosted execution, and private Hub connectivity must be verified before declaring end-to-end readiness.
+The Python repository's local long-polling runtime remains the default. The feature branch `feat/cloudflare-telegram-bridge-client` now adds a standalone signed Python bridge client for the deployed `/bridge/pull` and `/bridge/complete` contract, including HMAC request signing, response validation, lease-token handling, and sanitized HTTP failures. It is not yet wired into the application runtime; no worker loop, Hub command dispatch, hosted process, or end-to-end message delivery is claimed.
 
 The next safe implementation slice is to add a bridge client/worker interface to the Python application that:
 
@@ -85,3 +85,14 @@ The deployed source shows that `/ready` checks the presence of the Telegram toke
 - End-to-end owner command routing and response delivery.
 
 No webhook setup call, Telegram API request, D1 query, bridge request, secret mutation, Worker deployment, route change, or production configuration change was performed. The edge Worker is live and ready according to its own health predicate, but the Telegram bot is **not** yet accepted as end-to-end operational.
+
+
+## Python bridge client implementation — feature branch
+
+The Python-side transport adapter is implemented in `src/el_ai/telegram/bridge.py` on `feat/cloudflare-telegram-bridge-client`.
+
+- Signs the exact UTF-8 request body with HMAC-SHA256 using the Worker contract: timestamp, nonce, method, path, and body digest separated by newline characters.
+- Uses a fresh timestamp and nonce per request, HTTPS for remote endpoints, bounded HTTP timeouts, and disables redirects.
+- Validates the leased job envelope, UUID, positive numeric identifiers, attempts, payload object, and 64-character hexadecimal lease token.
+- Completes a job only by sending the matching job ID and lease token; HTTP 409 lease rejection is exposed as a sanitized status-only error.
+- The adapter is transport-only. It does not yet dispatch commands, persist local state, retry failed jobs, or run continuously. Runtime wiring and end-to-end acceptance remain separate work.
