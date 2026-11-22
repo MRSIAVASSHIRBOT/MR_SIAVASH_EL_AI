@@ -1490,6 +1490,8 @@ def test_bridge_job_rejects_unsafe_or_unapproved_dispatch_text():
         {"command": "dispatch", "text": "/memory" + chr(10) + "secret"},
         {"command": "dispatch", "text": "/memory" + chr(127)},
         {"command": "dispatch", "text": "/taskwatch 12345678-1234-4234-8234-123456789abc"},
+        {"command": "dispatch", "text": "/videorenderdownload 12345678-1234-4234-8234-123456789abc"},
+        {"command": "dispatch", "text": "/memory " + "😀" * 2045},
         {"command": "dispatch", "text": "/pair " + "P" * 32},
         {"command": "dispatch", "text": "/memory " + "x" * 4089},
         {"command": "dispatch", "text": "/memory", "extra": True},
