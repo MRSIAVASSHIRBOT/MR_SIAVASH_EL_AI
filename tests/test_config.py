@@ -167,6 +167,8 @@ def test_render_private_hub_hostport_requires_explicit_render_opt_in():
         "mr-siavash-hub-ai:65536",
         "mr-siavash-hub-ai:not-a-port",
         "mr-siavash-hub-ai:10000/path",
+        "0x7f000001:10000",
+        "[broken:10000",
     ):
         with pytest.raises(ConfigurationError):
             _hub_url(invalid, allow_render_private_network=True)
