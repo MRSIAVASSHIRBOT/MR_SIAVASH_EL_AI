@@ -1459,6 +1459,58 @@ def test_bridge_job_maps_only_the_documented_owner_commands():
     ) == "/pair " + "P" * 32
 
 
+def test_bridge_job_maps_only_allowlisted_owner_dispatch_text():
+    owners = frozenset({123})
+    text = "/memory بررسی طرح‌های قبلی"
+
+    assert _bridge_job_command(
+        _bridge_job({"command": "dispatch", "text": text}),
+        owners,
+    ) == text
+    assert _bridge_job_command(
+        _bridge_job({"command": "dispatch", "text": "/memory@MR_SIAVASH_EL_IR_BOT"}),
+        owners,
+    ) == "/memory@MR_SIAVASH_EL_IR_BOT"
+    assert _bridge_job_command(
+        _bridge_job({"command": "dispatch", "text": "/tasks"}),
+        owners,
+    ) == "/tasks"
+
+
+def test_bridge_job_rejects_unsafe_or_unapproved_dispatch_text():
+    owners = frozenset({123})
+    invalid_payloads = [
+        {"command": "dispatch"},
+        {"command": "dispatch", "text": 123},
+        {"command": "dispatch", "text": ""},
+        {"command": "dispatch", "text": " /memory"},
+        {"command": "dispatch", "text": "/memory "},
+        {"command": "dispatch", "text": "/memory\\nsecret"},
+        {"command": "dispatch", "text": "/memory\\x7f"},
+        {"command": "dispatch", "text": "/taskwatch 12345678-1234-4234-8234-123456789abc"},
+        {"command": "dispatch", "text": "/pair " + "P" * 32},
+        {"command": "dispatch", "text": "/memory " + "x" * 4089},
+        {"command": "dispatch", "text": "/memory", "extra": True},
+    ]
+
+    for payload in invalid_payloads:
+        assert _bridge_job_command(_bridge_job(payload), owners) is None
+
+
+def test_bridge_job_dispatch_rejects_non_owner_and_non_private_chat():
+    payload = {"command": "dispatch", "text": "/memory"}
+    owners = frozenset({123})
+
+    assert _bridge_job_command(
+        _bridge_job(payload, user_id=999),
+        owners,
+    ) is None
+    assert _bridge_job_command(
+        _bridge_job(payload, chat_id=-100, user_id=123),
+        owners,
+    ) is None
+
+
 def test_bridge_job_rejects_unknown_extra_fields_and_non_private_chats():
     owners = frozenset({123})
     assert _bridge_job_command(
