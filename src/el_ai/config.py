@@ -147,10 +147,11 @@ class Settings:
         )
         bridge_url = None
         bridge_secret = None
-        bridge_timeout = _positive_int(
-            "TELEGRAM_BRIDGE_TIMEOUT_SECONDS", 8, minimum=3, maximum=30
-        )
+        bridge_timeout = 8
         if transport == "cloudflare_bridge":
+            bridge_timeout = _positive_int(
+                "TELEGRAM_BRIDGE_TIMEOUT_SECONDS", 8, minimum=3, maximum=30
+            )
             bridge_url = _public_url(
                 os.getenv("TELEGRAM_BRIDGE_URL"), "", "TELEGRAM_BRIDGE_URL"
             )
