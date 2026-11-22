@@ -78,3 +78,58 @@ def test_settings_reject_malformed_telegram_bot_token(monkeypatch, token):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", token)
     with pytest.raises(ConfigurationError, match="TELEGRAM_BOT_TOKEN"):
         Settings.from_env()
+
+
+
+def test_cloudflare_bridge_mode_does_not_require_telegram_bot_token(monkeypatch):
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("TELEGRAM_TRANSPORT", "cloudflare_bridge")
+    monkeypatch.setenv("TELEGRAM_BRIDGE_URL", "https://bridge.example.test")
+    monkeypatch.setenv("TELEGRAM_BRIDGE_SHARED_SECRET", "x" * 40)
+    monkeypatch.setenv("TELEGRAM_OWNER_IDS", "123")
+    monkeypatch.setenv("HUB_INTEGRATION_ENABLED", "true")
+    monkeypatch.setenv("HUB_API_BASE_URL", "https://hub.example.test")
+    monkeypatch.setenv("HUB_ALLOW_REMOTE", "true")
+
+    settings = Settings.from_env()
+
+    assert settings.telegram_bot_token is None
+    assert settings.telegram_transport == "cloudflare_bridge"
+    assert settings.telegram_bridge_url == "https://bridge.example.test"
+    assert settings.telegram_bridge_shared_secret == "x" * 40
+
+
+@pytest.mark.parametrize(
+    "name,value",
+    [
+        ("TELEGRAM_TRANSPORT", "unknown"),
+        ("TELEGRAM_BRIDGE_URL", "http://bridge.example.test"),
+        ("TELEGRAM_BRIDGE_SHARED_SECRET", "too-short"),
+    ],
+)
+def test_cloudflare_bridge_mode_rejects_invalid_configuration(monkeypatch, name, value):
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("TELEGRAM_TRANSPORT", "cloudflare_bridge")
+    monkeypatch.setenv("TELEGRAM_BRIDGE_URL", "https://bridge.example.test")
+    monkeypatch.setenv("TELEGRAM_BRIDGE_SHARED_SECRET", "x" * 40)
+    monkeypatch.setenv("TELEGRAM_OWNER_IDS", "123")
+    monkeypatch.setenv("HUB_INTEGRATION_ENABLED", "true")
+    monkeypatch.setenv("HUB_API_BASE_URL", "https://hub.example.test")
+    monkeypatch.setenv("HUB_ALLOW_REMOTE", "true")
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(ConfigurationError):
+        Settings.from_env()
+
+
+def test_cloudflare_bridge_mode_requires_owner_allowlist_and_hub(monkeypatch):
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("TELEGRAM_TRANSPORT", "cloudflare_bridge")
+    monkeypatch.setenv("TELEGRAM_BRIDGE_URL", "https://bridge.example.test")
+    monkeypatch.setenv("TELEGRAM_BRIDGE_SHARED_SECRET", "x" * 40)
+    monkeypatch.delenv("TELEGRAM_OWNER_IDS", raising=False)
+    monkeypatch.delenv("HUB_INTEGRATION_ENABLED", raising=False)
+    monkeypatch.delenv("HUB_API_BASE_URL", raising=False)
+
+    with pytest.raises(ConfigurationError, match="TELEGRAM_OWNER_IDS"):
+        Settings.from_env()
