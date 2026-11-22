@@ -110,3 +110,29 @@ The feature branch `feat/telegram-bridge-worker-loop` adds `TelegramBridgeWorker
 - Does not log job payloads, replies, credentials, or owner message content.
 
 This is a reusable worker primitive. It is not yet selected by the CLI runtime, and no production Worker, Telegram webhook, or Hub configuration has been changed. Runtime-mode selection and an application handler for the Worker queue's currently supported `pair`, `status`, and `tasks` payloads remain the next integration slice.
+
+
+
+## Python runtime integration — feature branch
+
+The branch `feat/telegram-cloudflare-bridge-runtime` adds an explicit runtime selector:
+
+- `TELEGRAM_TRANSPORT=local_polling` (default) keeps the existing Telegram Bot API long-polling runtime.
+- `TELEGRAM_TRANSPORT=cloudflare_bridge` starts only the signed Cloudflare bridge consumer. It does not instantiate the local Telegram Bot API client or call `getUpdates`, preventing two competing update consumers.
+- Bridge mode requires `TELEGRAM_BRIDGE_URL`, `TELEGRAM_BRIDGE_SHARED_SECRET` (at least 32 characters), a non-empty `TELEGRAM_OWNER_IDS` allowlist, and `HUB_INTEGRATION_ENABLED=true` with the normal Hub URL policy. The bot token is not required by the Python bridge consumer because Telegram ingress and reply delivery remain on the Worker.
+- The bridge handler maps only the Worker queue's exact payload shapes: `{command: "pair", pairing_code: ...}`, `{command: "status"}`, and `{command: "tasks"}`. It reuses the existing `_owner_hub_command` logic; unknown commands, extra fields, non-owner IDs, and non-private chat IDs are rejected.
+- The local Python process still needs a trusted OS keyring for Hub credential storage. If that keyring is unavailable, bridge mode exits rather than falling back to insecure credential storage.
+
+Example environment (values are placeholders; never commit secrets):
+
+```dotenv
+TELEGRAM_TRANSPORT=cloudflare_bridge
+TELEGRAM_BRIDGE_URL=https://mr-siavash-el-ir-bot.mrsiavashirbot.workers.dev
+TELEGRAM_BRIDGE_SHARED_SECRET=<the same secret configured on the Worker>
+TELEGRAM_OWNER_IDS=<numeric owner Telegram ID>
+HUB_INTEGRATION_ENABLED=true
+HUB_API_BASE_URL=https://<your-private-Hub-endpoint>
+HUB_ALLOW_REMOTE=true
+```
+
+This is runtime code, not a hosted deployment. The Python consumer must run on a trusted machine with access to the Hub and its OS keyring. No Cloudflare Worker, webhook, secret, or production configuration was changed by this branch. End-to-end operation remains unverified until a consumer is started with the actual environment and a real owner command is round-tripped.

@@ -20,6 +20,8 @@ from el_ai.integrations.site_gateway import SiteGatewayClient, SiteGatewayError
 from el_ai.observability import RuntimeMetrics
 from el_ai.telegram.access import AccessController
 from el_ai.telegram.api import TelegramAPIError, TelegramBotAPI, split_telegram_message
+from el_ai.telegram.bridge import BridgeJob, TelegramBridgeClient
+from el_ai.telegram.bridge_worker import TelegramBridgeWorker
 from el_ai.telegram.cursor import UpdateCursor, UpdateCursorError
 from el_ai.telegram.router import MessageRouter
 from el_ai.telegram.task_plan import TaskPlanError, TaskPlanStore
@@ -1521,7 +1523,88 @@ async def _register_command_menu(api: TelegramBotAPI, owner_ids: set[int] | froz
             )
 
 
+def _bridge_job_command(job: BridgeJob, owner_ids: frozenset[int]) -> str | None:
+    """Translate only the edge Worker’s documented owner commands."""
+    if job.telegram_user_id not in owner_ids or job.chat_id != job.telegram_user_id:
+        return None
+    payload = job.payload
+    command = payload.get("command")
+    if not isinstance(command, str):
+        return None
+    if command in {"status", "tasks"} and set(payload) == {"command"}:
+        return "/hub" if command == "status" else "/tasks"
+    if command == "pair" and set(payload) == {"command", "pairing_code"}:
+        code = payload.get("pairing_code")
+        if (
+            isinstance(code, str)
+            and 32 <= len(code) <= 128
+            and code == code.strip()
+            and not any(character.isspace() for character in code)
+        ):
+            return f"/pair {code}"
+    return None
+
+
+async def _run_cloudflare_bridge(settings: Settings) -> None:
+    """Run the Python-side consumer without starting Telegram long polling."""
+    if not settings.telegram_bridge_url or not settings.telegram_bridge_shared_secret:
+        raise SystemExit("Cloudflare bridge configuration is incomplete")
+    if settings.telegram_transport != "cloudflare_bridge":
+        raise SystemExit("Cloudflare bridge runtime was selected without bridge mode")
+
+    try:
+        client_id = load_or_create_client_id(settings.state_dir)
+    except InstanceIdentityError as exc:
+        raise SystemExit("EL_AI instance identity is unavailable") from exc
+
+    hub = _build_hub_client(settings, client_id)
+    if hub is None:
+        raise SystemExit(
+            "Secure Hub credentials are unavailable; configure a trusted OS keyring before starting bridge mode"
+        )
+
+    bridge = TelegramBridgeClient(
+        settings.telegram_bridge_url,
+        settings.telegram_bridge_shared_secret,
+        timeout_seconds=settings.telegram_bridge_timeout_seconds,
+    )
+
+    async def handle_job(job: BridgeJob) -> str:
+        command_text = _bridge_job_command(job, settings.owner_ids)
+        if command_text is None:
+            return "درخواست نامعتبر یا فاقد مجوز است؛ فقط فرمان‌های مجاز مالک پذیرفته می‌شوند."
+        response = await _owner_hub_command(
+            command_text,
+            telegram_user_id=job.telegram_user_id,
+            update_id=0,
+            hub=hub,
+            settings=settings,
+        )
+        return response or "این فرمان در Bridge پشتیبانی نمی‌شود."
+
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, stop.set)
+        except (NotImplementedError, RuntimeError):
+            pass
+
+    worker = TelegramBridgeWorker(bridge, handle_job)
+    try:
+        LOGGER.info("Cloudflare Telegram bridge consumer started")
+        await worker.run(stop)
+    finally:
+        await hub.close()
+        LOGGER.info("Cloudflare Telegram bridge consumer stopped")
+
+
 async def run(settings: Settings) -> None:
+    if settings.telegram_transport == "cloudflare_bridge":
+        await _run_cloudflare_bridge(settings)
+        return
+    if settings.telegram_bot_token is None:
+        raise SystemExit("TELEGRAM_BOT_TOKEN is required for local polling mode")
     try:
         client_id = load_or_create_client_id(settings.state_dir)
     except InstanceIdentityError as exc:

@@ -115,8 +115,12 @@ def _hub_url(raw: str | None, *, allow_remote: bool = False) -> str | None:
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    telegram_bot_token: str = field(repr=False)
+    telegram_bot_token: str | None = field(repr=False)
     owner_ids: frozenset[int]
+    telegram_transport: str = "local_polling"
+    telegram_bridge_url: str | None = None
+    telegram_bridge_shared_secret: str | None = field(default=None, repr=False)
+    telegram_bridge_timeout_seconds: int = 8
     public_enabled: bool = False
     environment: str = "development"
     poll_timeout_seconds: int = 25
@@ -131,7 +135,31 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        token = _telegram_bot_token(os.getenv("TELEGRAM_BOT_TOKEN"))
+        transport = os.getenv("TELEGRAM_TRANSPORT", "local_polling").strip().lower()
+        if transport not in {"local_polling", "cloudflare_bridge"}:
+            raise ConfigurationError(
+                "TELEGRAM_TRANSPORT must be local_polling or cloudflare_bridge"
+            )
+        token = (
+            _telegram_bot_token(os.getenv("TELEGRAM_BOT_TOKEN"))
+            if transport == "local_polling"
+            else None
+        )
+        bridge_url = None
+        bridge_secret = None
+        bridge_timeout = 8
+        if transport == "cloudflare_bridge":
+            bridge_timeout = _positive_int(
+                "TELEGRAM_BRIDGE_TIMEOUT_SECONDS", 8, minimum=3, maximum=30
+            )
+            bridge_url = _public_url(
+                os.getenv("TELEGRAM_BRIDGE_URL"), "", "TELEGRAM_BRIDGE_URL"
+            )
+            bridge_secret = os.getenv("TELEGRAM_BRIDGE_SHARED_SECRET", "")
+            if len(bridge_secret) < 32:
+                raise ConfigurationError(
+                    "TELEGRAM_BRIDGE_SHARED_SECRET must contain at least 32 characters"
+                )
         environment = os.getenv("EL_AI_ENVIRONMENT", "development").strip().lower()
         if environment not in {"development", "test", "production"}:
             raise ConfigurationError("EL_AI_ENVIRONMENT must be development, test, or production")
@@ -140,9 +168,23 @@ class Settings:
         hub_url = _hub_url(os.getenv("HUB_API_BASE_URL"), allow_remote=hub_allow_remote)
         if hub_enabled and hub_url is None:
             raise ConfigurationError("HUB_API_BASE_URL is required when Hub integration is enabled")
+        owner_ids = _owner_ids(os.getenv("TELEGRAM_OWNER_IDS"))
+        if transport == "cloudflare_bridge":
+            if not owner_ids:
+                raise ConfigurationError(
+                    "TELEGRAM_OWNER_IDS is required for cloudflare_bridge transport"
+                )
+            if not hub_enabled:
+                raise ConfigurationError(
+                    "HUB_INTEGRATION_ENABLED=true is required for cloudflare_bridge transport"
+                )
         return cls(
             telegram_bot_token=token,
-            owner_ids=_owner_ids(os.getenv("TELEGRAM_OWNER_IDS")),
+            owner_ids=owner_ids,
+            telegram_transport=transport,
+            telegram_bridge_url=bridge_url,
+            telegram_bridge_shared_secret=bridge_secret,
+            telegram_bridge_timeout_seconds=bridge_timeout,
             public_enabled=_boolean("TELEGRAM_PUBLIC_ENABLED", False),
             environment=environment,
             poll_timeout_seconds=_positive_int(
