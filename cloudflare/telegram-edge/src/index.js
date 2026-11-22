@@ -16,6 +16,19 @@ const HUB_CLIENT_ID_DEFAULT = "3a1c9d72-6f84-4b35-9e21-7d0c8a6f4b52";
 const TELEGRAM_WEBHOOK_PATH = "/telegram/webhook";
 const CLIENT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+const BRIDGE_OWNER_COMMANDS = new Set([
+  "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove",
+  "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress",
+  "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus",
+  "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskresult",
+  "/taskcancel", "/taskhistory", "/videoproviders", "/videoroute",
+  "/videohistory", "/videostatus", "/videocancel", "/videodrafts",
+  "/videorenders", "/videorendercheck", "/videorender",
+  "/videorenderstatus", "/videorendercancel", "/videoscenes",
+  "/videoscenestatus", "/videoscenecancel", "/videoscenehistory",
+  "/videosceneexport",
+]);
+
 
 function getTelegramWebhookUrl(env) {
   const value = env.TELEGRAM_WEBHOOK_URL;
@@ -322,12 +335,32 @@ async function handleTelegramMessage(env, update) {
     if (!queued) await sendMessage(env, chatId, "صف درخواست‌ها موقتاً پر است؛ کمی بعد دوباره تلاش کن.");
     return;
   }
-  if (command === "/status" || command === "/tasks") {
+  if (BRIDGE_OWNER_COMMANDS.has(command)) {
     if (validateBridgeEnvironment(env)) {
       await sendMessage(env, chatId, "اتصال HUB هنوز پیکربندی نشده است؛ فرمان‌های ابری ربات مستقل از این بخش فعال می‌مانند.");
       return;
     }
-    const queued = await enqueueJob(env, update.update_id, chatId, userId, { command: command.slice(1) });
+    if (
+      text.length > 4096 ||
+      text !== text.trim() ||
+      /[\\u0000-\\u001f\\u007f]/.test(text)
+    ) {
+      await sendMessage(env, chatId, "متن فرمان معتبر نیست یا بیش از حد طولانی است.");
+      return;
+    }
+    const queued = await enqueueJob(env, update.update_id, chatId, userId, {
+      command: "dispatch",
+      text,
+    });
+    if (!queued) await sendMessage(env, chatId, "صف درخواست‌ها موقتاً پر است؛ کمی بعد دوباره تلاش کن.");
+    return;
+  }
+  if (command === "/status") {
+    if (validateBridgeEnvironment(env)) {
+      await sendMessage(env, chatId, "اتصال HUB هنوز پیکربندی نشده است؛ فرمان‌های ابری ربات مستقل از این بخش فعال می‌مانند.");
+      return;
+    }
+    const queued = await enqueueJob(env, update.update_id, chatId, userId, { command: "status" });
     if (!queued) await sendMessage(env, chatId, "صف درخواست‌ها موقتاً پر است؛ کمی بعد دوباره تلاش کن.");
     return;
   }
