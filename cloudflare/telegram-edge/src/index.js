@@ -343,7 +343,7 @@ async function handleTelegramMessage(env, update) {
     if (
       text.length > 4096 ||
       text !== text.trim() ||
-      /[\\u0000-\\u001f\\u007f]/.test(text)
+      Array.from(text).some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
     ) {
       await sendMessage(env, chatId, "متن فرمان معتبر نیست یا بیش از حد طولانی است.");
       return;
