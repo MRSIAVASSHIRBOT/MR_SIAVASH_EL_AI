@@ -174,3 +174,30 @@ def test_task_watch_store_rejects_invalid_retry_state_and_timestamps(tmp_path):
         store.list_due(True)
     with pytest.raises(ValueError):
         store.defer(TASK_A, 123, -1)
+
+
+def test_task_watch_status_updates_reject_stale_regressions_and_terminal_reopening(tmp_path):
+    store = TaskWatchStore(tmp_path / "task-watches.json")
+    store.load()
+    store.add(TASK_A, 123, "queued")
+
+    assert store.update_status(TASK_A, 123, "running") is True
+    assert store.update_status(TASK_A, 123, "queued") is False
+    assert store.list()[0].last_status == "running"
+
+    assert store.update_status(TASK_A, 123, "succeeded") is True
+    assert store.update_status(TASK_A, 123, "running") is False
+    assert store.update_status(TASK_A, 123, "failed") is False
+    assert store.list()[0].last_status == "succeeded"
+
+
+def test_task_watch_status_updates_allow_approval_resume_and_terminal_failure(tmp_path):
+    store = TaskWatchStore(tmp_path / "task-watches.json")
+    store.load()
+    store.add(TASK_A, 123, "queued")
+
+    assert store.update_status(TASK_A, 123, "waiting_approval") is True
+    assert store.update_status(TASK_A, 123, "running") is True
+    assert store.update_status(TASK_A, 123, "failed") is True
+    assert store.update_status(TASK_A, 123, "cancelled") is False
+    assert store.list()[0].last_status == "failed"

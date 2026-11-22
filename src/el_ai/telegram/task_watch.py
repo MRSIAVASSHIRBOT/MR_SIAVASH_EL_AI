@@ -16,6 +16,22 @@ TASK_WATCH_STATUSES = frozenset({
     "failed", "cancelled", "rejected",
 })
 TERMINAL_TASK_STATUSES = frozenset({"succeeded", "failed", "cancelled", "rejected"})
+
+_ALLOWED_STATUS_TRANSITIONS = {
+    "queued": frozenset({
+        "running", "waiting_approval", "succeeded", "failed", "cancelled", "rejected"
+    }),
+    "waiting_approval": frozenset({
+        "queued", "running", "failed", "cancelled", "rejected"
+    }),
+    "running": frozenset({
+        "waiting_approval", "succeeded", "failed", "cancelled", "rejected"
+    }),
+    "succeeded": frozenset(),
+    "failed": frozenset(),
+    "cancelled": frozenset(),
+    "rejected": frozenset(),
+}
 MAX_TASK_WATCHES = 20
 MAX_TASK_WATCH_BYTES = 16 * 1024
 MAX_TASK_WATCH_RETRIES = 16
@@ -236,13 +252,31 @@ class TaskWatchStore:
         if not isinstance(status, str) or status not in TASK_WATCH_STATUSES:
             raise ValueError("Task status is invalid")
         watches = self._ensure_loaded()
-        updated = [
-            TaskWatch(item.task_id, item.telegram_user_id, status)
-            if item.task_id == canonical_id and item.telegram_user_id == telegram_user_id
-            else item
-            for item in watches
-        ]
-        if updated == watches:
+        updated: list[TaskWatch] = []
+        changed = False
+        for item in watches:
+            if (
+                item.task_id != canonical_id
+                or item.telegram_user_id != telegram_user_id
+            ):
+                updated.append(item)
+                continue
+            if item.last_status == status:
+                updated.append(item)
+                continue
+            allowed = _ALLOWED_STATUS_TRANSITIONS.get(
+                item.last_status, frozenset()
+            )
+            if status not in allowed:
+                # Ignore stale or out-of-order observations. In particular, a
+                # terminal task must never be reopened by a delayed poll result.
+                updated.append(item)
+                continue
+            updated.append(
+                TaskWatch(item.task_id, item.telegram_user_id, status)
+            )
+            changed = True
+        if not changed:
             return False
         self._replace(updated)
         return True
