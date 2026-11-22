@@ -169,6 +169,27 @@ async def test_shutdown_wins_if_handler_and_stop_signal_finish_together():
 
 
 @pytest.mark.asyncio
+async def test_shutdown_takes_priority_when_handler_finishes_in_same_turn():
+    stop = asyncio.Event()
+    job = _job()
+    client = FakeBridgeClient([job])
+    metrics = BridgeWorkerMetrics()
+
+    async def handler(_received):
+        stop.set()
+        return "reply"
+
+    worker = TelegramBridgeWorker(client, handler, idle_seconds=0.01, metrics=metrics)
+    await worker.run(stop)
+
+    assert client.completed == []
+    assert client.closed
+    assert metrics.jobs_claimed == 1
+    assert metrics.jobs_completed == 0
+    assert metrics.shutdown_cancellations == 1
+
+
+@pytest.mark.asyncio
 async def test_shutdown_cancels_blocked_pull_and_closes_client():
     stop = asyncio.Event()
     pull_started = asyncio.Event()
