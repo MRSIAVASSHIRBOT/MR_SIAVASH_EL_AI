@@ -31,7 +31,7 @@ class PlanAdvanceEvent:
 async def advance_ready_plan_steps(
     hub: HubClient,
     plans: TaskPlanStore,
-    watches: TaskWatchStore,
+    watches: TaskWatchStore | None,
     owner_ids: frozenset[int] | set[int] | tuple[int, ...],
 ) -> tuple[PlanAdvanceEvent, ...]:
     """Submit only steps whose dependencies succeeded, after explicit plan start.
@@ -184,13 +184,14 @@ async def advance_ready_plan_steps(
                 status = result.get("status") if isinstance(result, dict) else None
                 if not isinstance(status, str) or status not in _ACTIVE_WATCH_STATUSES:
                     status = "queued"
-                try:
-                    watches.add_many([(task_id, status)], owner_id)
-                except (TaskWatchError, ValueError):
-                    LOGGER.warning(
-                        "Task %s was submitted but could not be added to progress watches",
-                        task_id,
-                    )
+                if watches is not None:
+                    try:
+                        watches.add_many([(task_id, status)], owner_id)
+                    except (TaskWatchError, ValueError):
+                        LOGGER.warning(
+                            "Task %s was submitted but could not be added to progress watches",
+                            task_id,
+                        )
 
                 statuses[index] = status
                 events.append(PlanAdvanceEvent(

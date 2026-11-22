@@ -54,6 +54,20 @@ OWNER_HUB_COMMANDS = frozenset({
     "/videoscenehistory", "/videosceneexport",
 })
 
+# This is intentionally narrower than OWNER_HUB_COMMANDS and must match the edge Worker.
+BRIDGE_OWNER_COMMANDS = frozenset({
+    "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove",
+    "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress",
+    "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus",
+    "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskresult",
+    "/taskcancel", "/taskhistory", "/videoproviders", "/videoroute",
+    "/videohistory", "/videostatus", "/videocancel", "/videodrafts",
+    "/videorenders", "/videorendercheck", "/videorender",
+    "/videorenderstatus", "/videorendercancel", "/videoscenes",
+    "/videoscenestatus", "/videoscenecancel", "/videoscenehistory",
+    "/videosceneexport",
+})
+
 
 def _next_update_offset(offset: int | None, update_id: object) -> int | None:
     """Return the next Telegram offset after an update has been fully handled."""
@@ -145,7 +159,6 @@ def _build_hub_client(settings: Settings, client_id: str) -> HubClient | None:
         client_id,
         store,
         allow_remote=settings.hub_allow_remote,
-        allow_render_private_network=settings.hub_allow_render_private_network,
     )
 
 
@@ -947,7 +960,8 @@ async def _owner_hub_command(
                 for index, task_id in root_submitted
             )
             lines.append("برای مشاهدهٔ گراف و وضعیت همه مراحل: /taskplanstatus " + plan.plan_id)
-            lines.append("برای دریافت اعلان تغییر وضعیت: /taskplanwatch " + plan.plan_id)
+            if task_watches is not None:
+                lines.append("برای دریافت اعلان تغییر وضعیت: /taskplanwatch " + plan.plan_id)
             return "\n".join(lines)
         if command == "/taskstatus":
             if not argument:
@@ -1590,7 +1604,7 @@ def _bridge_update_id(job: BridgeJob) -> int:
 
 
 def _bridge_job_command(job: BridgeJob, owner_ids: frozenset[int]) -> str | None:
-    """Translate only the edge Worker’s documented owner commands."""
+    """Translate only the edge Worker's documented, owner-scoped bridge payloads."""
     if job.telegram_user_id not in owner_ids or job.chat_id != job.telegram_user_id:
         return None
     payload = job.payload
@@ -1608,6 +1622,27 @@ def _bridge_job_command(job: BridgeJob, owner_ids: frozenset[int]) -> str | None
             and not any(character.isspace() for character in code)
         ):
             return f"/pair {code}"
+    if command == "dispatch" and set(payload) == {"command", "text"}:
+        text = payload.get("text")
+        if not isinstance(text, str) or not text or text != text.strip():
+            return None
+        try:
+            text.encode("utf-8")
+            utf16_length = len(text.encode("utf-16-le")) // 2
+        except UnicodeEncodeError:
+            return None
+        if utf16_length > 4096 or any(
+            ord(character) < 0x20 or ord(character) == 0x7F
+            for character in text
+        ):
+            return None
+        command_parts = text.split(maxsplit=1)
+        if not command_parts:
+            return None
+        command_name = command_parts[0].split("@", 1)[0].lower()
+        if command_name not in BRIDGE_OWNER_COMMANDS:
+            return None
+        return text
     return None
 
 
@@ -1622,6 +1657,12 @@ async def _run_cloudflare_bridge(settings: Settings) -> None:
         client_id = load_or_create_client_id(settings.state_dir)
     except InstanceIdentityError as exc:
         raise SystemExit("EL_AI instance identity is unavailable") from exc
+
+    task_plans = TaskPlanStore(settings.state_dir / "task-plans.json")
+    try:
+        task_plans.load()
+    except TaskPlanError as exc:
+        raise SystemExit("Stored Telegram task-plan state is invalid or inaccessible") from exc
 
     hub = _build_hub_client(settings, client_id)
     if hub is None:
@@ -1645,6 +1686,7 @@ async def _run_cloudflare_bridge(settings: Settings) -> None:
             update_id=_bridge_update_id(job),
             hub=hub,
             settings=settings,
+            task_plans=task_plans,
         )
         return response or "این فرمان در Bridge پشتیبانی نمی‌شود."
 
@@ -1656,13 +1698,46 @@ async def _run_cloudflare_bridge(settings: Settings) -> None:
         except (NotImplementedError, RuntimeError):
             pass
 
+    async def advance_task_plans_until_stopped() -> None:
+        """Advance only plans explicitly started by the owner in the durable plan store."""
+        while not stop.is_set():
+            try:
+                events = await advance_ready_plan_steps(
+                    hub,
+                    task_plans,
+                    None,
+                    settings.owner_ids,
+                )
+                submitted = sum(event.kind == "submitted" for event in events)
+                blocked = sum(event.kind == "blocked" for event in events)
+                if events:
+                    LOGGER.info(
+                        "Bridge dependency-plan tick completed; submitted=%d blocked=%d",
+                        submitted,
+                        blocked,
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - scheduler failure must not terminate bridge polling
+                LOGGER.warning("Bridge dependency-plan tick failed; a later tick will retry")
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=5.0)
+            except TimeoutError:
+                continue
+
+    plan_scheduler = asyncio.create_task(advance_task_plans_until_stopped())
     worker = TelegramBridgeWorker(bridge, handle_job)
     try:
         LOGGER.info("Cloudflare Telegram bridge consumer started")
         await worker.run(stop)
     finally:
-        await hub.close()
-        LOGGER.info("Cloudflare Telegram bridge consumer stopped")
+        stop.set()
+        plan_scheduler.cancel()
+        await asyncio.gather(plan_scheduler, return_exceptions=True)
+        try:
+            await hub.close()
+        finally:
+            LOGGER.info("Cloudflare Telegram bridge consumer stopped")
 
 
 async def run(settings: Settings) -> None:

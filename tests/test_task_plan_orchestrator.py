@@ -165,3 +165,28 @@ async def test_paused_plan_does_not_advance_until_explicitly_resumed(tmp_path):
         ("submitted", 1, TASK_B)
     ]
     assert len(hub.created) == 1
+
+
+async def test_plan_advances_without_telegram_watch_store(tmp_path):
+    plans = TaskPlanStore(tmp_path / "plans.json")
+    hub = FakeHub()
+    plan = plans.create(
+        123,
+        "demo.echo",
+        ["collect", "publish"],
+        dependencies=[[], [0]],
+        now=int(time.time()),
+    )
+    plans.mark_submitted(plan.plan_id, 123, 0, TASK_A)
+    hub.tasks[TASK_A] = {"status": "succeeded"}
+
+    events = await advance_ready_plan_steps(hub, plans, None, {123})
+
+    assert [(event.kind, event.step_index, event.task_id) for event in events] == [
+        ("submitted", 1, TASK_B)
+    ]
+    loaded = plans.get_for_user(plan.plan_id, 123, now=int(time.time()) + 1)
+    assert loaded is not None
+    assert loaded.steps[1].task_id == TASK_B
+    assert len(hub.created) == 1
+

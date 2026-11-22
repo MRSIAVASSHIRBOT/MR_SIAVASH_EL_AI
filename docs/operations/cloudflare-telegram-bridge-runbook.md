@@ -101,6 +101,12 @@ When the PC is asleep, powered off, or disconnected, Hub processing and local in
 
 **Production compatibility gate:** the live Worker settings last inspected on 2026-11-22 did not contain `TELEGRAM_WEBHOOK_URL`. The versioned Worker source in EL_AI PR #106 requires that explicit non-secret setting. Do not deploy that source to the production Worker until the correct current production webhook URL is configured and read back. No production Worker, webhook, D1, or secret change is part of this local profile.
 
+## Command support boundary
+
+The edge Worker accepts only private-chat updates from the configured owner ID. It queues `/pair` through a dedicated one-time-code payload and forwards a fixed allowlist of owner Hub commands through an encrypted `dispatch` payload. The Python consumer repeats the owner/private-chat check, enforces an exact payload shape and bounded single-line command text, and checks the command name against its own allowlist before calling the existing Hub handler. Hub scopes and policy remain authoritative for every operation.
+
+Bridge mode loads a durable local `task-plans.json` store and advances dependencies on a stop-aware five-second scheduler. Only plans explicitly started by the owner with `/taskplanrun` are advanced; a dependent step is submitted only after all prerequisites succeed, using stable Hub idempotency keys. Use `/taskplanstatus PLAN_ID` to inspect progress manually. Bridge mode deliberately does not create a task-watch store or send progress notifications. Background-notification commands (`/taskwatch`, `/taskunwatch`, `/taskwatches`, `/taskplanwatch`) and binary `/videorenderdownload` remain excluded until a separate periodic notification sender and Telegram file-upload path are implemented and tested.
+
 ## Acceptance checklist
 
 Mark each gate independently:

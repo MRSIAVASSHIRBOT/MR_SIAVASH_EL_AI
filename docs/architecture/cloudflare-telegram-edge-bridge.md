@@ -95,7 +95,8 @@ The merged mainline implementation adds an explicit runtime selector:
 - `TELEGRAM_TRANSPORT=local_polling` (default) keeps the existing Telegram Bot API long-polling runtime.
 - `TELEGRAM_TRANSPORT=cloudflare_bridge` starts only the signed Cloudflare bridge consumer. It does not instantiate the local Telegram Bot API client or call `getUpdates`, preventing two competing update consumers.
 - Bridge mode requires `TELEGRAM_BRIDGE_URL`, `TELEGRAM_BRIDGE_SHARED_SECRET` (at least 32 characters), a non-empty `TELEGRAM_OWNER_IDS` allowlist, and `HUB_INTEGRATION_ENABLED=true` with the normal Hub URL policy. The bot token is not required by the Python bridge consumer because Telegram ingress and reply delivery remain on the Worker.
-- The bridge handler maps only the Worker queue's exact payload shapes: `{command: "pair", pairing_code: ...}`, `{command: "status"}`, and `{command: "tasks"}`. It reuses the existing `_owner_hub_command` logic; unknown commands, extra fields, non-owner IDs, and non-private chat IDs are rejected.
+- The bridge handler accepts `{command: "pair", pairing_code: ...}` and bounded `{command: "dispatch", text: ...}` payloads for a fixed owner Hub command allowlist. Python independently validates the private owner identity, exact payload keys, bounded single-line text, and command allowlist before reusing `_owner_hub_command`. Background-notification commands and binary `/videorenderdownload` remain excluded until periodic notifications and file upload are implemented for bridge mode.
+- Bridge mode loads the durable local `task-plans.json` store and starts a stop-aware five-second dependency scheduler. It advances only plans explicitly started with `/taskplanrun`; dependent steps are submitted after all prerequisites succeed and use stable Hub idempotency keys. It does not create a Telegram task-watch store, so progress is inspected manually with `/taskplanstatus`; notification commands remain excluded.
 - The local Python process still needs a trusted OS keyring for Hub credential storage. If that keyring is unavailable, bridge mode exits rather than falling back to insecure credential storage.
 
 Example environment (values are placeholders; never commit secrets):
@@ -124,3 +125,19 @@ The Cloudflare Worker settings were inspected and the query-string redaction fla
 - The latest deployment metadata after the settings update showed 100% traffic assigned to deployment `c22cef09-77f8-494f-a668-e22d51bd497c`, version `f8ec5020-6041-4436-bfa4-f5a8ad89d1b6`.
 
 This is a settings/deployment-metadata observation only. It does not constitute a verified live HTTP health check, Telegram webhook confirmation, D1 query, or end-to-end bridge test. The earlier 2026-11-20 checkpoint above describes the earlier observed state; this section supersedes its observability and deployment snapshot where values differ.
+
+## Versioned Worker source and D1 schema — 2026-11-22
+
+A read-only Cloudflare source export was used to seed the version-controlled Worker implementation under `cloudflare/telegram-edge/src/index.js`. The source corresponds to the live deployment snapshot recorded above in that directory's README. The tracked version adds only fixed-allowlist network cause metadata to webhook registration failures; arbitrary exception messages and cause strings are not logged.
+
+The application-owned D1 schema was also read without writes and recorded in `cloudflare/telegram-edge/migrations/0001_initial.sql`. It contains the four application tables and four indexes; Cloudflare's internal `_cf_KV` table is excluded. No production database identifier, secret value, or account identifier was copied into Git.
+
+A Node built-in test suite and a dedicated GitHub Actions workflow cover webhook-registration network diagnostics and Telegram API read-back. The source and tests are being introduced on a feature branch; **this is not a production deployment**. The live Worker, webhook registration, secrets, D1 data and settings have not been changed by this source export.
+
+## Environment-specific webhook URL contract — 2026-11-23
+
+The versioned Worker now requires the non-secret `TELEGRAM_WEBHOOK_URL` environment variable. It is validated as an HTTPS URL with the exact `/telegram/webhook` path, a qualified hostname, no embedded credentials, and no query string or fragment. `/ready` returns not-ready when this variable is missing or invalid. Manual registration and scheduled webhook read-back use the same resolved environment URL; there is no production URL constant in the Worker source.
+
+The Cloudflare live Worker settings read on 2026-11-22 did not contain a `TELEGRAM_WEBHOOK_URL` binding. The currently deployed version still uses its existing source and remains unchanged. Before a future production release of this branch, add the plain-text variable to the production Worker configuration with its current production endpoint (`https://mr-siavash-el-ir-bot.mrsiavashirbot.workers.dev/telegram/webhook`) and verify the configuration read-back. Do not put this URL in a secret binding; do not deploy before this compatibility step.
+
+The development sample sets a separate `mr-siavash-el-ai-edge-dev` URL, uses its own D1 database name, and intentionally omits Cron Triggers. No development Worker or D1 database has been created by this source/configuration change.
