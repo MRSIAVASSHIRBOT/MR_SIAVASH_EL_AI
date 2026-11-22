@@ -19,6 +19,19 @@ destination is configured by this feature.
 The counters are process-lifetime aggregates and reset when the bot restarts.
 They are operational signals, not durable billing, audit, or delivery receipts.
 
+## Cloudflare bridge worker observability
+
+The signed bridge consumer emits one `telegram_bridge_worker_metrics` JSON
+record when it stops. It includes only process-lifetime counts for successful
+queue polls, empty polls, claimed and completed jobs, handler failures,
+transport failures, shutdown cancellations, uptime, and the age of the last
+successful pull. It never records job IDs, Telegram IDs, payloads, replies,
+lease tokens, credentials, or response bodies.
+
+When shutdown arrives during application handling, the worker cancels that
+handler and deliberately does not acknowledge the lease. The edge queue can
+redeliver the job after its lease expires; the consumer does not create a
+second local retry queue or claim that the interrupted job completed.
 
 ## Hub request correlation
 
