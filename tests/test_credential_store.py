@@ -213,3 +213,49 @@ def test_encrypted_file_store_read_uses_the_pinned_directory_descriptor(
     assert store.load(client_id) == expected
     assert replaced is True
     assert list(outside.iterdir()) == []
+
+
+
+def test_encrypted_file_store_rejects_a_symlink_in_a_parent_directory(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    parent = tmp_path / "parent"
+    parent.symlink_to(outside, target_is_directory=True)
+    store = EncryptedFileCredentialStore(parent / "credentials", _key())
+
+    with pytest.raises(SecretStoreError, match="directory is unavailable or unsafe"):
+        store.save(str(uuid4()), {"access_token": "secret"})
+
+    assert list(outside.iterdir()) == []
+
+
+def test_encrypted_file_store_write_stays_on_pinned_parent_if_parent_is_replaced(
+    monkeypatch, tmp_path
+):
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    pinned_parent = tmp_path / "parent-pinned"
+    store = EncryptedFileCredentialStore(parent / "credentials", _key())
+    client_id = str(uuid4())
+    original_open = os.open
+    replaced = False
+
+    def open_after_swapping_parent(path, flags, mode=0o777, *, dir_fd=None):
+        nonlocal replaced
+        if path == "credentials" and dir_fd is not None and not replaced:
+            parent.rename(pinned_parent)
+            parent.symlink_to(outside, target_is_directory=True)
+            replaced = True
+        if dir_fd is None:
+            return original_open(path, flags, mode)
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr("el_ai.integrations.secrets.os.open", open_after_swapping_parent)
+
+    store.save(client_id, {"access_token": "must-remain-in-pinned-parent"})
+
+    assert replaced is True
+    assert (pinned_parent / "credentials" / f"{client_id}.json").is_file()
+    assert list(outside.iterdir()) == []
