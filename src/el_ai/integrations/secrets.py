@@ -113,6 +113,9 @@ class EncryptedFileCredentialStore:
     def _prepare_directory(self) -> None:
         try:
             self._directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+            info = self._directory.lstat()
+            if not stat.S_ISDIR(info.st_mode):
+                raise SecretStoreError("Credential path must be a real directory")
             os.chmod(self._directory, 0o700)
             info = self._directory.stat()
             if not stat.S_ISDIR(info.st_mode) or info.st_mode & 0o077:
@@ -121,7 +124,6 @@ class EncryptedFileCredentialStore:
             raise SecretStoreError("Credential directory is unavailable") from exc
 
     def save(self, client_id: str, credentials: dict[str, object]) -> None:
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         filename = self._client_filename(client_id)
         self._prepare_directory()
         try:
