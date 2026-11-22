@@ -1717,3 +1717,50 @@ def test_cloudflare_bridge_persists_owner_task_plans_in_private_state_dir(tmp_pa
     assert loaded[0].task_type == "demo.echo"
     assert [step.description for step in loaded[0].steps] == ["prepare", "publish"]
 
+def test_cloudflare_bridge_runs_dependency_plan_scheduler_without_telegram_watches(tmp_path, monkeypatch):
+    settings = Settings(
+        telegram_bot_token=None,
+        owner_ids=frozenset({123}),
+        telegram_transport="cloudflare_bridge",
+        telegram_bridge_url="https://bridge.example.test",
+        telegram_bridge_shared_secret="x" * 40,
+        hub_api_base_url="https://hub.example.test",
+        hub_integration_enabled=True,
+        state_dir=tmp_path,
+    )
+    scheduler_started = asyncio.Event()
+    calls = []
+
+    class FakeHub:
+        async def close(self):
+            return None
+
+    class FakeBridgeWorker:
+        def __init__(self, _bridge, _handler):
+            pass
+
+        async def run(self, stop):
+            await asyncio.wait_for(scheduler_started.wait(), timeout=1)
+            stop.set()
+
+    async def fake_advance(hub, plans, watches, owner_ids):
+        calls.append((hub, plans, watches, owner_ids))
+        scheduler_started.set()
+        return ()
+
+    monkeypatch.setattr("el_ai.main.load_or_create_client_id", lambda _path: "bridge-client")
+    fake_hub = FakeHub()
+    monkeypatch.setattr("el_ai.main._build_hub_client", lambda _settings, _client_id: fake_hub)
+    monkeypatch.setattr("el_ai.main.TelegramBridgeClient", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr("el_ai.main.TelegramBridgeWorker", FakeBridgeWorker)
+    monkeypatch.setattr("el_ai.main.advance_ready_plan_steps", fake_advance)
+
+    asyncio.run(_run_cloudflare_bridge(settings))
+
+    assert len(calls) == 1
+    assert calls[0][0] is fake_hub
+    assert isinstance(calls[0][1], TaskPlanStore)
+    assert calls[0][1]._path == tmp_path / "task-plans.json"
+    assert calls[0][2] is None
+    assert calls[0][3] == frozenset({123})
+
