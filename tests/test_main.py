@@ -7,6 +7,7 @@ from el_ai.integrations.secrets import SecretStoreError
 from el_ai.main import (
     main,
     _build_hub_client,
+    _bridge_job_command,
     _format_result,
     _owner_hub_command,
     _runtime_health_response,
@@ -18,6 +19,7 @@ from el_ai.main import (
 )
 from el_ai.observability import RuntimeMetrics
 from el_ai.telegram.task_watch import TaskWatchStore
+from el_ai.telegram.bridge import BridgeJob
 from el_ai.telegram.api import TelegramAPIError
 
 
@@ -1412,3 +1414,43 @@ def test_ai_agent_plan_command_rejects_oversized_goal_before_provider_call(tmp_p
 
     assert "حداکثر ۱۰۰۰ نویسه" in response
     assert calls == []
+
+
+
+def _bridge_job(payload, *, chat_id=123, user_id=123):
+    return BridgeJob(
+        job_id="c4b7d9a1-8f21-4c62-9a31-2b6d8e0f4a55",
+        chat_id=chat_id,
+        telegram_user_id=user_id,
+        payload=payload,
+        attempts=1,
+        lease_token="a" * 64,
+    )
+
+
+def test_bridge_job_maps_only_the_documented_owner_commands():
+    owners = frozenset({123})
+    assert _bridge_job_command(_bridge_job({"command": "status"}), owners) == "/hub"
+    assert _bridge_job_command(_bridge_job({"command": "tasks"}), owners) == "/tasks"
+    assert _bridge_job_command(
+        _bridge_job({"command": "pair", "pairing_code": "PAIR-123"}), owners
+    ) == "/pair PAIR-123"
+
+
+def test_bridge_job_rejects_unknown_extra_fields_and_non_private_chats():
+    owners = frozenset({123})
+    assert _bridge_job_command(
+        _bridge_job({"command": "status", "extra": "ignored"}), owners
+    ) is None
+    assert _bridge_job_command(
+        _bridge_job({"command": "memory"}), owners
+    ) is None
+    assert _bridge_job_command(
+        _bridge_job({"command": "status"}, chat_id=-100, user_id=123), owners
+    ) is None
+    assert _bridge_job_command(
+        _bridge_job({"command": "status"}, user_id=999), owners
+    ) is None
+    assert _bridge_job_command(
+        _bridge_job({"command": "pair", "pairing_code": "invalid code"}), owners
+    ) is None
