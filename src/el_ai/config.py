@@ -93,8 +93,8 @@ _RENDER_PRIVATE_HOST = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 def _is_render_private_network_url(value: str) -> bool:
     """Accept only Render-style single-label internal DNS hostnames with an explicit port."""
-    parsed = urlsplit(value)
     try:
+        parsed = urlsplit(value)
         port = parsed.port
     except ValueError:
         return False
@@ -106,6 +106,7 @@ def _is_render_private_network_url(value: str) -> bool:
         and port is not None
         and 1 <= port <= 65535
         and not hostname.isdigit()
+        and not hostname.lower().startswith("0x")
         and parsed.username is None
         and parsed.password is None
         and parsed.path in {"", "/"}
