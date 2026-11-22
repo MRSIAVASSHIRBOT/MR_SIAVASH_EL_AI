@@ -1491,13 +1491,22 @@ def test_bridge_job_uses_unique_stable_idempotency_seeds():
     assert isinstance(second_seed, int)
 
 
-def test_bridge_job_maps_only_the_documented_owner_commands():
+def test_bridge_job_maps_legacy_and_allowlisted_owner_commands():
     owners = frozenset({123})
     assert _bridge_job_command(_bridge_job({"command": "status"}), owners) == "/hub"
     assert _bridge_job_command(_bridge_job({"command": "tasks"}), owners) == "/tasks"
     assert _bridge_job_command(
         _bridge_job({"command": "pair", "pairing_code": "P" * 32}), owners
     ) == "/pair " + "P" * 32
+    assert _bridge_job_command(
+        _bridge_job({"command": "dispatch", "text": "/memory بررسی حافظه"}), owners
+    ) == "/memory بررسی حافظه"
+    assert _bridge_job_command(
+        _bridge_job({"command": "dispatch", "text": "/task demo.echo | run safely"}), owners
+    ) == "/task demo.echo | run safely"
+    assert _bridge_job_command(
+        _bridge_job({"command": "dispatch", "text": "/agentplan local demo.echo | create a plan"}), owners
+    ) == "/agentplan local demo.echo | create a plan"
 
 
 def test_bridge_job_rejects_unknown_extra_fields_and_non_private_chats():
@@ -1522,6 +1531,25 @@ def test_bridge_job_rejects_unknown_extra_fields_and_non_private_chats():
     ) is None
     assert _bridge_job_command(
         _bridge_job({"command": "pair", "pairing_code": "short"}), owners
+    ) is None
+
+    assert _bridge_job_command(
+        _bridge_job({"command": "dispatch", "text": "/not-allowed"}), owners
+    ) is None
+    assert _bridge_job_command(
+        _bridge_job({"command": "dispatch", "text": "/taskwatch 12345678-1234-4234-8234-123456789abc"}), owners
+    ) is None
+    assert _bridge_job_command(
+        _bridge_job({"command": "dispatch", "text": "/videorenderdownload 12345678-1234-4234-8234-123456789abc"}), owners
+    ) is None
+    assert _bridge_job_command(
+        _bridge_job({"command": "dispatch", "text": "/task \n publish"}), owners
+    ) is None
+    assert _bridge_job_command(
+        _bridge_job({"command": "dispatch", "text": " /task demo.echo | no"}), owners
+    ) is None
+    assert _bridge_job_command(
+        _bridge_job({"command": "dispatch", "text": "/task " + "x" * 4096}), owners
     ) is None
 
 
