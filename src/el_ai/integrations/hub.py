@@ -147,7 +147,7 @@ class HubClient:
             and not (is_render_private and allow_render_private_network)
         ):
             raise ValueError(
-                "Remote Hub URLs require HTTPS opt-in or an explicitly allowed Render private host"
+                "Remote Hub URLs require HTTPS and explicit opt-in, or an explicitly allowed Render private host"
             )
         self.client_id = client_id
         self._store = credential_store
