@@ -13,8 +13,42 @@ const SAFE_NETWORK_ERROR_CODES = new Set([
 ]);
 const TELEGRAM_TIMEOUT_MS = 8000;
 const HUB_CLIENT_ID_DEFAULT = "3a1c9d72-6f84-4b35-9e21-7d0c8a6f4b52";
-const TELEGRAM_WEBHOOK_URL = "https://mr-siavash-el-ir-bot.mrsiavashirbot.workers.dev/telegram/webhook";
+const TELEGRAM_WEBHOOK_PATH = "/telegram/webhook";
 const CLIENT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+
+function getTelegramWebhookUrl(env) {
+  const value = env.TELEGRAM_WEBHOOK_URL;
+  if (
+    typeof value !== "string" ||
+    value.length > 2048 ||
+    value !== value.trim()
+  ) {
+    return null;
+  }
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    if (
+      url.protocol !== "https:" ||
+      !hostname ||
+      !hostname.includes(".") ||
+      hostname === "localhost" ||
+      hostname.endsWith(".localhost") ||
+      hostname.endsWith(".local") ||
+      url.username ||
+      url.password ||
+      url.pathname !== TELEGRAM_WEBHOOK_PATH ||
+      url.search ||
+      url.hash
+    ) {
+      return null;
+    }
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return null;
+  }
+}
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -168,15 +202,17 @@ async function sendMessage(env, chatId, text) {
 }
 
 async function registerWebhook(env) {
+  const webhookUrl = getTelegramWebhookUrl(env);
+  if (!webhookUrl) throw new Error("Telegram webhook URL is invalid");
   const registered = await telegramCall(env, "setWebhook", {
-    url: TELEGRAM_WEBHOOK_URL,
+    url: webhookUrl,
     secret_token: env.TELEGRAM_WEBHOOK_SECRET,
     allowed_updates: ["message"],
     drop_pending_updates: false,
   });
   if (registered !== true) throw new Error("Telegram did not confirm webhook registration");
   const info = await telegramCall(env, "getWebhookInfo", {});
-  if (info?.url !== TELEGRAM_WEBHOOK_URL) throw new Error("Telegram webhook read-back did not match");
+  if (info?.url !== webhookUrl) throw new Error("Telegram webhook read-back did not match");
   return info;
 }
 
@@ -184,6 +220,7 @@ function validateTelegramEnvironment(env) {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_WEBHOOK_SECRET) {
     return "Telegram bot credentials are missing";
   }
+  if (!getTelegramWebhookUrl(env)) return "Telegram webhook URL is invalid";
   if (!env.DB || typeof env.DB.prepare !== "function") return "D1 database binding is missing";
   if (!/^\d{1,20}$/.test(String(env.ALLOWED_TELEGRAM_USER_ID || ""))) return "Owner Telegram ID is invalid";
   if (!/^[A-Za-z0-9_-]{32,128}$/.test(String(env.TELEGRAM_WEBHOOK_SECRET))) return "Telegram webhook secret format is invalid";
@@ -404,7 +441,7 @@ export default {
         return json({
           ok: true,
           webhook_registered: true,
-          webhook_url: TELEGRAM_WEBHOOK_URL,
+          webhook_url: getTelegramWebhookUrl(env),
           pending_update_count: Number(info.pending_update_count || 0),
         });
       } catch (error) {
@@ -476,6 +513,13 @@ export default {
       console.error(JSON.stringify({ event: "scheduled_handler_missing_d1" }));
       return;
     }
+    const webhookUrl = getTelegramWebhookUrl(env);
+    if (!webhookUrl) {
+      console.error(JSON.stringify({
+        event: "scheduled_handler_invalid_webhook_url"
+      }));
+      return;
+    }
     await Promise.all([
       env.DB.prepare("DELETE FROM telegram_processed_updates WHERE state='done' AND processed_at < unixepoch()-604800").run(),
       env.DB.prepare("DELETE FROM telegram_jobs WHERE state='done' AND updated_at < unixepoch()-604800").run(),
@@ -483,7 +527,7 @@ export default {
     ]);
     try {
       const info = await telegramCall(env, "getWebhookInfo", {});
-      if (info?.url !== TELEGRAM_WEBHOOK_URL) {
+      if (info?.url !== webhookUrl) {
         await registerWebhook(env);
         console.log(JSON.stringify({ event: "telegram_webhook_auto_registered" }));
       } else {
