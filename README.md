@@ -66,6 +66,7 @@ The preflight does not contact Telegram, Hub, or the public Gateway, does not wr
 - HUB_INTEGRATION_ENABLED: opt-in for paired Hub commands; defaults to false.
 - HUB_ALLOW_REMOTE: defaults to false; enabling remote Hub URLs requires a separate hosting/security decision and HTTPS.
 - Bridge mode additionally requires a non-empty `TELEGRAM_OWNER_IDS` allowlist, `HUB_INTEGRATION_ENABLED=true`, a reachable Hub URL, and a trusted OS keyring. The Python owner ID must match the Worker’s `ALLOWED_TELEGRAM_USER_ID`.
+- Bridge mode additionally requires a non-empty `TELEGRAM_OWNER_IDS` allowlist, `HUB_INTEGRATION_ENABLED=true`, a reachable Hub URL, and a trusted OS keyring. The Python owner ID must match the Worker’s `ALLOWED_TELEGRAM_USER_ID`.
 - SITE_PUBLIC_API_BASE_URL: public-only MR_SIAVASH_AI Gateway URL.
 - SITE_PUBLIC_WEB_BASE_URL: base URL used to validate and render public source links.
 
@@ -111,6 +112,8 @@ Video catalog, route preview, generation history, render-draft listing, render h
 When TELEGRAM_PUBLIC_ENABLED=true, public users can send normal text in a private chat and receive answers from the public website Gateway. Group chats remain blocked.
 
 Pairing is owner-initiated from the local Hub. The bot must run in a private Telegram chat. Never send the Hub owner password or access/refresh tokens to Telegram.
+
+For the Cloudflare bridge runtime, configure the bridge variables and Hub settings in the trusted Python host environment, then run the same `python -m el_ai` entrypoint. The Worker queues only `/pair`, `/status`, and `/tasks`; the Python consumer validates the owner/private-chat identity and delegates to the existing Hub command handler. The pairing code must meet the Worker’s 32–128 character bound. See [Cloudflare bridge runtime configuration](docs/architecture/cloudflare-telegram-edge-bridge.md).
 
 For the Cloudflare bridge runtime, configure the bridge variables and Hub settings in the trusted Python host environment, then run the same `python -m el_ai` entrypoint. The Worker queues only `/pair`, `/status`, and `/tasks`; the Python consumer validates the owner/private-chat identity and delegates to the existing Hub command handler. The pairing code must meet the Worker’s 32–128 character bound. See [Cloudflare bridge runtime configuration](docs/architecture/cloudflare-telegram-edge-bridge.md).
 
