@@ -1,16 +1,12 @@
--- Table: _cf_KV
-CREATE TABLE _cf_KV (
-        key TEXT PRIMARY KEY,
-        value BLOB
-      ) WITHOUT ROWID;
+-- Initial schema for the application-owned Telegram Edge D1 database.
+-- Captured read-only from the live D1 schema on 2026-11-22.
+-- Cloudflare-internal tables such as _cf_KV are intentionally excluded.
 
--- Table: bridge_nonces
 CREATE TABLE bridge_nonces (
     nonce_hash TEXT PRIMARY KEY,
     expires_at INTEGER NOT NULL
 );
 
--- Table: telegram_jobs
 CREATE TABLE telegram_jobs (
     job_id TEXT PRIMARY KEY,
     update_id INTEGER NOT NULL UNIQUE,
@@ -25,20 +21,30 @@ CREATE TABLE telegram_jobs (
     updated_at INTEGER NOT NULL
 );
 
--- Table: telegram_processed_updates
 CREATE TABLE telegram_processed_updates (
-  update_id INTEGER PRIMARY KEY,
-  state TEXT NOT NULL CHECK (state IN ('processing', 'retry', 'done')),
-  lease_until INTEGER NOT NULL,
-  processed_at INTEGER
+    update_id INTEGER PRIMARY KEY,
+    state TEXT NOT NULL CHECK (state IN ('processing', 'retry', 'done')),
+    lease_until INTEGER NOT NULL,
+    processed_at INTEGER
 );
 
--- Table: telegram_sessions
 CREATE TABLE telegram_sessions (
-  client_id TEXT PRIMARY KEY,
-  telegram_user_id INTEGER NOT NULL,
-  credential_ciphertext TEXT NOT NULL,
-  access_expires_at INTEGER NOT NULL,
-  scopes_json TEXT NOT NULL,
-  updated_at INTEGER NOT NULL
+    client_id TEXT PRIMARY KEY,
+    telegram_user_id INTEGER NOT NULL,
+    credential_ciphertext TEXT NOT NULL,
+    access_expires_at INTEGER NOT NULL,
+    scopes_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
 );
+
+CREATE INDEX idx_bridge_nonces_expires_at
+    ON bridge_nonces (expires_at);
+
+CREATE INDEX idx_telegram_jobs_pending
+    ON telegram_jobs (state, lease_until, created_at);
+
+CREATE INDEX idx_telegram_jobs_updated_at
+    ON telegram_jobs (updated_at);
+
+CREATE INDEX idx_telegram_processed_updates_processed_at
+    ON telegram_processed_updates (processed_at);
