@@ -174,8 +174,6 @@ def test_bridge_client_requires_https_and_a_strong_shared_secret():
     with pytest.raises(ValueError, match="32 characters"):
         TelegramBridgeClient("https://bridge.example.test", "short")
 
-
-
 @pytest.mark.asyncio
 async def test_pull_rejects_non_json_success_response_without_exposing_body():
     client = TelegramBridgeClient(
@@ -263,5 +261,27 @@ async def test_pull_rejects_ambiguous_or_nonstandard_json(body):
         ),
     )
     with pytest.raises(TelegramBridgeError, match="invalid response"):
+        await client.pull()
+    await client.close()
+
+
+
+@pytest.mark.asyncio
+async def test_pull_rejects_unreasonably_long_content_length_header():
+    client = TelegramBridgeClient(
+        "https://bridge.example.test",
+        SECRET,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                content=b'{"job":null}',
+                headers={
+                    "content-type": "application/json",
+                    "content-length": "9" * 5000,
+                },
+            )
+        ),
+    )
+    with pytest.raises(TelegramBridgeError, match="exceeded the allowed size"):
         await client.pull()
     await client.close()
