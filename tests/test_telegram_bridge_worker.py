@@ -226,7 +226,12 @@ async def _stop_after(stop, delay):
 async def test_handler_failure_uses_bounded_exponential_backoff():
     stop = asyncio.Event()
     job = _job()
-    client = FakeBridgeClient([job])
+
+    class RepeatedJobClient(FakeBridgeClient):
+        async def pull(self):
+            return job
+
+    client = RepeatedJobClient()
     delays = []
 
     async def handler(_received):
@@ -241,12 +246,13 @@ async def test_handler_failure_uses_bounded_exponential_backoff():
 
     async def capture_wait(_stop, delay):
         delays.append(delay)
-        stop.set()
+        if len(delays) == 3:
+            stop.set()
 
     worker._wait_or_stop = capture_wait
     await worker.run(stop)
 
-    assert delays == [0.25]
+    assert delays == [0.25, 0.5, 1]
     assert client.completed == []
     assert client.closed
 
