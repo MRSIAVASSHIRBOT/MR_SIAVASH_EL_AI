@@ -1529,6 +1529,8 @@ def _bridge_job_command(job: BridgeJob, owner_ids: frozenset[int]) -> str | None
         return None
     payload = job.payload
     command = payload.get("command")
+    if not isinstance(command, str):
+        return None
     if command in {"status", "tasks"} and set(payload) == {"command"}:
         return "/hub" if command == "status" else "/tasks"
     if command == "pair" and set(payload) == {"command", "pairing_code"}:
