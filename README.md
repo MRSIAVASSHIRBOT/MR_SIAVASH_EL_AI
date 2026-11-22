@@ -125,7 +125,7 @@ When TELEGRAM_PUBLIC_ENABLED=true, public users can send normal text in a privat
 
 Pairing is owner-initiated from the local Hub. The bot must run in a private Telegram chat. Never send the Hub owner password or access/refresh tokens to Telegram.
 
-For the Cloudflare bridge runtime, configure the bridge variables and Hub settings in the trusted Python host environment, then run the same `python -m el_ai` entrypoint. The Worker queues only `/pair`, `/status`, and `/tasks`; the Python consumer validates the owner/private-chat identity and delegates to the existing Hub command handler. The pairing code must meet the Worker’s 32–128 character bound. See [Cloudflare bridge runtime configuration](docs/architecture/cloudflare-telegram-edge-bridge.md).
+For the Cloudflare bridge runtime, configure the bridge variables and Hub settings in the trusted Python host environment, then run the same `python -m el_ai` entrypoint. The Worker forwards a fixed allowlist of owner Hub commands (including memory, task, plan, and video metadata operations) as encrypted dispatch jobs; Python independently validates the private owner identity, exact payload shape, command allowlist, and text bounds before invoking the existing Hub handler. `/pair` remains a separate one-time-code payload and keeps its 32–128 character bound. Background-notification commands (`/taskwatch`, `/taskunwatch`, `/taskwatches`, `/taskplanwatch`) and binary `/videorenderdownload` remain unavailable in bridge mode because the bridge does not yet implement periodic notification delivery or file upload. See [Cloudflare bridge runtime configuration](docs/architecture/cloudflare-telegram-edge-bridge.md).
 
 ## Safety
 
