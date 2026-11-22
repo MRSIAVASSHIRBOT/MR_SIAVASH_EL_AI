@@ -437,7 +437,9 @@ test("queues allowlisted owner Hub commands and rejects bridge-only unsupported 
 
 test("help advertises supported owner commands and excludes unavailable bridge features", async () => {
   const env = createEnv();
-  env.DB = createMemoryD1();
+  const database = createMemoryD1();
+  assert.equal(typeof database.prepare, "function");
+  env.DB = database;
   const telegramRequests = [];
 
   await withRuntimeMocks({
