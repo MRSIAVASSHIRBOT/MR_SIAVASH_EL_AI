@@ -54,6 +54,20 @@ OWNER_HUB_COMMANDS = frozenset({
     "/videoscenehistory", "/videosceneexport",
 })
 
+# This is intentionally narrower than OWNER_HUB_COMMANDS and must match the edge Worker.
+BRIDGE_OWNER_COMMANDS = frozenset({
+    "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove",
+    "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress",
+    "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus",
+    "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskresult",
+    "/taskcancel", "/taskhistory", "/videoproviders", "/videoroute",
+    "/videohistory", "/videostatus", "/videocancel", "/videodrafts",
+    "/videorenders", "/videorendercheck", "/videorender",
+    "/videorenderstatus", "/videorendercancel", "/videoscenes",
+    "/videoscenestatus", "/videoscenecancel", "/videoscenehistory",
+    "/videosceneexport",
+})
+
 
 def _next_update_offset(offset: int | None, update_id: object) -> int | None:
     """Return the next Telegram offset after an update has been fully handled."""
@@ -1589,7 +1603,7 @@ def _bridge_update_id(job: BridgeJob) -> int:
 
 
 def _bridge_job_command(job: BridgeJob, owner_ids: frozenset[int]) -> str | None:
-    """Translate only the edge Worker’s documented owner commands."""
+    """Translate only the edge Worker's documented, owner-scoped bridge payloads."""
     if job.telegram_user_id not in owner_ids or job.chat_id != job.telegram_user_id:
         return None
     payload = job.payload
@@ -1607,6 +1621,27 @@ def _bridge_job_command(job: BridgeJob, owner_ids: frozenset[int]) -> str | None
             and not any(character.isspace() for character in code)
         ):
             return f"/pair {code}"
+    if command == "dispatch" and set(payload) == {"command", "text"}:
+        text = payload.get("text")
+        if not isinstance(text, str) or not text or text != text.strip():
+            return None
+        try:
+            text.encode("utf-8")
+            utf16_length = len(text.encode("utf-16-le")) // 2
+        except UnicodeEncodeError:
+            return None
+        if utf16_length > 4096 or any(
+            ord(character) < 0x20 or ord(character) == 0x7F
+            for character in text
+        ):
+            return None
+        command_parts = text.split(maxsplit=1)
+        if not command_parts:
+            return None
+        command_name = command_parts[0].split("@", 1)[0].lower()
+        if command_name not in BRIDGE_OWNER_COMMANDS:
+            return None
+        return text
     return None
 
 
