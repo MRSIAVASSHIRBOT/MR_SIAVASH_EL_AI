@@ -12,6 +12,7 @@ from el_ai.main import (
     _owner_hub_command,
     _runtime_health_response,
     _register_command_menu,
+    run,
     OWNER_HUB_COMMANDS,
     OWNER_BOT_COMMANDS,
     _poll_task_watches,
@@ -1457,3 +1458,30 @@ def test_bridge_job_rejects_unknown_extra_fields_and_non_private_chats():
     assert _bridge_job_command(
         _bridge_job({"command": "pair", "pairing_code": "invalid code"}), owners
     ) is None
+
+
+
+def test_bridge_transport_does_not_start_local_telegram_polling(monkeypatch):
+    settings = Settings(
+        telegram_bot_token=None,
+        owner_ids=frozenset({123}),
+        telegram_transport="cloudflare_bridge",
+        telegram_bridge_url="https://bridge.example.test",
+        telegram_bridge_shared_secret="x" * 40,
+        hub_api_base_url="https://hub.example.test",
+        hub_integration_enabled=True,
+    )
+    called = []
+
+    async def bridge_runtime(received):
+        called.append(received)
+
+    def unexpected_local_polling(*_args, **_kwargs):
+        raise AssertionError("Local Telegram polling must not start in bridge mode")
+
+    monkeypatch.setattr("el_ai.main._run_cloudflare_bridge", bridge_runtime)
+    monkeypatch.setattr("el_ai.main.TelegramBotAPI", unexpected_local_polling)
+
+    asyncio.run(run(settings))
+
+    assert called == [settings]
