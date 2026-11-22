@@ -1293,3 +1293,17 @@ def test_render_private_network_hub_url_requires_explicit_allowlist():
             MemoryStore(),
             allow_render_private_network=True,
         )
+    with pytest.raises(ValueError, match="explicitly allowed"):
+        HubClient(
+            "http://123:10000",
+            "client-numeric-host",
+            MemoryStore(),
+            allow_render_private_network=True,
+        )
+    with pytest.raises(ValueError, match="explicitly allowed"):
+        HubClient(
+            "http://mr-siavash-hub-ai:0",
+            "client-invalid-port",
+            MemoryStore(),
+            allow_render_private_network=True,
+        )
