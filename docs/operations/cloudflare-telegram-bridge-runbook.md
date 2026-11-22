@@ -67,6 +67,46 @@ The Worker currently uses the plain-text binding `ALLOWED_TELEGRAM_USER_ID` (sin
 
 Start the consumer only after the local preflight passes and the configured credential backend is confirmed. The encrypted-file backend is POSIX-only and uses AES-256-GCM; Windows hosts must use the OS keyring. No plaintext fallback is supported. Stop it with a normal SIGINT/SIGTERM so the worker cancels active handlers without acknowledging their lease; the lease can then expire and allow redelivery.
 
+## Zero-cost local Hub operating profile
+
+For a USD 0/month setup, run the Hub API, Hub pull worker, and EL_AI bridge consumer on the **same owner-controlled Windows PC**. Keep the Hub API bound to loopback. The Cloudflare Worker is only an optional Telegram edge inbox; it does not call into the private PC and the PC does not need a public inbound port or tunnel.
+
+Start the Hub first from its repository root:
+
+```powershell
+.\scripts\start-local.ps1
+```
+
+Confirm that `http://127.0.0.1:8000/ready` reports the API and worker ready. Then configure EL_AI's ignored local `.env` file with the following shape (replace every placeholder locally; never commit real values):
+
+```dotenv
+TELEGRAM_TRANSPORT=cloudflare_bridge
+TELEGRAM_BRIDGE_URL=https://mr-siavash-el-ir-bot.mrsiavashirbot.workers.dev
+TELEGRAM_BRIDGE_SHARED_SECRET=<same independently generated secret on the Worker and local consumer>
+TELEGRAM_OWNER_IDS=<numeric owner Telegram ID>
+HUB_INTEGRATION_ENABLED=true
+HUB_API_BASE_URL=http://127.0.0.1:8000
+HUB_ALLOW_REMOTE=false
+HUB_ALLOW_RENDER_PRIVATE_NETWORK=false
+EL_AI_CREDENTIAL_STORE=keyring
+EL_AI_STATE_DIR=./data
+TELEGRAM_PUBLIC_ENABLED=false
+```
+
+The bridge transport does not need `TELEGRAM_BOT_TOKEN` in the local Python process; Telegram ingress and reply delivery are performed by the Worker. Keep `TELEGRAM_BRIDGE_SHARED_SECRET` in the local secret environment and the Worker's secret binding only. The owner ID must match the Worker's `ALLOWED_TELEGRAM_USER_ID`. On Windows, retain the OS-backed Keyring credential store; do not switch to plaintext or the POSIX encrypted-file backend.
+
+Run `el-ai doctor` and then `python -m el_ai` from the EL_AI repository root. The consumer makes outbound HTTPS requests to the Worker, pulls one signed job at a time, and calls the Hub through loopback. It must not expose port 8000 to the public internet. Do not run local polling at the same time as an active Telegram webhook.
+
+When the PC is asleep, powered off, or disconnected, Hub processing and local inference stop. Edge ingress may accept and queue updates while available, but this is not a 24/7 processing guarantee or a substitute for a tested backup. After restart, verify Hub `/ready`, run `el-ai doctor`, start the consumer, and test one harmless owner command before relying on the integration.
+
+**Production compatibility gate:** the live Worker settings last inspected on 2026-11-22 did not contain `TELEGRAM_WEBHOOK_URL`. The versioned Worker source in EL_AI PR #106 requires that explicit non-secret setting. Do not deploy that source to the production Worker until the correct current production webhook URL is configured and read back. No production Worker, webhook, D1, or secret change is part of this local profile.
+
+## Command support boundary
+
+The edge Worker accepts only private-chat updates from the configured owner ID. It queues `/pair` through a dedicated one-time-code payload and forwards a fixed allowlist of owner Hub commands through an encrypted `dispatch` payload. The Python consumer repeats the owner/private-chat check, enforces an exact payload shape and bounded single-line command text, and checks the command name against its own allowlist before calling the existing Hub handler. Hub scopes and policy remain authoritative for every operation.
+
+The current request/response bridge intentionally excludes background-notification commands (`/taskwatch`, `/taskunwatch`, `/taskwatches`, `/taskplanwatch`) and binary `/videorenderdownload`. The Python consumer has no periodic notification sender or Telegram file-upload path in bridge mode yet; these commands must not be advertised as available until those capabilities are implemented and tested. `/taskplanrun` remains available, but it does not silently register a background watch in bridge mode.
+
 ## Acceptance checklist
 
 Mark each gate independently:
