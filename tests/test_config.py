@@ -143,3 +143,49 @@ def test_local_polling_ignores_bridge_only_configuration(monkeypatch):
     settings = Settings.from_env()
     assert settings.telegram_transport == "local_polling"
     assert settings.telegram_bridge_timeout_seconds == 8
+
+
+
+def test_render_private_hub_hostport_requires_explicit_render_opt_in():
+    assert (
+        _hub_url("mr-siavash-hub-ai:10000", allow_render_private_network=True)
+        == "http://mr-siavash-hub-ai:10000"
+    )
+    with pytest.raises(ConfigurationError):
+        _hub_url("mr-siavash-hub-ai:10000")
+    with pytest.raises(ConfigurationError):
+        _hub_url("hub.example.com:10000", allow_render_private_network=True)
+    with pytest.raises(ConfigurationError):
+        _hub_url("127.0.0.1:10000", allow_render_private_network=True)
+    with pytest.raises(ConfigurationError):
+        _hub_url("mr-siavash-hub-ai", allow_render_private_network=True)
+    with pytest.raises(ConfigurationError):
+        _hub_url("mr-siavash-hub-ai:0", allow_render_private_network=True)
+    for invalid in (
+        "123:10000",
+        "mr-siavash-hub-ai:0",
+        "mr-siavash-hub-ai:65536",
+        "mr-siavash-hub-ai:not-a-port",
+        "mr-siavash-hub-ai:10000/path",
+        "0x7f000001:10000",
+        "[broken:10000",
+    ):
+        with pytest.raises(ConfigurationError):
+            _hub_url(invalid, allow_render_private_network=True)
+
+
+def test_cloudflare_bridge_accepts_explicit_render_private_hub_binding(monkeypatch):
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("TELEGRAM_TRANSPORT", "cloudflare_bridge")
+    monkeypatch.setenv("TELEGRAM_BRIDGE_URL", "https://bridge.example.test")
+    monkeypatch.setenv("TELEGRAM_BRIDGE_SHARED_SECRET", "x" * 40)
+    monkeypatch.setenv("TELEGRAM_OWNER_IDS", "123")
+    monkeypatch.setenv("HUB_INTEGRATION_ENABLED", "true")
+    monkeypatch.setenv("HUB_API_BASE_URL", "mr-siavash-hub-ai:10000")
+    monkeypatch.setenv("HUB_ALLOW_REMOTE", "false")
+    monkeypatch.setenv("HUB_ALLOW_RENDER_PRIVATE_NETWORK", "true")
+
+    settings = Settings.from_env()
+
+    assert settings.hub_api_base_url == "http://mr-siavash-hub-ai:10000"
+    assert settings.hub_allow_render_private_network is True

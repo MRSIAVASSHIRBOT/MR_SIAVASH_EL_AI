@@ -228,3 +228,30 @@ def test_doctor_fails_closed_when_encrypted_file_key_is_missing(monkeypatch, tmp
 
     assert report["ready"] is False
     assert _check(report, "hub_credential_store")["status"] == "error"
+
+
+
+def test_doctor_accepts_explicit_render_private_hub_binding_without_network(monkeypatch, tmp_path):
+    import base64
+
+    _base_environment(monkeypatch, tmp_path)
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("TELEGRAM_TRANSPORT", "cloudflare_bridge")
+    monkeypatch.setenv("TELEGRAM_BRIDGE_URL", "https://bridge.example.test")
+    monkeypatch.setenv("TELEGRAM_BRIDGE_SHARED_SECRET", "x" * 40)
+    monkeypatch.setenv("HUB_INTEGRATION_ENABLED", "true")
+    monkeypatch.setenv("HUB_API_BASE_URL", "mr-siavash-hub-ai:10000")
+    monkeypatch.setenv("HUB_ALLOW_REMOTE", "false")
+    monkeypatch.setenv("HUB_ALLOW_RENDER_PRIVATE_NETWORK", "true")
+    monkeypatch.setenv("EL_AI_CREDENTIAL_STORE", "encrypted_file")
+    monkeypatch.setenv(
+        "EL_AI_CREDENTIAL_ENCRYPTION_KEY",
+        base64.b64encode(b"k" * 32).decode("ascii"),
+    )
+
+    report = doctor.collect_report()
+
+    assert report["ready"] is True
+    assert _check(report, "hub_api_url")["status"] == "ok"
+    assert report["network_requests"] == 0
+    assert report["filesystem_writes"] == 0

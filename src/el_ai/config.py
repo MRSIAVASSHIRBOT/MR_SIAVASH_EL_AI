@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -87,10 +88,54 @@ def _public_url(raw: str | None, default: str, name: str) -> str:
     return value.rstrip("/")
 
 
-def _hub_url(raw: str | None, *, allow_remote: bool = False) -> str | None:
+_RENDER_PRIVATE_HOST = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+
+
+def _is_render_private_network_url(value: str) -> bool:
+    """Accept only Render-style single-label internal DNS hostnames with an explicit port."""
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return False
+    hostname = parsed.hostname or ""
+    return (
+        parsed.scheme == "http"
+        and bool(_RENDER_PRIVATE_HOST.fullmatch(hostname))
+        and hostname != "localhost"
+        and port is not None
+        and 1 <= port <= 65535
+        and not hostname.isdigit()
+        and not hostname.lower().startswith("0x")
+        and parsed.username is None
+        and parsed.password is None
+        and parsed.path in {"", "/"}
+        and not parsed.query
+        and not parsed.fragment
+    )
+
+
+def _hub_url(
+    raw: str | None,
+    *,
+    allow_remote: bool = False,
+    allow_render_private_network: bool = False,
+) -> str | None:
     if not raw or not raw.strip():
         return None
     value = raw.strip()
+
+    # Render's fromService.hostport binding is deliberately a bare host:port.
+    # Accept it only with explicit opt-in and only for a single-label internal
+    # hostname, never for arbitrary HTTP URLs or public DNS names.
+    if "://" not in value and allow_render_private_network:
+        private_url = f"http://{value}"
+        if not _is_render_private_network_url(private_url):
+            raise ConfigurationError(
+                "HUB_API_BASE_URL must be a Render private-network host:port"
+            )
+        return private_url
+
     parsed = urlsplit(value)
     if (
         parsed.scheme not in {"http", "https"}
@@ -130,6 +175,7 @@ class Settings:
     hub_api_base_url: str | None = None
     hub_integration_enabled: bool = False
     hub_allow_remote: bool = False
+    hub_allow_render_private_network: bool = False
     site_public_api_base_url: str = "https://mr-siavash-ai-gateway.mrsiavashirbot.workers.dev"
     site_public_web_base_url: str = "https://mrsiavasshirbot.github.io/MR_SIAVASH_AI"
 
@@ -165,7 +211,12 @@ class Settings:
             raise ConfigurationError("EL_AI_ENVIRONMENT must be development, test, or production")
         hub_enabled = _boolean("HUB_INTEGRATION_ENABLED", False)
         hub_allow_remote = _boolean("HUB_ALLOW_REMOTE", False)
-        hub_url = _hub_url(os.getenv("HUB_API_BASE_URL"), allow_remote=hub_allow_remote)
+        hub_allow_render_private_network = _boolean("HUB_ALLOW_RENDER_PRIVATE_NETWORK", False)
+        hub_url = _hub_url(
+            os.getenv("HUB_API_BASE_URL"),
+            allow_remote=hub_allow_remote,
+            allow_render_private_network=hub_allow_render_private_network,
+        )
         if hub_enabled and hub_url is None:
             raise ConfigurationError("HUB_API_BASE_URL is required when Hub integration is enabled")
         owner_ids = _owner_ids(os.getenv("TELEGRAM_OWNER_IDS"))
@@ -200,6 +251,7 @@ class Settings:
             hub_api_base_url=hub_url,
             hub_integration_enabled=hub_enabled,
             hub_allow_remote=hub_allow_remote,
+            hub_allow_render_private_network=hub_allow_render_private_network,
             site_public_api_base_url=_public_url(
                 os.getenv("SITE_PUBLIC_API_BASE_URL"),
                 "https://mr-siavash-ai-gateway.mrsiavashirbot.workers.dev",

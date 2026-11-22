@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 import httpx
 
+from el_ai.config import _is_render_private_network_url
 from el_ai.integrations.secrets import CredentialStore
 
 
@@ -126,6 +127,7 @@ class HubClient:
         timeout_seconds: float = 8.0,
         transport: httpx.AsyncBaseTransport | None = None,
         allow_remote: bool = False,
+        allow_render_private_network: bool = False,
     ) -> None:
         parsed = urlsplit(base_url)
         if (
@@ -138,8 +140,15 @@ class HubClient:
         ):
             raise ValueError("Hub API URL must be a clean HTTP(S) base URL")
         is_loopback = parsed.hostname in {"127.0.0.1", "localhost", "::1"}
-        if not is_loopback and (parsed.scheme != "https" or not allow_remote):
-            raise ValueError("Remote Hub URLs require HTTPS and explicit opt-in")
+        is_render_private = _is_render_private_network_url(base_url)
+        if (
+            not is_loopback
+            and not (parsed.scheme == "https" and allow_remote)
+            and not (is_render_private and allow_render_private_network)
+        ):
+            raise ValueError(
+                "Remote Hub URLs require HTTPS and explicit opt-in, or an explicitly allowed Render private host"
+            )
         self.client_id = client_id
         self._store = credential_store
         self._refresh_lock = asyncio.Lock()

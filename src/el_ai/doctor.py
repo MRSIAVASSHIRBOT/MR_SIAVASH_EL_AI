@@ -219,7 +219,12 @@ def collect_report() -> dict[str, object]:
     if hub_enabled:
         try:
             allow_remote = _boolean("HUB_ALLOW_REMOTE", False)
-            hub_url = _hub_url(os.getenv("HUB_API_BASE_URL"), allow_remote=allow_remote)
+            allow_private = _boolean("HUB_ALLOW_RENDER_PRIVATE_NETWORK", False)
+            hub_url = _hub_url(
+                os.getenv("HUB_API_BASE_URL"),
+                allow_remote=allow_remote,
+                allow_render_private_network=allow_private,
+            )
             if hub_url is None:
                 checks.append(
                     DoctorCheck("hub_api_url", "error", "HUB_API_BASE_URL is required")
@@ -229,7 +234,7 @@ def collect_report() -> dict[str, object]:
                     DoctorCheck(
                         "hub_api_url",
                         "ok",
-                        "Hub URL is valid under the loopback/HTTPS policy",
+                        "Hub URL is valid under loopback, HTTPS, or explicit Render private-network policy",
                     )
                 )
         except ConfigurationError:
