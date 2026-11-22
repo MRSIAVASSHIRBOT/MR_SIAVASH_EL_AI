@@ -14,6 +14,7 @@ from el_ai.main import (
     _bridge_update_id,
     _format_result,
     _owner_hub_command,
+    _run_cloudflare_bridge,
     _runtime_health_response,
     _register_command_menu,
     run,
@@ -1669,3 +1670,48 @@ def test_task_plan_pause_controls_are_owner_menu_only():
     commands = {item["command"] for item in OWNER_BOT_COMMANDS}
     assert {"taskplanpause", "taskplanresume"} <= commands
     assert {"/taskplanpause", "/taskplanresume"} <= OWNER_HUB_COMMANDS
+
+def test_cloudflare_bridge_persists_owner_task_plans_in_private_state_dir(tmp_path, monkeypatch):
+    settings = Settings(
+        telegram_bot_token=None,
+        owner_ids=frozenset({123}),
+        telegram_transport="cloudflare_bridge",
+        telegram_bridge_url="https://bridge.example.test",
+        telegram_bridge_shared_secret="x" * 40,
+        hub_api_base_url="https://hub.example.test",
+        hub_integration_enabled=True,
+        state_dir=tmp_path,
+    )
+    replies = []
+
+    class FakeHub:
+        async def close(self):
+            return None
+
+    class FakeBridgeWorker:
+        def __init__(self, _bridge, handler):
+            self.handler = handler
+
+        async def run(self, stop):
+            replies.append(await self.handler(_bridge_job({
+                "command": "dispatch",
+                "text": "/taskplan demo.echo | prepare ; publish",
+            })))
+            stop.set()
+
+    monkeypatch.setattr("el_ai.main.load_or_create_client_id", lambda _path: "bridge-client")
+    monkeypatch.setattr("el_ai.main._build_hub_client", lambda _settings, _client_id: FakeHub())
+    monkeypatch.setattr("el_ai.main.TelegramBridgeClient", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr("el_ai.main.TelegramBridgeWorker", FakeBridgeWorker)
+
+    asyncio.run(_run_cloudflare_bridge(settings))
+
+    assert len(replies) == 1
+    assert "پیش‌نمایش گراف وظایف ذخیره شد" in replies[0]
+    plans = TaskPlanStore(tmp_path / "task-plans.json")
+    loaded = plans.load()
+    assert len(loaded) == 1
+    assert loaded[0].telegram_user_id == 123
+    assert loaded[0].task_type == "demo.echo"
+    assert [step.description for step in loaded[0].steps] == ["prepare", "publish"]
+
