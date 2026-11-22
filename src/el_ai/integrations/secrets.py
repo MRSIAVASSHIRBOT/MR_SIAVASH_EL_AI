@@ -98,6 +98,7 @@ class EncryptedFileCredentialStore:
     """
 
     SERVICE_NAME = "MR_SIAVASH_EL_AI"
+    MAX_PLAINTEXT_BYTES = 16 * 1024
     MAX_FILE_BYTES = 24 * 1024
 
     def __init__(self, directory: Path, encoded_key: str | None) -> None:
@@ -147,7 +148,7 @@ class EncryptedFileCredentialStore:
             plaintext = json.dumps(
                 credentials, separators=(",", ":"), sort_keys=True
             ).encode("utf-8")
-            if len(plaintext) > self.MAX_FILE_BYTES:
+            if len(plaintext) > self.MAX_PLAINTEXT_BYTES:
                 raise SecretStoreError("Credential payload exceeds the supported size")
             nonce = os.urandom(12)
             aad = f"{self.SERVICE_NAME}:{UUID(client_id)}".encode("ascii")
