@@ -84,3 +84,22 @@ def test_credential_store_factory_requires_explicit_encrypted_key(monkeypatch, t
     assert isinstance(
         build_credential_store(tmp_path), EncryptedFileCredentialStore
     )
+
+
+def test_encrypted_file_store_allows_ciphertext_envelope_overhead(tmp_path):
+    store = EncryptedFileCredentialStore(tmp_path / "credentials", _key())
+    client_id = str(uuid4())
+    credentials = {"access_token": "x" * 13_000}
+
+    store.save(client_id, credentials)
+
+    path = tmp_path / "credentials" / f"{client_id}.json"
+    assert 16 * 1024 < path.stat().st_size <= store.MAX_FILE_BYTES
+    assert store.load(client_id) == credentials
+
+
+def test_encrypted_file_store_rejects_non_posix_hosts(monkeypatch, tmp_path):
+    monkeypatch.setattr("el_ai.integrations.secrets.os.name", "nt")
+
+    with pytest.raises(SecretStoreError, match="POSIX host"):
+        EncryptedFileCredentialStore(tmp_path / "credentials", _key())
