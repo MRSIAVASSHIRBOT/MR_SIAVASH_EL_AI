@@ -40,7 +40,7 @@ EL_AI calls only POST /v1/assistant/chat on the public MR_SIAVASH_AI Gateway. It
 - The client uses HTTPS for remote endpoints, a 12-second timeout, no automatic retries and a process-wide request budget below the Gateway's public IP rate limit.
 - Only relative source paths resolving beneath the configured public website base URL are shown as links.
 - knowledge_fallback is labelled as verified site knowledge, not model-generated AI.
-- The production Gateway currently has no Workers AI binding; public assistant responses must not be described as live model inference.
+- The repository README records the Production Gateway's Workers AI binding configured with `@cf/zai-org/glm-4.7-flash` and a grounded-response smoke test (checkpoint dated 2026-11-22). This is release evidence, not a guarantee of current runtime availability or answer quality. Client integrations must still handle unavailable Gateway responses and must not infer private Hub connectivity or forward private context.
 
 ## Versioning
 
