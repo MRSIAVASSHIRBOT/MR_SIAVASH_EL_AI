@@ -117,6 +117,58 @@ async def test_shutdown_cancels_in_flight_handler_without_acknowledging_lease():
 
 
 @pytest.mark.asyncio
+async def test_shutdown_after_pull_skips_handler_and_leaves_lease_unacknowledged():
+    stop = asyncio.Event()
+    job = _job()
+    metrics = BridgeWorkerMetrics()
+
+    class StopAfterPullClient(FakeBridgeClient):
+        async def pull(self):
+            received = await super().pull()
+            stop.set()
+            return received
+
+    client = StopAfterPullClient([job])
+    handler_calls = []
+
+    async def handler(received):
+        handler_calls.append(received)
+        return "reply"
+
+    worker = TelegramBridgeWorker(client, handler, idle_seconds=0.01, metrics=metrics)
+    await worker.run(stop)
+
+    assert handler_calls == []
+    assert client.completed == []
+    assert client.closed
+    assert metrics.jobs_claimed == 1
+    assert metrics.jobs_completed == 0
+    assert metrics.shutdown_cancellations == 1
+
+
+@pytest.mark.asyncio
+async def test_shutdown_wins_if_handler_and_stop_signal_finish_together():
+    stop = asyncio.Event()
+    job = _job()
+    client = FakeBridgeClient([job])
+    metrics = BridgeWorkerMetrics()
+
+    async def handler(_received):
+        stop.set()
+        await asyncio.sleep(0)
+        return "reply"
+
+    worker = TelegramBridgeWorker(client, handler, idle_seconds=0.01, metrics=metrics)
+    await worker.run(stop)
+
+    assert client.completed == []
+    assert client.closed
+    assert metrics.jobs_claimed == 1
+    assert metrics.jobs_completed == 0
+    assert metrics.shutdown_cancellations == 1
+
+
+@pytest.mark.asyncio
 async def test_pull_transport_failure_uses_stop_aware_backoff_and_closes_client():
     stop = asyncio.Event()
     client = FakeBridgeClient()
