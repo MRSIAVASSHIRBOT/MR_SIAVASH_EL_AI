@@ -358,6 +358,83 @@ test("webhook registration verifies Telegram's read-back before returning succes
   assert.equal(requests[0].body.drop_pending_updates, false);
 });
 
+test("queues allowlisted owner Hub commands and rejects bridge-only unsupported commands", async () => {
+  const env = createEnv();
+  const d1 = createMemoryD1();
+  env.DB = d1.DB;
+  env.BRIDGE_SHARED_SECRET = "bridge-shared-secret-for-tests-only-0123456789";
+  env.QUEUE_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64url");
+
+  const allowedUpdate = {
+    update_id: 51002,
+    message: {
+      from: { id: 123456789 },
+      chat: { id: 123456789, type: "private" },
+      text: "/memory بررسی طرح‌های قبلی",
+    },
+  };
+  const allowedResponse = await worker.fetch(
+    new Request("https://edge.test/telegram/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Telegram-Bot-Api-Secret-Token": env.TELEGRAM_WEBHOOK_SECRET,
+      },
+      body: JSON.stringify(allowedUpdate),
+    }),
+    env,
+  );
+
+  assert.equal(allowedResponse.status, 200);
+  assert.equal(d1.jobs.size, 1);
+  const storedJob = [...d1.jobs.values()][0];
+  assert.equal(storedJob.payload_ciphertext.includes("memory"), false);
+  assert.equal(storedJob.payload_ciphertext.includes("بررسی"), false);
+
+  const pullAuth = await signedBridgeRequest(env, "/bridge/pull", {});
+  const pullResponse = await worker.fetch(pullAuth.request, env);
+  assert.equal(pullResponse.status, 200);
+  const pulled = await pullResponse.json();
+  assert.deepEqual(pulled.job.payload, {
+    command: "dispatch",
+    text: "/memory بررسی طرح‌های قبلی",
+  });
+
+  const unsupportedUpdate = {
+    update_id: 51003,
+    message: {
+      from: { id: 123456789 },
+      chat: { id: 123456789, type: "private" },
+      text: "/taskwatch 12345678-1234-4234-8234-123456789abc",
+    },
+  };
+  const telegramRequests = [];
+  await withRuntimeMocks({
+    fetchImpl: async (input, init) => {
+      telegramRequests.push({ url: String(input), payload: JSON.parse(init.body) });
+      return Response.json({ ok: true, result: { message_id: 78 } });
+    },
+    logImpl: () => {},
+  }, async () => {
+    const unsupportedResponse = await worker.fetch(
+      new Request("https://edge.test/telegram/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Telegram-Bot-Api-Secret-Token": env.TELEGRAM_WEBHOOK_SECRET,
+        },
+        body: JSON.stringify(unsupportedUpdate),
+      }),
+      env,
+    );
+    assert.equal(unsupportedResponse.status, 200);
+  });
+
+  assert.equal(d1.jobs.size, 1, "background-notification commands must not enter the bridge queue");
+  assert.equal(telegramRequests.length, 1);
+  assert.equal(telegramRequests[0].payload.text.includes("پشتیبانی نمی‌شود"), true);
+});
+
 test("readiness rejects a missing or invalid environment-specific webhook URL", async () => {
   const invalidValues = [
     undefined,
