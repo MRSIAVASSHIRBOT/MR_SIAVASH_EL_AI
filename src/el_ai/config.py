@@ -104,6 +104,8 @@ def _is_render_private_network_url(value: str) -> bool:
         and bool(_RENDER_PRIVATE_HOST.fullmatch(hostname))
         and hostname != "localhost"
         and port is not None
+        and 1 <= port <= 65535
+        and not hostname.isdigit()
         and parsed.username is None
         and parsed.password is None
         and parsed.path in {"", "/"}
