@@ -59,9 +59,6 @@ def _serialize_payload(payload: dict[str, object]) -> bytes:
         raise ValueError("Bridge payload is not valid JSON") from exc
 
 
-
-
-
 def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     """Reject duplicate keys at every level instead of silently keeping the last value."""
     result: dict[str, object] = {}
@@ -148,6 +145,7 @@ class TelegramBridgeClient:
         if content_length is not None and (
             not content_length.isascii()
             or not content_length.isdecimal()
+            or len(content_length) > len(str(_MAX_RESPONSE_BYTES))
             or int(content_length) > _MAX_RESPONSE_BYTES
         ):
             raise TelegramBridgeError("Telegram bridge response exceeded the allowed size")
