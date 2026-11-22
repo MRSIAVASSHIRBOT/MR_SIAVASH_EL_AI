@@ -60,6 +60,7 @@ async def test_pull_signs_exact_body_and_parses_leased_job():
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request)
         _assert_signature(request)
+        assert request.headers["Accept-Encoding"] == "identity"
         assert json.loads(request.read()) == {}
         return httpx.Response(200, json={"job": job})
 
@@ -283,5 +284,27 @@ async def test_pull_rejects_unreasonably_long_content_length_header():
         ),
     )
     with pytest.raises(TelegramBridgeError, match="exceeded the allowed size"):
+        await client.pull()
+    await client.close()
+
+
+
+@pytest.mark.asyncio
+async def test_pull_rejects_compressed_response_before_any_decompression():
+    client = TelegramBridgeClient(
+        "https://bridge.example.test",
+        SECRET,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                content=b"compressed response body",
+                headers={
+                    "content-type": "application/json",
+                    "content-encoding": "gzip",
+                },
+            )
+        ),
+    )
+    with pytest.raises(TelegramBridgeError, match="invalid response"):
         await client.pull()
     await client.close()
