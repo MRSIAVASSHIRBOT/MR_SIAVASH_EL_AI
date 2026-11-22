@@ -61,7 +61,7 @@ BRIDGE_UNAVAILABLE_COMMANDS = frozenset({
     "/taskwatch", "/taskunwatch", "/taskwatches", "/taskplanwatch",
     "/videorenderdownload",
 })
-BRIDGE_HUB_COMMANDS = OWNER_HUB_COMMANDS - BRIDGE_UNAVAILABLE_COMMANDS
+BRIDGE_HUB_COMMANDS = OWNER_HUB_COMMANDS - BRIDGE_UNAVAILABLE_COMMANDS - frozenset({"/pair"})
 
 
 def _next_update_offset(offset: int | None, update_id: object) -> int | None:
