@@ -159,6 +159,8 @@ def test_render_private_hub_hostport_requires_explicit_render_opt_in():
         _hub_url("127.0.0.1:10000", allow_render_private_network=True)
     with pytest.raises(ConfigurationError):
         _hub_url("mr-siavash-hub-ai", allow_render_private_network=True)
+    with pytest.raises(ConfigurationError):
+        _hub_url("mr-siavash-hub-ai:0", allow_render_private_network=True)
     for invalid in (
         "123:10000",
         "mr-siavash-hub-ai:0",
