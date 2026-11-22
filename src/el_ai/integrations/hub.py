@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 
 import httpx
 
-from el_ai.integrations.secrets import KeyringCredentialStore
+from el_ai.integrations.secrets import CredentialStore
 
 
 logger = logging.getLogger("el_ai.hub")
@@ -121,7 +121,7 @@ class HubClient:
         self,
         base_url: str,
         client_id: str,
-        credential_store: KeyringCredentialStore,
+        credential_store: CredentialStore,
         *,
         timeout_seconds: float = 8.0,
         transport: httpx.AsyncBaseTransport | None = None,

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import pytest
 import time
 
 from el_ai.config import Settings
@@ -65,7 +66,8 @@ def test_unavailable_keyring_fails_closed(monkeypatch):
         raise SecretStoreError("test-only failure")
 
     monkeypatch.setattr("el_ai.main.KeyringCredentialStore", unavailable)
-    assert _build_hub_client(_settings(enabled=True), "client-id") is None
+    with pytest.raises(SecretStoreError):
+        _build_hub_client(_settings(enabled=True), "client-id")
 
 
 def test_pair_command_cannot_bypass_explicit_hub_opt_in():

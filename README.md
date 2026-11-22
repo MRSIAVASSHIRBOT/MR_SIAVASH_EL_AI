@@ -13,7 +13,7 @@ Advanced Telegram interface for the MR_SIAVASH ecosystem.
 - MR_SIAVASH_AI is a public website and public-knowledge Gateway only.
 - No shared database, browser-held Hub credential, public tunnel, or implicit trust between projects.
 - Private Hub access uses owner-initiated, Telegram-ID-bound pairing and dedicated scoped API routes.
-- Hub credentials are stored in an OS-backed credential manager; no owner password or unrestricted Hub session is stored by EL_AI.
+- Hub credentials are stored in an OS-backed credential manager by default. Headless deployments may explicitly select AES-256-GCM encrypted file storage with a 32-byte key injected by the host secret manager; no plaintext fallback, owner password, or unrestricted Hub session is stored by EL_AI.
 - Public website queries send only the current message to the allowlisted public Gateway; private Hub context is never forwarded.
 
 ## Current implementation status
@@ -42,7 +42,7 @@ cp .env.example .env
 python -m el_ai
 ```
 
-The default Python transport is local Telegram long polling. The merged Cloudflare bridge runtime is an alternative: it consumes the signed queue from the deployed `mr-siavash-el-ir-bot` Worker and deliberately does not start `getUpdates`. The Worker has webhook ingress, encrypted queued jobs, update deduplication, and signed bridge pull/complete routes (see [observed Cloudflare edge state](docs/architecture/cloudflare-telegram-edge-bridge.md)). The Python consumer must still be started on a trusted machine with Hub reachability and a trusted OS keyring. A deployed Worker and green repository CI do **not** prove Telegram webhook registration, token validity, private Hub pairing, or end-to-end message delivery.
+The default Python transport is local Telegram long polling. The merged Cloudflare bridge runtime is an alternative: it consumes the signed queue from the deployed `mr-siavash-el-ir-bot` Worker and deliberately does not start `getUpdates`. The Worker has webhook ingress, encrypted queued jobs, update deduplication, and signed bridge pull/complete routes (see [observed Cloudflare edge state](docs/architecture/cloudflare-telegram-edge-bridge.md)). The Python consumer must still be started on a trusted host with Hub reachability and protected credential storage. Local installations use a trusted OS keyring; POSIX headless hosts can use the explicitly configured AES-GCM encrypted file backend. Windows hosts must retain the OS keyring. A deployed Worker and green repository CI do **not** prove Telegram webhook registration, token validity, private Hub pairing, or end-to-end message delivery.
 
 Run the read-only local preflight before configuring or starting the bot:
 

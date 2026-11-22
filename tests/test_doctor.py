@@ -196,3 +196,35 @@ def test_doctor_rejects_unknown_telegram_transport(monkeypatch, tmp_path):
 
     assert report["ready"] is False
     assert _check(report, "telegram_transport")["status"] == "error"
+
+
+def test_doctor_accepts_encrypted_file_store_with_valid_host_key(monkeypatch, tmp_path):
+    import base64
+
+    _base_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("HUB_INTEGRATION_ENABLED", "true")
+    monkeypatch.setenv("HUB_API_BASE_URL", "http://127.0.0.1:8000")
+    monkeypatch.setenv("EL_AI_CREDENTIAL_STORE", "encrypted_file")
+    monkeypatch.setenv(
+        "EL_AI_CREDENTIAL_ENCRYPTION_KEY",
+        base64.b64encode(b"k" * 32).decode("ascii"),
+    )
+
+    report = doctor.collect_report()
+
+    assert report["ready"] is True
+    assert _check(report, "hub_credential_store")["status"] == "ok"
+    assert not (tmp_path / "state").exists()
+
+
+def test_doctor_fails_closed_when_encrypted_file_key_is_missing(monkeypatch, tmp_path):
+    _base_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("HUB_INTEGRATION_ENABLED", "true")
+    monkeypatch.setenv("HUB_API_BASE_URL", "http://127.0.0.1:8000")
+    monkeypatch.setenv("EL_AI_CREDENTIAL_STORE", "encrypted_file")
+    monkeypatch.delenv("EL_AI_CREDENTIAL_ENCRYPTION_KEY", raising=False)
+
+    report = doctor.collect_report()
+
+    assert report["ready"] is False
+    assert _check(report, "hub_credential_store")["status"] == "error"
