@@ -4,12 +4,13 @@ import test from "node:test";
 import worker from "../src/index.js";
 
 const WEBHOOK_URL =
-  "https://mr-siavash-el-ir-bot.mrsiavashirbot.workers.dev/telegram/webhook";
+  "https://mr-siavash-el-ai-edge-dev.mrsiavashirbot.workers.dev/telegram/webhook";
 
 function createEnv() {
   return {
     TELEGRAM_BOT_TOKEN: "123456789:TEST_TOKEN_VALUE",
     TELEGRAM_WEBHOOK_SECRET: "W".repeat(32),
+    TELEGRAM_WEBHOOK_URL: WEBHOOK_URL,
     WEBHOOK_SETUP_SECRET: "setup-secret-for-unit-tests-only-123456",
     ALLOWED_TELEGRAM_USER_ID: "123456789",
     DB: {
@@ -155,4 +156,32 @@ test("webhook registration verifies Telegram's read-back before returning succes
   assert.ok(requests[1].url.endsWith("/getWebhookInfo"));
   assert.equal(requests[0].body.url, WEBHOOK_URL);
   assert.equal(requests[0].body.drop_pending_updates, false);
+});
+
+test("readiness rejects a missing or invalid environment-specific webhook URL", async () => {
+  const invalidValues = [
+    undefined,
+    "not-a-url",
+    "http://edge-dev.example.test/telegram/webhook",
+    "https://edge-dev.example.test/wrong-path",
+    "https://edge-dev.example.test/telegram/webhook?unexpected=1",
+    "https://edge-dev.example.test/telegram/webhook#fragment",
+  ];
+
+  for (const value of invalidValues) {
+    const env = createEnv();
+    if (value === undefined) {
+      delete env.TELEGRAM_WEBHOOK_URL;
+    } else {
+      env.TELEGRAM_WEBHOOK_URL = value;
+    }
+
+    const response = await worker.fetch(
+      new Request("https://edge.test/ready"),
+      env,
+    );
+
+    assert.equal(response.status, 503, `expected URL to be rejected: ${String(value)}`);
+    assert.equal((await response.json()).status, "not_ready");
+  }
 });
