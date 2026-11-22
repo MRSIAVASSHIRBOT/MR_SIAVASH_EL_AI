@@ -177,7 +177,7 @@ async function signedBridgeRequest(path, payload, nonce, secret = BRIDGE_SECRET)
     value.toString(16).padStart(2, "0")
   ).join("");
   const timestamp = String(Math.floor(Date.now() / 1000));
-  const message = [timestamp, nonce, "POST", path, bodyHash].join("\\n");
+  const message = [timestamp, nonce, "POST", path, bodyHash].join("\n");
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
