@@ -70,8 +70,7 @@ The preflight does not contact Telegram, Hub, or the public Gateway, does not wr
 - HUB_INTEGRATION_ENABLED: opt-in for paired Hub commands; defaults to false.
 - HUB_ALLOW_REMOTE: defaults to false; enabling remote Hub URLs requires a separate hosting/security decision and HTTPS.
 - HUB_ALLOW_RENDER_PRIVATE_NETWORK: defaults to false; when enabled, accepts only Render's bare private `host:port` binding. Public DNS names, IP literals, localhost, and arbitrary HTTP URLs remain rejected.
-- Bridge mode additionally requires a non-empty `TELEGRAM_OWNER_IDS` allowlist, `HUB_INTEGRATION_ENABLED=true`, a reachable Hub URL, and a trusted OS keyring. The Python owner ID must match the Worker’s `ALLOWED_TELEGRAM_USER_ID`.
-- Bridge mode additionally requires a non-empty `TELEGRAM_OWNER_IDS` allowlist, `HUB_INTEGRATION_ENABLED=true`, a reachable Hub URL, and a trusted OS keyring. The Python owner ID must match the Worker’s `ALLOWED_TELEGRAM_USER_ID`.
+- Bridge mode additionally requires a non-empty `TELEGRAM_OWNER_IDS` allowlist, `HUB_INTEGRATION_ENABLED=true`, a reachable Hub URL, and protected credential storage. The Python owner ID must match the Worker’s `ALLOWED_TELEGRAM_USER_ID`.
 - SITE_PUBLIC_API_BASE_URL: public-only MR_SIAVASH_AI Gateway URL.
 - SITE_PUBLIC_WEB_BASE_URL: base URL used to validate and render public source links.
 
