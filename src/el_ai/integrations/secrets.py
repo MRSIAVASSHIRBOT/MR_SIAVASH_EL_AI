@@ -132,19 +132,37 @@ class EncryptedFileCredentialStore:
             raise SecretStoreError("Credential client identity is invalid") from exc
 
     def _open_directory(self) -> int:
-        """Open and pin the private credential directory without following symlinks."""
+        """Open and pin every credential path component without following symlinks."""
         nofollow = getattr(os, "O_NOFOLLOW", None)
         if nofollow is None or not hasattr(os, "O_DIRECTORY"):
             raise SecretStoreError("Safe directory-descriptor operations are unavailable")
 
+        directory_path = Path(os.path.abspath(os.fspath(self._directory)))
+        flags = os.O_RDONLY | os.O_DIRECTORY | nofollow | getattr(os, "O_CLOEXEC", 0)
+        directory_fd: int | None = None
         try:
-            self._directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-            flags = os.O_RDONLY | os.O_DIRECTORY | nofollow | getattr(os, "O_CLOEXEC", 0)
-            directory_fd = os.open(self._directory, flags)
-        except OSError as exc:
-            raise SecretStoreError("Credential directory is unavailable or unsafe") from exc
+            # Walk from the filesystem root with openat/mkdirat. O_NOFOLLOW is
+            # applied to every component, not just the final credentials folder.
+            directory_fd = os.open(directory_path.anchor, flags)
+            for component in directory_path.parts[1:]:
+                try:
+                    next_fd = os.open(component, flags, dir_fd=directory_fd)
+                except FileNotFoundError:
+                    try:
+                        os.mkdir(component, 0o700, dir_fd=directory_fd)
+                    except FileExistsError:
+                        # Another process created it; the no-follow open below
+                        # still verifies that it is a real directory.
+                        pass
+                    next_fd = os.open(component, flags, dir_fd=directory_fd)
 
-        try:
+                info = os.fstat(next_fd)
+                if not stat.S_ISDIR(info.st_mode):
+                    os.close(next_fd)
+                    raise SecretStoreError("Credential path components must be real directories")
+                os.close(directory_fd)
+                directory_fd = next_fd
+
             info = os.fstat(directory_fd)
             if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid():
                 raise SecretStoreError("Credential path must be a directory owned by this user")
@@ -152,16 +170,17 @@ class EncryptedFileCredentialStore:
             info = os.fstat(directory_fd)
             if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
                 raise SecretStoreError("Credential directory permissions are not private")
-            return directory_fd
+
+            result = directory_fd
+            directory_fd = None
+            return result
         except SecretStoreError:
-            os.close(directory_fd)
             raise
         except OSError as exc:
-            os.close(directory_fd)
             raise SecretStoreError("Credential directory is unavailable or unsafe") from exc
-        except Exception:
-            os.close(directory_fd)
-            raise
+        finally:
+            if directory_fd is not None:
+                os.close(directory_fd)
 
     def save(self, client_id: str, credentials: dict[str, object]) -> None:
         filename = self._client_filename(client_id)
