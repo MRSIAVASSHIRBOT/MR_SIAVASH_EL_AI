@@ -49,7 +49,7 @@ async def advance_ready_plan_steps(
             continue
 
         for plan in owner_plans:
-            if plan.submitted_count == 0:
+            if plan.submitted_count == 0 or plan.paused:
                 continue
 
             statuses: dict[int, str] = {}
