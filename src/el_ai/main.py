@@ -1581,6 +1581,11 @@ async def _register_command_menu(api: TelegramBotAPI, owner_ids: set[int] | froz
             )
 
 
+def _bridge_update_id(job: BridgeJob) -> int:
+    """Convert the unique edge job UUID into a stable integer idempotency seed."""
+    return UUID(job.job_id).int
+
+
 def _bridge_job_command(job: BridgeJob, owner_ids: frozenset[int]) -> str | None:
     """Translate only the edge Worker’s documented owner commands."""
     if job.telegram_user_id not in owner_ids or job.chat_id != job.telegram_user_id:
@@ -1634,7 +1639,7 @@ async def _run_cloudflare_bridge(settings: Settings) -> None:
         response = await _owner_hub_command(
             command_text,
             telegram_user_id=job.telegram_user_id,
-            update_id=0,
+            update_id=_bridge_update_id(job),
             hub=hub,
             settings=settings,
         )
