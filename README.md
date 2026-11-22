@@ -66,13 +66,21 @@ The preflight does not contact Telegram, Hub, or the public Gateway, does not wr
 - TELEGRAM_PUBLIC_ENABLED: whether public conversations are enabled (default false).
 - EL_AI_ENVIRONMENT: development, test or production.
 - EL_AI_STATE_DIR: local state directory containing a non-secret, stable client UUID.
-- HUB_API_BASE_URL: local Hub URL (example: http://127.0.0.1:8000); remote URLs are rejected by default.
+- HUB_API_BASE_URL: local Hub URL (example: http://127.0.0.1:8000); remote URLs are rejected by default. A Render background worker may use a bare single-label internal `host:port` only when the private-network flag below is explicitly enabled.
 - HUB_INTEGRATION_ENABLED: opt-in for paired Hub commands; defaults to false.
 - HUB_ALLOW_REMOTE: defaults to false; enabling remote Hub URLs requires a separate hosting/security decision and HTTPS.
-- Bridge mode additionally requires a non-empty `TELEGRAM_OWNER_IDS` allowlist, `HUB_INTEGRATION_ENABLED=true`, a reachable Hub URL, and a trusted OS keyring. The Python owner ID must match the Worker’s `ALLOWED_TELEGRAM_USER_ID`.
-- Bridge mode additionally requires a non-empty `TELEGRAM_OWNER_IDS` allowlist, `HUB_INTEGRATION_ENABLED=true`, a reachable Hub URL, and a trusted OS keyring. The Python owner ID must match the Worker’s `ALLOWED_TELEGRAM_USER_ID`.
+- HUB_ALLOW_RENDER_PRIVATE_NETWORK: defaults to false; when enabled, accepts only Render's bare private `host:port` binding. Public DNS names, IP literals, localhost, and arbitrary HTTP URLs remain rejected.
+- Bridge mode additionally requires a non-empty `TELEGRAM_OWNER_IDS` allowlist, `HUB_INTEGRATION_ENABLED=true`, a reachable Hub URL, and protected credential storage. The Python owner ID must match the Worker’s `ALLOWED_TELEGRAM_USER_ID`.
 - SITE_PUBLIC_API_BASE_URL: public-only MR_SIAVASH_AI Gateway URL.
 - SITE_PUBLIC_WEB_BASE_URL: base URL used to validate and render public source links.
+
+## Zero-cost local operation
+
+The default zero-cost topology keeps `MR_SIAVASH_HUB_AI` and the EL_AI Python consumer on the same owner-controlled Windows PC. Start the Hub with `scripts/start-local.ps1`; keep its API loopback-only at `http://127.0.0.1:8000`. For Cloudflare bridge mode, the local consumer pulls signed jobs over outbound HTTPS and calls the Hub over loopback. No public tunnel or inbound access to the PC is required.
+
+For this mode, set `HUB_API_BASE_URL=http://127.0.0.1:8000`, keep `HUB_ALLOW_REMOTE=false`, retain the Windows OS Keyring, and set `TELEGRAM_TRANSPORT=cloudflare_bridge`, `HUB_INTEGRATION_ENABLED=true`, the Worker URL, a shared bridge secret, and the matching owner-ID allowlist. The bridge consumer does not need a local Telegram Bot API token; the edge Worker owns Telegram ingress and delivery. See the [zero-cost bridge runbook](docs/operations/cloudflare-telegram-bridge-runbook.md) for the exact configuration and restart procedure.
+
+When the PC is offline, local Hub execution and inference are unavailable. The edge may buffer updates within provider limits, but this is not a 24/7 availability guarantee. Do not expose the local Hub API publicly, configure a paid Render service, or enable a paid model fallback for the zero-cost profile.
 
 ## Owner Telegram commands
 
@@ -117,7 +125,7 @@ When TELEGRAM_PUBLIC_ENABLED=true, public users can send normal text in a privat
 
 Pairing is owner-initiated from the local Hub. The bot must run in a private Telegram chat. Never send the Hub owner password or access/refresh tokens to Telegram.
 
-For the Cloudflare bridge runtime, configure the bridge variables and Hub settings in the trusted Python host environment, then run the same `python -m el_ai` entrypoint. The Worker queues only `/pair`, `/status`, and `/tasks`; the Python consumer validates the owner/private-chat identity and delegates to the existing Hub command handler. The pairing code must meet the Worker’s 32–128 character bound. See [Cloudflare bridge runtime configuration](docs/architecture/cloudflare-telegram-edge-bridge.md).
+For the Cloudflare bridge runtime, configure the bridge variables and Hub settings in the trusted Python host environment, then run the same `python -m el_ai` entrypoint. The Worker forwards a fixed allowlist of owner Hub commands (including memory, task, plan, and video metadata operations) as encrypted dispatch jobs; Python independently validates the private owner identity, exact payload shape, command allowlist, and text bounds before invoking the existing Hub handler. `/pair` remains a separate one-time-code payload and keeps its 32–128 character bound. Background-notification commands (`/taskwatch`, `/taskunwatch`, `/taskwatches`, `/taskplanwatch`) and binary `/videorenderdownload` remain unavailable in bridge mode because the bridge does not yet implement periodic notification delivery or file upload. See [Cloudflare bridge runtime configuration](docs/architecture/cloudflare-telegram-edge-bridge.md).
 
 ## Safety
 
