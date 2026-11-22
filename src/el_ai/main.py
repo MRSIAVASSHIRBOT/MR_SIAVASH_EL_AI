@@ -12,6 +12,8 @@ import signal
 import time
 from uuid import UUID
 
+from dotenv import load_dotenv
+
 from el_ai.config import ConfigurationError, Settings
 from el_ai.integrations.hub import HubClient, HubClientError
 from el_ai.integrations.identity import InstanceIdentityError, load_or_create_client_id
@@ -1811,6 +1813,8 @@ async def run(settings: Settings) -> None:
 
 
 def main() -> None:
+    # Explicit shell/OS environment variables take precedence over local .env values.
+    load_dotenv(override=False)
     parser = argparse.ArgumentParser(prog="el-ai")
     parser.add_argument("command", nargs="?", choices=("run", "doctor"), default="run")
     parser.add_argument("--json", action="store_true", dest="json_output")
