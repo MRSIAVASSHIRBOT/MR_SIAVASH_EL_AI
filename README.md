@@ -26,6 +26,8 @@ The MR_SIAVASH_AI Production and Preview Gateway versions, D1 state, bindings, r
 
 See docs/architecture/overview.md, docs/security/threat-model.md, and docs/roadmap/implementation-plan.md.
 
+Cloudflare Telegram bridge operating procedures and end-to-end acceptance gates are documented in [the bridge runbook](docs/operations/cloudflare-telegram-bridge-runbook.md).
+
 ## Development
 
 Python 3.11+.
