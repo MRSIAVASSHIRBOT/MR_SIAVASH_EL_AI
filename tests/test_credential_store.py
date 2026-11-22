@@ -200,7 +200,7 @@ def test_encrypted_file_store_read_uses_the_pinned_directory_descriptor(
 
     def open_after_swapping_path(path, flags, mode=0o777, *, dir_fd=None):
         nonlocal replaced
-        if dir_fd is not None and not replaced:
+        if path == f"{client_id}.json" and dir_fd is not None and not replaced:
             directory.rename(pinned)
             directory.symlink_to(outside, target_is_directory=True)
             replaced = True
