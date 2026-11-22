@@ -43,7 +43,7 @@ The tests use Node's built-in test runner and require no third-party Node packag
 - bounded webhook-registration network diagnostics and rejection of unknown error codes;
 - successful `setWebhook` plus `getWebhookInfo` read-back;
 - fail-closed readiness for missing or invalid `TELEGRAM_WEBHOOK_URL` values; and
-- a Worker-level bridge round-trip using an in-memory D1 test double: private owner webhook ingress, encrypted queue insertion, duplicate-update idempotency, signed HMAC pull, lease-fenced completion, Telegram reply delivery through a mocked HTTP boundary, and replayed-nonce rejection.
+- a Worker-level bridge round-trip using an in-memory D1 test double: private owner webhook ingress and non-owner filtering, encrypted queue insertion, duplicate-update idempotency, signed HMAC pull and nonce replay rejection, invalid/expired lease fencing with recovery, Telegram reply delivery through a mocked HTTP boundary, duplicate-completion prevention, and empty-queue read-back after completion.
 
 This integration test exercises Worker routes and the queue contract. It does not start the Python EL_AI consumer or contact Telegram/Cloudflare; real Telegram-to-Hub acceptance remains a separate release gate.
 
