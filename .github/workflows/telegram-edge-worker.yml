@@ -1,0 +1,36 @@
+name: Telegram Edge Worker Tests
+
+on:
+  push:
+    branches: ["main", "feat/**"]
+    paths:
+      - "cloudflare/telegram-edge/**"
+      - ".github/workflows/telegram-edge-worker.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "cloudflare/telegram-edge/**"
+      - ".github/workflows/telegram-edge-worker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telegram-edge-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out source without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check Node.js runtime
+        run: node --version
+      - name: Run Worker tests
+        working-directory: cloudflare/telegram-edge
+        run: npm test

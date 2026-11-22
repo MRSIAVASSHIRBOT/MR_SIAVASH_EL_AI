@@ -1,0 +1,8 @@
+{
+  "name": "mr-siavash-el-ai-telegram-edge",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

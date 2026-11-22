@@ -256,8 +256,14 @@ class TelegramBridgeClient:
         """Deliver a reply only while the exact job lease remains valid."""
         if not isinstance(job, BridgeJob):
             raise TypeError("A BridgeJob is required")
-        if not isinstance(reply, str) or not reply.strip() or len(reply) > _MAX_REPLY_LENGTH:
-            raise ValueError("Bridge reply must contain 1 to 4000 characters")
+        if not isinstance(reply, str) or not reply.strip():
+            raise ValueError("Bridge reply must contain 1 to 4000 Telegram UTF-16 units")
+        try:
+            reply_units = len(reply.encode("utf-16-le")) // 2
+        except UnicodeEncodeError as exc:
+            raise ValueError("Bridge reply must contain valid Unicode text") from exc
+        if reply_units > _MAX_REPLY_LENGTH:
+            raise ValueError("Bridge reply must contain 1 to 4000 Telegram UTF-16 units")
         await self._post(
             "/bridge/complete",
             {

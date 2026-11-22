@@ -16,6 +16,24 @@ LOGGER = logging.getLogger("el_ai.telegram.bridge_worker")
 JobHandler = Callable[[BridgeJob], Awaitable[str]]
 _STOPPED = object()
 
+_MAX_TELEGRAM_REPLY_UNITS = 3900
+_REPLY_TOO_LONG = (
+    "پاسخ کامل این فرمان از ظرفیت یک پیام تلگرام بیشتر است. "
+    "برای دریافت خروجی کامل از داشبورد Hub یا فرمان‌های صفحه‌بندی استفاده کن."
+)
+_REPLY_UNAVAILABLE = "فرمان پردازش شد، اما پاسخ متنی قابل‌ارسال دریافت نشد."
+
+
+def _bound_telegram_reply(reply: object) -> str:
+    """Return one safe Telegram-sized reply without silently truncating content."""
+    if not isinstance(reply, str) or not reply.strip():
+        return _REPLY_UNAVAILABLE
+    try:
+        utf16_units = len(reply.encode("utf-16-le")) // 2
+    except UnicodeEncodeError:
+        return _REPLY_UNAVAILABLE
+    return reply if utf16_units <= _MAX_TELEGRAM_REPLY_UNITS else _REPLY_TOO_LONG
+
 
 @dataclass(slots=True)
 class BridgeWorkerMetrics:
@@ -196,6 +214,10 @@ class TelegramBridgeWorker:
                         self._metrics.record_shutdown_cancellation()
                         break
 
+                    # The edge sends one Telegram message per completion. Replace an
+                    # oversized result with an explicit notice rather than allowing a
+                    # client-side ValueError to terminate the consumer or truncating JSON.
+                    reply = _bound_telegram_reply(reply)
                     # Keep completion outside the handler exception boundary:
                     # transport failures must use the same exponential backoff as pull.
                     await self._client.complete(job, reply)

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "description": "Shared deterministic HMAC-SHA256 contract vector for the Python TelegramBridgeClient and Cloudflare Worker",
+  "secret": "bridge-cross-language-fixture-secret-2026",
+  "timestamp": "1795381200",
+  "nonce": "nonce-cross-language-vector-0001",
+  "method": "POST",
+  "path": "/bridge/pull",
+  "body": "{}",
+  "body_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+  "signature": "6a4252d9895b8194a3a08af0cff61f62b37067b784f90511d2144c38d9bc3674"
+}

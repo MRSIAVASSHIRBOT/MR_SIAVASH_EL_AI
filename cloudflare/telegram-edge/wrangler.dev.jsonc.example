@@ -1,0 +1,35 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "mr-siavash-el-ai-edge-dev",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-22",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": true,
+      "persist": true,
+      "head_sampling_rate": 0.1
+    }
+  },
+  "vars": {
+    "TELEGRAM_WEBHOOK_URL": "https://mr-siavash-el-ai-edge-dev.mrsiavashirbot.workers.dev/telegram/webhook",
+    "ALLOWED_TELEGRAM_USER_ID": "REPLACE_WITH_TEST_OWNER_TELEGRAM_ID"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mr-siavash-el-ai-edge-dev",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

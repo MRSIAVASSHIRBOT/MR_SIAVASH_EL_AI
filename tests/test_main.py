@@ -8,11 +8,13 @@ from el_ai.integrations.hub import HubClientError
 from el_ai.integrations.secrets import SecretStoreError
 from el_ai.main import (
     main,
+    BRIDGE_OWNER_COMMANDS,
     _build_hub_client,
     _bridge_job_command,
     _bridge_update_id,
     _format_result,
     _owner_hub_command,
+    _run_cloudflare_bridge,
     _runtime_health_response,
     _register_command_menu,
     run,
@@ -50,56 +52,15 @@ def test_enabled_hub_integration_initializes_the_scoped_client(monkeypatch):
     store = object()
     monkeypatch.setattr("el_ai.main.KeyringCredentialStore", lambda: store)
 
-    def build_client(
-        base_url,
-        client_id,
-        credential_store,
-        *,
-        allow_remote,
-        allow_render_private_network,
-    ):
+    def build_client(base_url, client_id, credential_store, *, allow_remote):
         assert base_url == "http://127.0.0.1:8000"
         assert client_id == "client-id"
         assert credential_store is store
         assert allow_remote is False
-        assert allow_render_private_network is False
         return marker
 
     monkeypatch.setattr("el_ai.main.HubClient", build_client)
     assert _build_hub_client(_settings(enabled=True), "client-id") is marker
-
-
-def test_render_private_hub_policy_is_passed_to_the_scoped_client(monkeypatch):
-    marker = object()
-    store = object()
-    monkeypatch.setattr("el_ai.main.KeyringCredentialStore", lambda: store)
-
-    def build_client(
-        base_url,
-        client_id,
-        credential_store,
-        *,
-        allow_remote,
-        allow_render_private_network,
-    ):
-        assert base_url == "http://mr-siavash-hub-ai:10000"
-        assert client_id == "client-render-private"
-        assert credential_store is store
-        assert allow_remote is False
-        assert allow_render_private_network is True
-        return marker
-
-    monkeypatch.setattr("el_ai.main.HubClient", build_client)
-    settings = Settings(
-        telegram_bot_token=None,
-        owner_ids=frozenset({123}),
-        hub_api_base_url="http://mr-siavash-hub-ai:10000",
-        hub_integration_enabled=True,
-        hub_allow_remote=False,
-        hub_allow_render_private_network=True,
-    )
-
-    assert _build_hub_client(settings, "client-render-private") is marker
 
 
 def test_unavailable_keyring_fails_closed(monkeypatch):
@@ -1500,6 +1461,71 @@ def test_bridge_job_maps_only_the_documented_owner_commands():
     ) == "/pair " + "P" * 32
 
 
+def test_bridge_job_maps_only_allowlisted_owner_dispatch_text():
+    owners = frozenset({123})
+    text = "/memory بررسی طرح‌های قبلی"
+
+    assert _bridge_job_command(
+        _bridge_job({"command": "dispatch", "text": text}),
+        owners,
+    ) == text
+    assert _bridge_job_command(
+        _bridge_job({"command": "dispatch", "text": "/memory@MR_SIAVASH_EL_IR_BOT"}),
+        owners,
+    ) == "/memory@MR_SIAVASH_EL_IR_BOT"
+    assert _bridge_job_command(
+        _bridge_job({"command": "dispatch", "text": "/tasks"}),
+        owners,
+    ) == "/tasks"
+
+
+def test_bridge_job_rejects_unsafe_or_unapproved_dispatch_text():
+    owners = frozenset({123})
+    invalid_payloads = [
+        {"command": "dispatch"},
+        {"command": "dispatch", "text": 123},
+        {"command": "dispatch", "text": ""},
+        {"command": "dispatch", "text": " /memory"},
+        {"command": "dispatch", "text": "/memory "},
+        {"command": "dispatch", "text": "/memory" + chr(10) + "secret"},
+        {"command": "dispatch", "text": "/memory" + chr(127)},
+        {"command": "dispatch", "text": "/taskwatch 12345678-1234-4234-8234-123456789abc"},
+        {"command": "dispatch", "text": "/videorenderdownload 12345678-1234-4234-8234-123456789abc"},
+        {"command": "dispatch", "text": "/memory " + "😀" * 2045},
+        {"command": "dispatch", "text": "/pair " + "P" * 32},
+        {"command": "dispatch", "text": "/memory " + "x" * 4089},
+        {"command": "dispatch", "text": "/memory", "extra": True},
+    ]
+
+    for payload in invalid_payloads:
+        assert _bridge_job_command(_bridge_job(payload), owners) is None
+
+
+def test_bridge_job_dispatch_rejects_non_owner_and_non_private_chat():
+    payload = {"command": "dispatch", "text": "/memory"}
+    owners = frozenset({123})
+
+    assert _bridge_job_command(
+        _bridge_job(payload, user_id=999),
+        owners,
+    ) is None
+    assert _bridge_job_command(
+        _bridge_job(payload, chat_id=-100, user_id=123),
+        owners,
+    ) is None
+
+
+def test_bridge_dispatch_allowlist_is_supported_by_the_owner_command_router():
+    assert BRIDGE_OWNER_COMMANDS <= OWNER_HUB_COMMANDS
+    owners = frozenset({123})
+
+    for command in BRIDGE_OWNER_COMMANDS:
+        assert _bridge_job_command(
+            _bridge_job({"command": "dispatch", "text": command}),
+            owners,
+        ) == command
+
+
 def test_bridge_job_rejects_unknown_extra_fields_and_non_private_chats():
     owners = frozenset({123})
     assert _bridge_job_command(
@@ -1646,3 +1672,48 @@ def test_task_plan_pause_controls_are_owner_menu_only():
     commands = {item["command"] for item in OWNER_BOT_COMMANDS}
     assert {"taskplanpause", "taskplanresume"} <= commands
     assert {"/taskplanpause", "/taskplanresume"} <= OWNER_HUB_COMMANDS
+
+def test_cloudflare_bridge_persists_owner_task_plans_in_private_state_dir(tmp_path, monkeypatch):
+    settings = Settings(
+        telegram_bot_token=None,
+        owner_ids=frozenset({123}),
+        telegram_transport="cloudflare_bridge",
+        telegram_bridge_url="https://bridge.example.test",
+        telegram_bridge_shared_secret="x" * 40,
+        hub_api_base_url="https://hub.example.test",
+        hub_integration_enabled=True,
+        state_dir=tmp_path,
+    )
+    replies = []
+
+    class FakeHub:
+        async def close(self):
+            return None
+
+    class FakeBridgeWorker:
+        def __init__(self, _bridge, handler):
+            self.handler = handler
+
+        async def run(self, stop):
+            replies.append(await self.handler(_bridge_job({
+                "command": "dispatch",
+                "text": "/taskplan demo.echo | prepare ; publish",
+            })))
+            stop.set()
+
+    monkeypatch.setattr("el_ai.main.load_or_create_client_id", lambda _path: "bridge-client")
+    monkeypatch.setattr("el_ai.main._build_hub_client", lambda _settings, _client_id: FakeHub())
+    monkeypatch.setattr("el_ai.main.TelegramBridgeClient", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr("el_ai.main.TelegramBridgeWorker", FakeBridgeWorker)
+
+    asyncio.run(_run_cloudflare_bridge(settings))
+
+    assert len(replies) == 1
+    assert "پیش‌نمایش گراف وظایف ذخیره شد" in replies[0]
+    plans = TaskPlanStore(tmp_path / "task-plans.json")
+    loaded = plans.load()
+    assert len(loaded) == 1
+    assert loaded[0].telegram_user_id == 123
+    assert loaded[0].task_type == "demo.echo"
+    assert [step.description for step in loaded[0].steps] == ["prepare", "publish"]
+
