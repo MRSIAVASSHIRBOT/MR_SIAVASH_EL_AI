@@ -2,7 +2,7 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "mr-siavash-el-ai-edge-dev",
   "main": "src/index.js",
-  "compatibility_date": "2026-11-23",
+  "compatibility_date": "2026-11-22",
   "workers_dev": true,
   "preview_urls": false,
   "observability": {
