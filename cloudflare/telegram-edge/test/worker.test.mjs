@@ -431,6 +431,21 @@ test("queues an owner command, authenticates bridge pulls, and completes a fence
     assert.equal(d1.processedUpdates.get(51001).state, "done");
     assert.equal(d1.jobs.size, 1);
 
+    const duplicateWebhookResponse = await worker.fetch(
+      new Request("https://edge.test/telegram/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Telegram-Bot-Api-Secret-Token": env.TELEGRAM_WEBHOOK_SECRET,
+        },
+        body: JSON.stringify(update),
+      }),
+      env,
+    );
+    assert.equal(duplicateWebhookResponse.status, 200);
+    assert.deepEqual(await duplicateWebhookResponse.json(), { ok: true, duplicate: true });
+    assert.equal(d1.jobs.size, 1, "a repeated Telegram update must not create another job");
+
     const storedJob = [...d1.jobs.values()][0];
     assert.equal(storedJob.state, "pending");
     assert.equal(storedJob.payload_ciphertext.includes("status"), false);
@@ -506,6 +521,11 @@ test("queues an owner command, authenticates bridge pulls, and completes a fence
     const duplicateCompletionResponse = await worker.fetch(duplicateCompletionAuth.request, env);
     assert.equal(duplicateCompletionResponse.status, 409);
     assert.equal(telegramRequests.length, 1);
+
+    const emptyPullAuth = await signedBridgeRequest(env, "/bridge/pull", {});
+    const emptyPullResponse = await worker.fetch(emptyPullAuth.request, env);
+    assert.equal(emptyPullResponse.status, 200);
+    assert.deepEqual(await emptyPullResponse.json(), { job: null });
   });
 });
 
