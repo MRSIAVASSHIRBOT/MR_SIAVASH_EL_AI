@@ -61,6 +61,31 @@ async def test_worker_completes_job_only_after_handler_returns():
 
 
 @pytest.mark.asyncio
+async def test_oversized_unicode_reply_is_replaced_without_stopping_the_worker():
+    stop = asyncio.Event()
+    job = _job()
+
+    class StopAfterCompleteClient(FakeBridgeClient):
+        async def complete(self, received, reply):
+            await super().complete(received, reply)
+            stop.set()
+
+    client = StopAfterCompleteClient([job])
+
+    async def handler(_received):
+        return "😀" * 2001
+
+    worker = TelegramBridgeWorker(client, handler, idle_seconds=0.01)
+    await worker.run(stop)
+
+    assert len(client.completed) == 1
+    delivered = client.completed[0][1]
+    assert "ظرفیت یک پیام تلگرام" in delivered
+    assert len(delivered.encode("utf-16-le")) // 2 <= 3900
+    assert client.closed
+
+
+@pytest.mark.asyncio
 async def test_failed_handler_does_not_acknowledge_job_or_log_exception_text(caplog):
     stop = asyncio.Event()
     job = _job()
