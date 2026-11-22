@@ -16,6 +16,7 @@ import httpx
 
 
 _MAX_REPLY_LENGTH = 4000
+_MAX_RESPONSE_BYTES = 64 * 1024
 _NONCE_PATTERN = re.compile(r"^[A-Za-z0-9_-]{20,80}$")
 _LEASE_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 
@@ -56,6 +57,21 @@ def _serialize_payload(payload: dict[str, object]) -> bytes:
         ).encode("utf-8")
     except (TypeError, ValueError, UnicodeEncodeError) as exc:
         raise ValueError("Bridge payload is not valid JSON") from exc
+
+
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Reject duplicate keys at every level instead of silently keeping the last value."""
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate JSON object key")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> None:
+    """Reject JavaScript-only NaN/Infinity tokens that are not valid JSON."""
+    raise ValueError("Non-standard JSON constant")
 
 
 class TelegramBridgeClient:
@@ -113,25 +129,83 @@ class TelegramBridgeClient:
             "X-Bridge-Signature": signature,
         }
 
+    @staticmethod
+    async def _decode_response(response: httpx.Response) -> dict[str, object]:
+        """Read a strict JSON response under a hard decoded-byte limit."""
+        media_type = (
+            response.headers.get("content-type", "")
+            .split(";", 1)[0]
+            .strip()
+            .lower()
+        )
+        if media_type != "application/json":
+            raise TelegramBridgeError("Telegram bridge returned an invalid response")
+
+        content_encoding = response.headers.get("content-encoding", "identity").strip().lower()
+        if content_encoding not in {"", "identity"}:
+            raise TelegramBridgeError("Telegram bridge returned an invalid response")
+
+        content_length = response.headers.get("content-length")
+        if content_length is not None and (
+            not content_length.isascii()
+            or not content_length.isdecimal()
+            or len(content_length) > len(str(_MAX_RESPONSE_BYTES))
+            or int(content_length) > _MAX_RESPONSE_BYTES
+        ):
+            raise TelegramBridgeError("Telegram bridge response exceeded the allowed size")
+
+        chunks: list[bytes] = []
+        total_bytes = 0
+        try:
+            if response.is_stream_consumed:
+                buffered = response.content
+                total_bytes = len(buffered)
+                if total_bytes > _MAX_RESPONSE_BYTES:
+                    raise TelegramBridgeError(
+                        "Telegram bridge response exceeded the allowed size"
+                    )
+                chunks.append(buffered)
+            else:
+                async for chunk in response.aiter_raw():
+                    total_bytes += len(chunk)
+                    if total_bytes > _MAX_RESPONSE_BYTES:
+                        raise TelegramBridgeError(
+                            "Telegram bridge response exceeded the allowed size"
+                        )
+                    chunks.append(chunk)
+            result = json.loads(
+                b"".join(chunks).decode("utf-8"),
+                object_pairs_hook=_unique_json_object,
+                parse_constant=_reject_json_constant,
+            )
+        except TelegramBridgeError:
+            raise
+        except (UnicodeDecodeError, ValueError, RecursionError):
+            raise TelegramBridgeError("Telegram bridge returned an invalid response") from None
+        if not isinstance(result, dict):
+            raise TelegramBridgeError("Telegram bridge returned an invalid response")
+        return result
+
     async def _post(self, path: str, payload: dict[str, object]) -> dict[str, object]:
         body = _serialize_payload(payload)
         try:
-            response = await self._client.post(
+            request_headers = self._headers("POST", "/" + path.lstrip("/"), body)
+            request_headers["Accept-Encoding"] = "identity"
+            async with self._client.stream(
+                "POST",
                 path,
                 content=body,
-                headers=self._headers("POST", "/" + path.lstrip("/"), body),
-            )
-            response.raise_for_status()
-            result = response.json()
+                headers=request_headers,
+            ) as response:
+                response.raise_for_status()
+                result = await self._decode_response(response)
         except httpx.HTTPStatusError as exc:
             raise TelegramBridgeError(
                 "Telegram bridge rejected the request",
                 status_code=exc.response.status_code,
             ) from None
-        except (httpx.HTTPError, ValueError):
+        except httpx.HTTPError:
             raise TelegramBridgeError("Telegram bridge request failed") from None
-        if not isinstance(result, dict):
-            raise TelegramBridgeError("Telegram bridge returned an invalid response")
         if "error" in result:
             raise TelegramBridgeError("Telegram bridge returned an error response")
         return result
