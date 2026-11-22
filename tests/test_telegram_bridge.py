@@ -12,6 +12,7 @@ from el_ai.telegram.bridge import (
     BridgeJob,
     TelegramBridgeClient,
     TelegramBridgeError,
+    _MAX_RESPONSE_BYTES,
 )
 
 
@@ -172,3 +173,95 @@ def test_bridge_client_requires_https_and_a_strong_shared_secret():
         TelegramBridgeClient("http://bridge.example.test", SECRET)
     with pytest.raises(ValueError, match="32 characters"):
         TelegramBridgeClient("https://bridge.example.test", "short")
+
+
+
+@pytest.mark.asyncio
+async def test_pull_rejects_non_json_success_response_without_exposing_body():
+    client = TelegramBridgeClient(
+        "https://bridge.example.test",
+        SECRET,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                text="private upstream response",
+                headers={"content-type": "text/html; charset=utf-8"},
+            )
+        ),
+    )
+    with pytest.raises(TelegramBridgeError, match="invalid response") as error:
+        await client.pull()
+    assert "private upstream response" not in str(error.value)
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_pull_rejects_declared_oversized_response_before_json_parsing():
+    client = TelegramBridgeClient(
+        "https://bridge.example.test",
+        SECRET,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                content=b'{"job":null}',
+                headers={
+                    "content-type": "application/json",
+                    "content-length": str(_MAX_RESPONSE_BYTES + 1),
+                },
+            )
+        ),
+    )
+    with pytest.raises(TelegramBridgeError, match="exceeded the allowed size"):
+        await client.pull()
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_pull_rejects_oversized_chunked_response_without_content_length():
+    class OversizedStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b" " * (_MAX_RESPONSE_BYTES + 1)
+
+        async def aclose(self):
+            return None
+
+    client = TelegramBridgeClient(
+        "https://bridge.example.test",
+        SECRET,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                stream=OversizedStream(),
+                headers={"content-type": "application/json"},
+            )
+        ),
+    )
+    with pytest.raises(TelegramBridgeError, match="exceeded the allowed size"):
+        await client.pull()
+    await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'{"job":null,"job":null}',
+        b'{"job":NaN}',
+        b'{"job":Infinity}',
+    ],
+)
+async def test_pull_rejects_ambiguous_or_nonstandard_json(body):
+    client = TelegramBridgeClient(
+        "https://bridge.example.test",
+        SECRET,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                content=body,
+                headers={"content-type": "application/json"},
+            )
+        ),
+    )
+    with pytest.raises(TelegramBridgeError, match="invalid response"):
+        await client.pull()
+    await client.close()
