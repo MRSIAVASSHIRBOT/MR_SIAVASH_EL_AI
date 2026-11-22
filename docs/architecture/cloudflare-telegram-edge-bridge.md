@@ -132,3 +132,11 @@ A read-only Cloudflare source export was used to seed the version-controlled Wor
 The application-owned D1 schema was also read without writes and recorded in `cloudflare/telegram-edge/migrations/0001_initial.sql`. It contains the four application tables and four indexes; Cloudflare's internal `_cf_KV` table is excluded. No production database identifier, secret value, or account identifier was copied into Git.
 
 A Node built-in test suite and a dedicated GitHub Actions workflow cover webhook-registration network diagnostics and Telegram API read-back. The source and tests are being introduced on a feature branch; **this is not a production deployment**. The live Worker, webhook registration, secrets, D1 data and settings have not been changed by this source export.
+
+## Environment-specific webhook URL contract — 2026-11-23
+
+The versioned Worker now requires the non-secret `TELEGRAM_WEBHOOK_URL` environment variable. It is validated as an HTTPS URL with the exact `/telegram/webhook` path, a qualified hostname, no embedded credentials, and no query string or fragment. `/ready` returns not-ready when this variable is missing or invalid. Manual registration and scheduled webhook read-back use the same resolved environment URL; there is no production URL constant in the Worker source.
+
+The Cloudflare live Worker settings read on 2026-11-22 did not contain a `TELEGRAM_WEBHOOK_URL` binding. The currently deployed version still uses its existing source and remains unchanged. Before a future production release of this branch, add the plain-text variable to the production Worker configuration with its current production endpoint (`https://mr-siavash-el-ir-bot.mrsiavashirbot.workers.dev/telegram/webhook`) and verify the configuration read-back. Do not put this URL in a secret binding; do not deploy before this compatibility step.
+
+The development sample sets a separate `mr-siavash-el-ai-edge-dev` URL, uses its own D1 database name, and intentionally omits Cron Triggers. No development Worker or D1 database has been created by this source/configuration change.
