@@ -1658,6 +1658,12 @@ async def _run_cloudflare_bridge(settings: Settings) -> None:
     except InstanceIdentityError as exc:
         raise SystemExit("EL_AI instance identity is unavailable") from exc
 
+    task_plans = TaskPlanStore(settings.state_dir / "task-plans.json")
+    try:
+        task_plans.load()
+    except TaskPlanError as exc:
+        raise SystemExit("Stored Telegram task-plan state is invalid or inaccessible") from exc
+
     hub = _build_hub_client(settings, client_id)
     if hub is None:
         raise SystemExit(
@@ -1692,13 +1698,46 @@ async def _run_cloudflare_bridge(settings: Settings) -> None:
         except (NotImplementedError, RuntimeError):
             pass
 
+    async def advance_task_plans_until_stopped() -> None:
+        """Advance only plans explicitly started by the owner in the durable plan store."""
+        while not stop.is_set():
+            try:
+                events = await advance_ready_plan_steps(
+                    hub,
+                    task_plans,
+                    None,
+                    settings.owner_ids,
+                )
+                submitted = sum(event.kind == "submitted" for event in events)
+                blocked = sum(event.kind == "blocked" for event in events)
+                if events:
+                    LOGGER.info(
+                        "Bridge dependency-plan tick completed; submitted=%d blocked=%d",
+                        submitted,
+                        blocked,
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - scheduler failure must not terminate bridge polling
+                LOGGER.warning("Bridge dependency-plan tick failed; a later tick will retry")
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=5.0)
+            except TimeoutError:
+                continue
+
+    plan_scheduler = asyncio.create_task(advance_task_plans_until_stopped())
     worker = TelegramBridgeWorker(bridge, handle_job)
     try:
         LOGGER.info("Cloudflare Telegram bridge consumer started")
         await worker.run(stop)
     finally:
-        await hub.close()
-        LOGGER.info("Cloudflare Telegram bridge consumer stopped")
+        stop.set()
+        plan_scheduler.cancel()
+        await asyncio.gather(plan_scheduler, return_exceptions=True)
+        try:
+            await hub.close()
+        finally:
+            LOGGER.info("Cloudflare Telegram bridge consumer stopped")
 
 
 async def run(settings: Settings) -> None:
