@@ -3,11 +3,13 @@ import hmac
 import json
 import re
 import time
+from pathlib import Path
 from uuid import uuid4
 
 import httpx
 import pytest
 
+from el_ai.telegram import bridge as bridge_module
 from el_ai.telegram.bridge import (
     BridgeJob,
     TelegramBridgeClient,
@@ -321,3 +323,53 @@ async def test_pull_rejects_compressed_response_before_any_decompression():
         await client.pull()
     assert stream.consumed is False
     await client.close()
+
+@pytest.mark.asyncio
+async def test_python_client_matches_shared_worker_hmac_contract_vector(monkeypatch):
+    fixture_path = (
+        Path(__file__).resolve().parents[1]
+        / "cloudflare"
+        / "telegram-edge"
+        / "test"
+        / "fixtures"
+        / "bridge-hmac-v1.json"
+    )
+    vector = json.loads(fixture_path.read_text(encoding="utf-8"))
+    captured = []
+
+    monkeypatch.setattr(
+        bridge_module.time,
+        "time",
+        lambda: int(vector["timestamp"]),
+    )
+    monkeypatch.setattr(
+        bridge_module.secrets,
+        "token_urlsafe",
+        lambda _length: vector["nonce"],
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"job": None})
+
+    client = TelegramBridgeClient(
+        "https://bridge.example.test",
+        vector["secret"],
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        assert await client.pull() is None
+    finally:
+        await client.close()
+
+    assert len(captured) == 1
+    request = captured[0]
+    body = request.read()
+    assert body == vector["body"].encode("utf-8")
+    assert hashlib.sha256(body).hexdigest() == vector["body_sha256"]
+    assert request.method == vector["method"]
+    assert request.url.path == vector["path"]
+    assert request.headers["X-Bridge-Timestamp"] == vector["timestamp"]
+    assert request.headers["X-Bridge-Nonce"] == vector["nonce"]
+    assert request.headers["X-Bridge-Signature"] == vector["signature"]
+
