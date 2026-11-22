@@ -61,23 +61,85 @@ def collect_report() -> dict[str, object]:
     """Collect configuration and local capability checks without network or writes."""
     checks: list[DoctorCheck] = []
 
-    raw_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    try:
-        _telegram_bot_token(raw_token)
-    except ConfigurationError:
-        detail = (
-            "TELEGRAM_BOT_TOKEN is required; no value is displayed"
-            if not raw_token.strip()
-            else "TELEGRAM_BOT_TOKEN format looks invalid; value is redacted and not verified remotely"
-        )
-        checks.append(DoctorCheck("telegram_bot_token", "error", detail))
+    transport = os.getenv("TELEGRAM_TRANSPORT", "local_polling").strip().lower()
+    if transport in {"local_polling", "cloudflare_bridge"}:
+        checks.append(DoctorCheck("telegram_transport", "ok", "transport mode is supported"))
     else:
         checks.append(
             DoctorCheck(
-                "telegram_bot_token",
-                "ok",
-                "configured; token value is redacted and Telegram verification was not attempted",
+                "telegram_transport",
+                "error",
+                "TELEGRAM_TRANSPORT must be local_polling or cloudflare_bridge",
             )
+        )
+
+    if transport == "local_polling":
+        raw_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        try:
+            _telegram_bot_token(raw_token)
+        except ConfigurationError:
+            detail = (
+                "TELEGRAM_BOT_TOKEN is required; no value is displayed"
+                if not raw_token.strip()
+                else "TELEGRAM_BOT_TOKEN format looks invalid; value is redacted and not verified remotely"
+            )
+            checks.append(DoctorCheck("telegram_bot_token", "error", detail))
+        else:
+            checks.append(
+                DoctorCheck(
+                    "telegram_bot_token",
+                    "ok",
+                    "configured; token value is redacted and Telegram verification was not attempted",
+                )
+            )
+    elif transport == "cloudflare_bridge":
+        checks.append(
+            DoctorCheck(
+                "telegram_bot_token",
+                "disabled",
+                "not required; Telegram ingress and delivery are handled by the Cloudflare Worker",
+            )
+        )
+        try:
+            _public_url(os.getenv("TELEGRAM_BRIDGE_URL"), "", "TELEGRAM_BRIDGE_URL")
+            checks.append(
+                DoctorCheck("telegram_bridge_url", "ok", "bridge URL is valid under HTTPS policy")
+            )
+        except ConfigurationError:
+            checks.append(
+                DoctorCheck("telegram_bridge_url", "error", "TELEGRAM_BRIDGE_URL must be a clean HTTPS URL")
+            )
+        bridge_secret = os.getenv("TELEGRAM_BRIDGE_SHARED_SECRET", "")
+        if len(bridge_secret) >= 32:
+            checks.append(
+                DoctorCheck(
+                    "telegram_bridge_secret",
+                    "ok",
+                    "configured with the minimum supported length; value is redacted",
+                )
+            )
+        else:
+            checks.append(
+                DoctorCheck(
+                    "telegram_bridge_secret",
+                    "error",
+                    "TELEGRAM_BRIDGE_SHARED_SECRET must contain at least 32 characters; value is redacted",
+                )
+            )
+        try:
+            _positive_int(
+                "TELEGRAM_BRIDGE_TIMEOUT_SECONDS", 8, minimum=3, maximum=30
+            )
+            checks.append(
+                DoctorCheck("telegram_bridge_timeout", "ok", "value is within the supported range")
+            )
+        except ConfigurationError:
+            checks.append(
+                DoctorCheck("telegram_bridge_timeout", "error", "value must be between 3 and 30")
+            )
+    else:
+        checks.append(
+            DoctorCheck("telegram_bot_token", "disabled", "not checked because transport mode is invalid")
         )
 
     try:
@@ -144,6 +206,15 @@ def collect_report() -> dict[str, object]:
         hub_enabled = _boolean("HUB_INTEGRATION_ENABLED", False)
     except ConfigurationError:
         pass
+
+    if transport == "cloudflare_bridge" and not hub_enabled:
+        checks.append(
+            DoctorCheck(
+                "cloudflare_bridge_hub_requirement",
+                "error",
+                "HUB_INTEGRATION_ENABLED=true is required for Cloudflare bridge mode",
+            )
+        )
 
     if hub_enabled:
         try:
@@ -220,11 +291,13 @@ def collect_report() -> dict[str, object]:
         except ConfigurationError:
             checks.append(DoctorCheck(name.lower(), "error", f"{label} must be a clean HTTP(S) URL"))
 
-    for name, default, minimum, maximum in (
-        ("TELEGRAM_POLL_TIMEOUT_SECONDS", 25, 1, 50),
+    runtime_limits = [
         ("TELEGRAM_REQUEST_TIMEOUT_SECONDS", 35, 5, 60),
         ("TELEGRAM_RATE_LIMIT_PER_MINUTE", 12, 1, 60),
-    ):
+    ]
+    if transport == "local_polling":
+        runtime_limits.append(("TELEGRAM_POLL_TIMEOUT_SECONDS", 25, 1, 50))
+    for name, default, minimum, maximum in runtime_limits:
         try:
             _positive_int(name, default, minimum=minimum, maximum=maximum)
             checks.append(DoctorCheck(name.lower(), "ok", "value is within the supported range"))
