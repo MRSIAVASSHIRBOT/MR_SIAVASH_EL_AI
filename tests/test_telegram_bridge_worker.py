@@ -1,10 +1,12 @@
 import asyncio
+import json
 import logging
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from el_ai.telegram.bridge import BridgeJob, TelegramBridgeError
-from el_ai.telegram.bridge_worker import TelegramBridgeWorker
+from el_ai.telegram.bridge_worker import BridgeWorkerMetrics, TelegramBridgeWorker
 
 
 def _job():
@@ -79,6 +81,42 @@ async def test_failed_handler_does_not_acknowledge_job_or_log_exception_text(cap
 
 
 @pytest.mark.asyncio
+async def test_shutdown_cancels_in_flight_handler_without_acknowledging_lease():
+    stop = asyncio.Event()
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+    job = _job()
+    client = FakeBridgeClient([job])
+    metrics = BridgeWorkerMetrics()
+
+    async def handler(_received):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    worker = TelegramBridgeWorker(
+        client,
+        handler,
+        idle_seconds=0.01,
+        metrics=metrics,
+    )
+    task = asyncio.create_task(worker.run(stop))
+    await asyncio.wait_for(started.wait(), timeout=1)
+    stop.set()
+    await asyncio.wait_for(task, timeout=1)
+
+    assert cancelled.is_set()
+    assert client.completed == []
+    assert client.closed
+    assert metrics.jobs_claimed == 1
+    assert metrics.jobs_completed == 0
+    assert metrics.shutdown_cancellations == 1
+
+
+@pytest.mark.asyncio
 async def test_pull_transport_failure_uses_stop_aware_backoff_and_closes_client():
     stop = asyncio.Event()
     client = FakeBridgeClient()
@@ -147,3 +185,36 @@ async def test_completion_transport_failure_uses_exponential_backoff():
 async def test_worker_rejects_invalid_timing_bounds(kwargs):
     with pytest.raises(ValueError):
         TelegramBridgeWorker(FakeBridgeClient(), lambda _job: None, **kwargs)
+
+
+def test_bridge_worker_metrics_are_aggregate_only_and_emit_structured_json(caplog):
+    now = datetime.now(UTC)
+    metrics = BridgeWorkerMetrics(started_at=now - timedelta(seconds=12))
+    metrics.record_pull(True)
+    metrics.record_pull(False)
+    metrics.record_completion()
+    metrics.record_handler_failure()
+    metrics.record_transport_failure()
+    metrics.record_shutdown_cancellation()
+
+    snapshot = metrics.snapshot(now=now)
+    assert snapshot == {
+        "event": "telegram_bridge_worker_metrics",
+        "uptime_seconds": 12,
+        "polls": 2,
+        "empty_polls": 1,
+        "jobs_claimed": 1,
+        "jobs_completed": 1,
+        "handler_failures": 1,
+        "transport_failures": 1,
+        "shutdown_cancellations": 1,
+        "last_successful_pull_age_seconds": 0,
+    }
+    assert not {"job_id", "chat_id", "telegram_user_id", "payload", "lease_token", "reply"} & snapshot.keys()
+
+    with caplog.at_level(logging.INFO, logger="el_ai.telegram.bridge_worker"):
+        metrics.emit(logging.getLogger("el_ai.telegram.bridge_worker"))
+    emitted = json.loads(caplog.records[-1].message)
+    assert emitted == snapshot
+    assert "123" not in caplog.text
+    assert "lease_token" not in caplog.text
