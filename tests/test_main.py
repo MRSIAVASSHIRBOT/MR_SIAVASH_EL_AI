@@ -9,6 +9,7 @@ from el_ai.main import (
     main,
     _build_hub_client,
     _bridge_job_command,
+    _bridge_update_id,
     _format_result,
     _owner_hub_command,
     _runtime_health_response,
@@ -1420,15 +1421,31 @@ def test_ai_agent_plan_command_rejects_oversized_goal_before_provider_call(tmp_p
 
 
 
-def _bridge_job(payload, *, chat_id=123, user_id=123):
+def _bridge_job(payload, *, chat_id=123, user_id=123, job_id="c4b7d9a1-8f21-4c62-9a31-2b6d8e0f4a55"):
     return BridgeJob(
-        job_id="c4b7d9a1-8f21-4c62-9a31-2b6d8e0f4a55",
+        job_id=job_id,
         chat_id=chat_id,
         telegram_user_id=user_id,
         payload=payload,
         attempts=1,
         lease_token="a" * 64,
     )
+
+
+def test_bridge_job_uses_unique_stable_idempotency_seeds():
+    first = _bridge_job({"command": "status"})
+    second = _bridge_job(
+        {"command": "status"},
+        job_id="d4b7d9a1-8f21-4c62-9a31-2b6d8e0f4a56",
+    )
+
+    first_seed = _bridge_update_id(first)
+    second_seed = _bridge_update_id(second)
+
+    assert first_seed == _bridge_update_id(first)
+    assert first_seed != second_seed
+    assert isinstance(first_seed, int)
+    assert isinstance(second_seed, int)
 
 
 def test_bridge_job_maps_only_the_documented_owner_commands():
