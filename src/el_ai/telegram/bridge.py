@@ -157,13 +157,22 @@ class TelegramBridgeClient:
         chunks: list[bytes] = []
         total_bytes = 0
         try:
-            async for chunk in response.aiter_raw():
-                total_bytes += len(chunk)
+            if response.is_stream_consumed:
+                buffered = response.content
+                total_bytes = len(buffered)
                 if total_bytes > _MAX_RESPONSE_BYTES:
                     raise TelegramBridgeError(
                         "Telegram bridge response exceeded the allowed size"
                     )
-                chunks.append(chunk)
+                chunks.append(buffered)
+            else:
+                async for chunk in response.aiter_raw():
+                    total_bytes += len(chunk)
+                    if total_bytes > _MAX_RESPONSE_BYTES:
+                        raise TelegramBridgeError(
+                            "Telegram bridge response exceeded the allowed size"
+                        )
+                    chunks.append(chunk)
             result = json.loads(
                 b"".join(chunks).decode("utf-8"),
                 object_pairs_hook=_unique_json_object,
