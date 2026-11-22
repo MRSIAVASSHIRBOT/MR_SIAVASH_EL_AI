@@ -124,3 +124,11 @@ The Cloudflare Worker settings were inspected and the query-string redaction fla
 - The latest deployment metadata after the settings update showed 100% traffic assigned to deployment `c22cef09-77f8-494f-a668-e22d51bd497c`, version `f8ec5020-6041-4436-bfa4-f5a8ad89d1b6`.
 
 This is a settings/deployment-metadata observation only. It does not constitute a verified live HTTP health check, Telegram webhook confirmation, D1 query, or end-to-end bridge test. The earlier 2026-11-20 checkpoint above describes the earlier observed state; this section supersedes its observability and deployment snapshot where values differ.
+
+## Versioned Worker source and D1 schema — 2026-11-22
+
+A read-only Cloudflare source export was used to seed the version-controlled Worker implementation under `cloudflare/telegram-edge/src/index.js`. The source corresponds to the live deployment snapshot recorded above in that directory's README. The tracked version adds only fixed-allowlist network cause metadata to webhook registration failures; arbitrary exception messages and cause strings are not logged.
+
+The application-owned D1 schema was also read without writes and recorded in `cloudflare/telegram-edge/migrations/0001_initial.sql`. It contains the four application tables and four indexes; Cloudflare's internal `_cf_KV` table is excluded. No production database identifier, secret value, or account identifier was copied into Git.
+
+A Node built-in test suite and a dedicated GitHub Actions workflow cover webhook-registration network diagnostics and Telegram API read-back. The source and tests are being introduced on a feature branch; **this is not a production deployment**. The live Worker, webhook registration, secrets, D1 data and settings have not been changed by this source export.
