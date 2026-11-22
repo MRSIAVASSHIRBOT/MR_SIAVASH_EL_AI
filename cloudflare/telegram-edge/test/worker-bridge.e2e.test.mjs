@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 
 import worker from "../src/index.js";
 
 const OWNER_ID = 123456789;
 const BRIDGE_SECRET = "bridge-development-secret-material-123456";
+
+const SHARED_HMAC_VECTOR = JSON.parse(
+  readFileSync(new URL("./fixtures/bridge-hmac-v1.json", import.meta.url), "utf8"),
+);
 
 class InMemoryD1 {
   constructor() {
@@ -313,3 +318,35 @@ test("private owner update is deduplicated, encrypted, leased, and delivered thr
     assert.equal(sentMessages.length, 1);
   });
 });
+
+test("Worker accepts the shared deterministic Python HMAC contract vector", async () => {
+  const db = new InMemoryD1();
+  const env = {
+    BRIDGE_SHARED_SECRET: SHARED_HMAC_VECTOR.secret,
+    QUEUE_ENCRYPTION_KEY: randomBytes(32).toString("base64url"),
+    DB: db,
+  };
+
+  const originalDateNow = Date.now;
+  Date.now = () => Number(SHARED_HMAC_VECTOR.timestamp) * 1000;
+  try {
+    const request = new Request(`https://edge.test${SHARED_HMAC_VECTOR.path}`, {
+      method: SHARED_HMAC_VECTOR.method,
+      headers: {
+        "content-type": "application/json",
+        "X-Bridge-Timestamp": SHARED_HMAC_VECTOR.timestamp,
+        "X-Bridge-Nonce": SHARED_HMAC_VECTOR.nonce,
+        "X-Bridge-Signature": SHARED_HMAC_VECTOR.signature,
+      },
+      body: SHARED_HMAC_VECTOR.body,
+    });
+    const response = await worker.fetch(request, env);
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { job: null });
+    assert.equal(db.nonces.size, 1);
+  } finally {
+    Date.now = originalDateNow;
+  }
+});
+
