@@ -115,7 +115,7 @@ This is a reusable worker primitive. It is not yet selected by the CLI runtime, 
 
 ## Python runtime integration — feature branch
 
-The branch `feat/telegram-cloudflare-bridge-runtime` adds an explicit runtime selector:
+The merged mainline implementation adds an explicit runtime selector:
 
 - `TELEGRAM_TRANSPORT=local_polling` (default) keeps the existing Telegram Bot API long-polling runtime.
 - `TELEGRAM_TRANSPORT=cloudflare_bridge` starts only the signed Cloudflare bridge consumer. It does not instantiate the local Telegram Bot API client or call `getUpdates`, preventing two competing update consumers.
@@ -135,4 +135,4 @@ HUB_API_BASE_URL=https://<your-private-Hub-endpoint>
 HUB_ALLOW_REMOTE=true
 ```
 
-This is runtime code, not a hosted deployment. The Python consumer must run on a trusted machine with access to the Hub and its OS keyring. No Cloudflare Worker, webhook, secret, or production configuration was changed by this branch. End-to-end operation remains unverified until a consumer is started with the actual environment and a real owner command is round-tripped.
+This is runtime code, not a hosted deployment. The Python consumer must run on a trusted machine with access to the Hub and its OS keyring. The runtime code was merged to main, but no Cloudflare Worker, webhook, secret, or production configuration was changed. End-to-end operation remains unverified until a consumer is started with the actual environment and a real owner command is round-tripped.
