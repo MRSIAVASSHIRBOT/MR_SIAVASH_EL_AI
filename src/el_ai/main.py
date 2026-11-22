@@ -956,7 +956,8 @@ async def _owner_hub_command(
                 for index, task_id in root_submitted
             )
             lines.append("برای مشاهدهٔ گراف و وضعیت همه مراحل: /taskplanstatus " + plan.plan_id)
-            lines.append("برای دریافت اعلان تغییر وضعیت: /taskplanwatch " + plan.plan_id)
+            if task_watches is not None:
+                lines.append("برای دریافت اعلان تغییر وضعیت: /taskplanwatch " + plan.plan_id)
             return "\n".join(lines)
         if command == "/taskstatus":
             if not argument:
@@ -1648,17 +1649,17 @@ async def _run_cloudflare_bridge(settings: Settings) -> None:
     except InstanceIdentityError as exc:
         raise SystemExit("EL_AI instance identity is unavailable") from exc
 
-    hub = _build_hub_client(settings, client_id)
-    if hub is None:
-        raise SystemExit(
-            "Secure Hub credentials are unavailable; configure a trusted OS keyring before starting bridge mode"
-        )
-
     task_plans = TaskPlanStore(settings.state_dir / "task-plans.json")
     try:
         task_plans.load()
     except TaskPlanError as exc:
         raise SystemExit("Stored task-plan state is invalid or inaccessible") from exc
+
+    hub = _build_hub_client(settings, client_id)
+    if hub is None:
+        raise SystemExit(
+            "Secure Hub credentials are unavailable; configure a trusted OS keyring before starting bridge mode"
+        )
 
     bridge = TelegramBridgeClient(
         settings.telegram_bridge_url,
