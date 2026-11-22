@@ -31,7 +31,7 @@ def _job_payload():
     }
 
 
-def _assert_signature(request: httpx.Request) -> None:
+def _assert_signature(request: httpx.Request) -> bytes:
     body = request.read()
     timestamp = request.headers["X-Bridge-Timestamp"]
     nonce = request.headers["X-Bridge-Nonce"]
@@ -50,6 +50,7 @@ def _assert_signature(request: httpx.Request) -> None:
     ).encode()
     expected = hmac.new(SECRET.encode(), message, hashlib.sha256).hexdigest()
     assert hmac.compare_digest(supplied, expected)
+    return body
 
 
 @pytest.mark.asyncio
@@ -59,9 +60,9 @@ async def test_pull_signs_exact_body_and_parses_leased_job():
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request)
-        _assert_signature(request)
+        body = _assert_signature(request)
         assert request.headers["Accept-Encoding"] == "identity"
-        assert json.loads(request.read()) == {}
+        assert json.loads(body) == {}
         return httpx.Response(200, json={"job": job})
 
     client = TelegramBridgeClient(
@@ -99,8 +100,7 @@ async def test_complete_signs_lease_bound_reply():
     calls = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        _assert_signature(request)
-        calls.append(json.loads(request.read()))
+        calls.append(json.loads(_assert_signature(request)))
         return httpx.Response(200, json={"ok": True})
 
     client = TelegramBridgeClient(
