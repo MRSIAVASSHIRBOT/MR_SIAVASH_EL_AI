@@ -45,7 +45,11 @@ The tests use Node's built-in test runner and require no third-party Node packag
 - fail-closed readiness for missing or invalid `TELEGRAM_WEBHOOK_URL` values; and
 - a Worker-level bridge round-trip using an in-memory D1 test double: private owner webhook ingress and non-owner filtering, encrypted queue insertion, duplicate-update idempotency, signed HMAC pull and nonce replay rejection, invalid/expired lease fencing with recovery, re-queue and fresh-lease retry after a transient Telegram delivery failure, Telegram reply delivery through a mocked HTTP boundary, duplicate-completion prevention, and empty-queue read-back after completion.
 
-This integration test exercises Worker routes and the queue contract. It does not start the Python EL_AI consumer or contact Telegram/Cloudflare; real Telegram-to-Hub acceptance remains a separate release gate.
+A shared deterministic HMAC-SHA256 vector at `test/fixtures/bridge-hmac-v1.json` is consumed by both the Worker E2E test and the Python `TelegramBridgeClient` unit tests. This catches cross-language drift in newline separators, body serialization, hashing, and signature generation.
+
+The Python suite also applies `migrations/0001_initial.sql` to an in-memory SQLite database and checks the application tables, named indexes, unique keys, state constraints, and exclusion of Cloudflare's internal `_cf_KV` table.
+
+These checks exercise Worker routes, the Python request signer, and SQLite-compatible migration syntax. They do not start the Python EL_AI consumer against a deployed Worker, nor contact Telegram/Cloudflare; real Telegram-to-Hub acceptance remains a separate release gate.
 
 Run from this directory:
 
