@@ -17,7 +17,7 @@ from el_ai.config import (
     _public_url,
     _telegram_bot_token,
 )
-from el_ai.integrations.secrets import SecretStoreError, build_credential_store
+from el_ai.integrations.secrets import KeyringCredentialStore, SecretStoreError, build_credential_store
 
 
 CheckStatus = Literal["ok", "warning", "error", "disabled"]
@@ -241,7 +241,13 @@ def collect_report() -> dict[str, object]:
                 )
             )
         try:
-            build_credential_store(Path(os.getenv("EL_AI_STATE_DIR", "./data")).expanduser())
+            store_mode = os.getenv("EL_AI_CREDENTIAL_STORE", "keyring").strip().lower()
+            if store_mode == "keyring":
+                KeyringCredentialStore()
+            else:
+                build_credential_store(
+                    Path(os.getenv("EL_AI_STATE_DIR", "./data")).expanduser()
+                )
             checks.append(
                 DoctorCheck(
                     "hub_credential_store",
