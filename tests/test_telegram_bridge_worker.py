@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 import pytest
 
@@ -23,6 +24,7 @@ class FakeBridgeClient:
         self.completed = []
         self.closed = False
         self.pull_error = None
+        self.complete_error = None
 
     async def pull(self):
         if self.pull_error:
@@ -30,6 +32,8 @@ class FakeBridgeClient:
         return self.jobs.pop(0) if self.jobs else None
 
     async def complete(self, job, reply):
+        if self.complete_error:
+            raise self.complete_error
         self.completed.append((job, reply))
 
     async def close(self):
@@ -55,24 +59,27 @@ async def test_worker_completes_job_only_after_handler_returns():
 
 
 @pytest.mark.asyncio
-async def test_failed_handler_does_not_acknowledge_job_and_worker_stops_cleanly():
+async def test_failed_handler_does_not_acknowledge_job_or_log_exception_text(caplog):
     stop = asyncio.Event()
     job = _job()
     client = FakeBridgeClient([job])
 
     async def handler(_received):
         stop.set()
-        raise RuntimeError("sensitive payload must not be logged")
+        raise RuntimeError("sensitive owner message must not be logged")
 
     worker = TelegramBridgeWorker(client, handler, idle_seconds=0.01)
-    await worker.run(stop)
+    with caplog.at_level(logging.ERROR, logger="el_ai.telegram.bridge_worker"):
+        await worker.run(stop)
 
     assert client.completed == []
+    assert "sensitive owner message" not in caplog.text
+    assert "handler failed" in caplog.text
     assert client.closed
 
 
 @pytest.mark.asyncio
-async def test_transport_failure_uses_stop_aware_backoff_and_closes_client():
+async def test_pull_transport_failure_uses_stop_aware_backoff_and_closes_client():
     stop = asyncio.Event()
     client = FakeBridgeClient()
     client.pull_error = TelegramBridgeError("sanitized", status_code=503)
@@ -80,11 +87,7 @@ async def test_transport_failure_uses_stop_aware_backoff_and_closes_client():
     async def handler(_job):
         raise AssertionError("handler must not run after failed pull")
 
-    async def stop_soon():
-        await asyncio.sleep(0.01)
-        stop.set()
-
-    stopper = asyncio.create_task(stop_soon())
+    stopper = asyncio.create_task(_stop_after(stop, 0.01))
     worker = TelegramBridgeWorker(
         client,
         handler,
@@ -94,6 +97,41 @@ async def test_transport_failure_uses_stop_aware_backoff_and_closes_client():
     await worker.run(stop)
     await stopper
 
+    assert client.closed
+
+
+async def _stop_after(stop, delay):
+    await asyncio.sleep(delay)
+    stop.set()
+
+
+@pytest.mark.asyncio
+async def test_completion_transport_failure_uses_exponential_backoff():
+    stop = asyncio.Event()
+    job = _job()
+    client = FakeBridgeClient([job])
+    client.complete_error = TelegramBridgeError("sanitized", status_code=503)
+    delays = []
+
+    async def handler(_received):
+        return "reply"
+
+    worker = TelegramBridgeWorker(
+        client,
+        handler,
+        min_backoff_seconds=0.25,
+        max_backoff_seconds=1,
+    )
+
+    async def capture_wait(_stop, delay):
+        delays.append(delay)
+        stop.set()
+
+    worker._wait_or_stop = capture_wait
+    await worker.run(stop)
+
+    assert delays == [0.25]
+    assert client.completed == []
     assert client.closed
 
 
