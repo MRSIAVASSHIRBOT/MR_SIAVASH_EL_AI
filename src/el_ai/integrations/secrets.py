@@ -176,6 +176,7 @@ class EncryptedFileCredentialStore:
 
     def load(self, client_id: str) -> dict[str, object] | None:
         filename = self._client_filename(client_id)
+        self._prepare_directory()
         path = self._directory / filename
         try:
             flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
@@ -218,6 +219,7 @@ class EncryptedFileCredentialStore:
                 pass
 
     def delete(self, client_id: str) -> None:
+        self._prepare_directory()
         path = self._directory / self._client_filename(client_id)
         try:
             info = path.lstat()
