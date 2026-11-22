@@ -20,6 +20,7 @@ from el_ai.main import (
 )
 from el_ai.observability import RuntimeMetrics
 from el_ai.telegram.task_watch import TaskWatchStore
+from el_ai.telegram.task_plan import TaskPlanStore
 from el_ai.telegram.bridge import BridgeJob
 from el_ai.telegram.api import TelegramAPIError
 
@@ -1503,3 +1504,82 @@ def test_main_loads_dotenv_without_overriding_process_environment(monkeypatch):
         assert exc.code == 0
 
     assert calls == [{"override": False}]
+
+
+
+def test_task_plan_pause_and_resume_are_owner_scoped_and_resume_requires_confirmation(tmp_path):
+    plans = TaskPlanStore(tmp_path / "task-plans.json")
+    plan = plans.create(123, "demo.echo", ["prepare", "publish"], now=100)
+    plans.mark_submitted(plan.plan_id, 123, 0, "12345678-1234-4234-8234-123456789abc")
+
+    class FakeHub:
+        pass
+
+    hub = FakeHub()
+    paused = asyncio.run(_owner_hub_command(
+        f"/taskplanpause {plan.plan_id}",
+        telegram_user_id=123,
+        update_id=200,
+        hub=hub,
+        settings=_settings(enabled=True),
+        task_plans=plans,
+    ))
+    assert "در حالت مکث" in paused
+    assert plans.get_for_user(plan.plan_id, 123, now=101).paused is True
+
+    unconfirmed = asyncio.run(_owner_hub_command(
+        f"/taskplanresume {plan.plan_id}",
+        telegram_user_id=123,
+        update_id=201,
+        hub=hub,
+        settings=_settings(enabled=True),
+        task_plans=plans,
+    ))
+    assert "CONFIRM" in unconfirmed
+    assert plans.get_for_user(plan.plan_id, 123, now=102).paused is True
+
+    foreign = asyncio.run(_owner_hub_command(
+        f"/taskplanresume {plan.plan_id} CONFIRM",
+        telegram_user_id=456,
+        update_id=202,
+        hub=hub,
+        settings=_settings(enabled=True),
+        task_plans=plans,
+    ))
+    assert "طرح پیدا نشد" in foreign
+
+    resumed = asyncio.run(_owner_hub_command(
+        f"/taskplanresume {plan.plan_id} CONFIRM",
+        telegram_user_id=123,
+        update_id=203,
+        hub=hub,
+        settings=_settings(enabled=True),
+        task_plans=plans,
+    ))
+    assert "مکث طرح برداشته شد" in resumed
+    assert plans.get_for_user(plan.plan_id, 123, now=103).paused is False
+
+
+def test_task_plan_cannot_be_paused_before_explicit_start(tmp_path):
+    plans = TaskPlanStore(tmp_path / "task-plans.json")
+    plan = plans.create(123, "demo.echo", ["prepare", "publish"], now=100)
+
+    class FakeHub:
+        pass
+
+    rendered = asyncio.run(_owner_hub_command(
+        f"/taskplanpause {plan.plan_id}",
+        telegram_user_id=123,
+        update_id=204,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+        task_plans=plans,
+    ))
+    assert "هنوز شروع نشده" in rendered
+    assert plans.get_for_user(plan.plan_id, 123, now=101).paused is False
+
+
+def test_task_plan_pause_controls_are_owner_menu_only():
+    commands = {item["command"] for item in OWNER_BOT_COMMANDS}
+    assert {"taskplanpause", "taskplanresume"} <= commands
+    assert {"/taskplanpause", "/taskplanresume"} <= OWNER_HUB_COMMANDS

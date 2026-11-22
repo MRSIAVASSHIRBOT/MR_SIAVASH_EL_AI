@@ -169,7 +169,7 @@ def test_task_plan_store_defaults_to_sequential_dependencies_and_persists_dag(tm
     assert loaded.steps[2].blocked_reason == "dependency_failed"
     assert loaded.steps[2].task_id is None
     payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["version"] == 2
+    assert payload["version"] == 3
     assert payload["plans"][1]["steps"][2]["depends_on"] == [0, 1]
 
 
@@ -196,7 +196,7 @@ def test_task_plan_store_rejects_invalid_dependency_graphs(tmp_path, dependencie
         )
 
 
-def test_task_plan_store_migrates_v1_plans_to_v2_without_losing_checkpoints(tmp_path):
+def test_task_plan_store_migrates_v1_plans_to_v3_without_losing_checkpoints(tmp_path):
     path = tmp_path / "task-plans.json"
     path.write_text(json.dumps({
         "version": 1,
@@ -219,7 +219,7 @@ def test_task_plan_store_migrates_v1_plans_to_v2_without_losing_checkpoints(tmp_
     assert loaded.steps[0].depends_on == ()
     assert loaded.steps[1].depends_on == (0,)
     migrated = json.loads(path.read_text(encoding="utf-8"))
-    assert migrated["version"] == 2
+    assert migrated["version"] == 3
     assert migrated["plans"][0]["steps"][1]["depends_on"] == [0]
 
 
@@ -230,3 +230,95 @@ def test_task_plan_store_rejects_blocked_state_that_conflicts_with_submission(tm
     store.mark_submitted(plan.plan_id, 123, 0, TASK_A)
     with pytest.raises(TaskPlanError, match="submitted task-plan step"):
         store.mark_blocked(plan.plan_id, 123, 0, reason="hub_policy_denied")
+
+
+
+def test_task_plan_pause_state_is_persisted_owner_scoped_and_idempotent(tmp_path):
+    path = tmp_path / "task-plans.json"
+    store = TaskPlanStore(path)
+    plan = store.create(123, "demo.echo", ["prepare", "publish"], now=100)
+
+    assert store.set_paused(plan.plan_id, 123, True) is True
+    assert store.set_paused(plan.plan_id, 123, True) is False
+
+    restored = TaskPlanStore(path)
+    loaded = restored.get_for_user(plan.plan_id, 123, now=101)
+    assert loaded is not None
+    assert loaded.paused is True
+    assert restored.set_paused(plan.plan_id, 123, False) is True
+    assert restored.get_for_user(plan.plan_id, 123, now=102).paused is False
+
+    with pytest.raises(TaskPlanError, match="unavailable"):
+        restored.set_paused(plan.plan_id, 456, True)
+    with pytest.raises(ValueError, match="boolean"):
+        restored.set_paused(plan.plan_id, 123, 1)
+
+
+def test_task_plan_store_migrates_v2_to_v3_with_pause_disabled(tmp_path):
+    path = tmp_path / "task-plans-v2.json"
+    path.write_text(json.dumps({
+        "version": 2,
+        "plans": [{
+            "plan_id": TASK_A,
+            "telegram_user_id": 123,
+            "task_type": "demo.echo",
+            "created_at": 100,
+            "steps": [
+                {
+                    "description": "one",
+                    "task_id": TASK_B,
+                    "depends_on": [],
+                    "blocked_by": [],
+                    "blocked_reason": None,
+                },
+                {
+                    "description": "two",
+                    "task_id": None,
+                    "depends_on": [0],
+                    "blocked_by": [],
+                    "blocked_reason": None,
+                },
+            ],
+        }],
+    }), encoding="utf-8")
+
+    store = TaskPlanStore(path)
+    loaded = store.get_for_user(TASK_A, 123, now=101)
+    assert loaded is not None
+    assert loaded.paused is False
+    migrated = json.loads(path.read_text(encoding="utf-8"))
+    assert migrated["version"] == 3
+    assert migrated["plans"][0]["paused"] is False
+
+
+def test_task_plan_store_rejects_non_boolean_v3_pause_state(tmp_path):
+    path = tmp_path / "task-plans-invalid-v3.json"
+    path.write_text(json.dumps({
+        "version": 3,
+        "plans": [{
+            "plan_id": TASK_A,
+            "telegram_user_id": 123,
+            "task_type": "demo.echo",
+            "created_at": 100,
+            "paused": 1,
+            "steps": [
+                {
+                    "description": "one",
+                    "task_id": None,
+                    "depends_on": [],
+                    "blocked_by": [],
+                    "blocked_reason": None,
+                },
+                {
+                    "description": "two",
+                    "task_id": None,
+                    "depends_on": [0],
+                    "blocked_by": [],
+                    "blocked_reason": None,
+                },
+            ],
+        }],
+    }), encoding="utf-8")
+
+    with pytest.raises(TaskPlanError, match="pause state"):
+        TaskPlanStore(path).load()

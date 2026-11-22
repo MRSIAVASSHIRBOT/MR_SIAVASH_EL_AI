@@ -144,3 +144,24 @@ async def test_hub_policy_denial_blocks_step_and_is_not_retried(tmp_path):
     hub.fail_create = None
     assert await advance_ready_plan_steps(hub, plans, watches, {123}) == ()
     assert not hub.created
+
+
+
+async def test_paused_plan_does_not_advance_until_explicitly_resumed(tmp_path):
+    plans = TaskPlanStore(tmp_path / "plans.json")
+    watches = TaskWatchStore(tmp_path / "watches.json")
+    hub = FakeHub()
+    plan = plans.create(123, "demo.echo", ["collect", "publish"], now=int(time.time()))
+    plans.mark_submitted(plan.plan_id, 123, 0, TASK_A)
+    hub.tasks[TASK_A] = {"status": "succeeded"}
+
+    assert plans.set_paused(plan.plan_id, 123, True) is True
+    assert await advance_ready_plan_steps(hub, plans, watches, {123}) == ()
+    assert hub.created == []
+
+    assert plans.set_paused(plan.plan_id, 123, False) is True
+    events = await advance_ready_plan_steps(hub, plans, watches, {123})
+    assert [(event.kind, event.step_index, event.task_id) for event in events] == [
+        ("submitted", 1, TASK_B)
+    ]
+    assert len(hub.created) == 1

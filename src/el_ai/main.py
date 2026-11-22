@@ -43,7 +43,7 @@ TASK_STATUSES = frozenset({
     "failed", "cancelled", "rejected",
 })
 OWNER_HUB_COMMANDS = frozenset({
-    "/pair", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel",
+    "/pair", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskplanpause", "/taskplanresume",
     "/taskresult", "/taskcancel", "/taskhistory", "/taskwatch", "/taskunwatch",
     "/taskwatches", "/videoproviders", "/videoroute",
     "/videohistory", "/videostatus", "/videocancel",
@@ -394,7 +394,7 @@ async def _owner_hub_command(
             return "اتصال انجام نشد؛ کد ممکن است نامعتبر یا منقضی شده باشد. هیچ اطلاعات محرمانه‌ای ثبت نشده است."
 
     if command not in {
-        "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskresult", "/taskcancel",
+        "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskresult", "/taskcancel",
         "/taskhistory", "/taskwatch", "/taskunwatch", "/taskwatches",
         "/videoproviders", "/videoroute", "/videohistory", "/videostatus", "/videocancel",
         "/videodrafts", "/videorenders", "/videorendercheck", "/videorender", "/videorenderstatus",
@@ -614,6 +614,56 @@ async def _owner_hub_command(
                 f"برای شروع صریح اجرا: /taskplanrun {plan.plan_id}\n"
                 "فقط مراحل ریشه ابتدا ارسال می‌شوند؛ مراحل وابسته پس از موفقیت همه پیش‌نیازها به‌طور خودکار ثبت می‌شوند."
             )
+        if command == "/taskplanpause":
+            if task_plans is None:
+                return "ذخیره‌سازی طرح وظایف در دسترس نیست."
+            if not argument:
+                return "روش استفاده: /taskplanpause PLAN_ID"
+            try:
+                plan_id = str(UUID(argument))
+                plan = task_plans.get_for_user(plan_id, telegram_user_id)
+            except (TaskPlanError, ValueError):
+                return "شناسه طرح نامعتبر است."
+            if plan is None:
+                return "طرح پیدا نشد، منقضی شده یا متعلق به این اتصال ربات نیست."
+            if plan.submitted_count == 0:
+                return "این طرح هنوز شروع نشده است؛ ابتدا /taskplanrun را اجرا کن."
+            try:
+                changed = task_plans.set_paused(plan_id, telegram_user_id, True)
+            except (TaskPlanError, ValueError):
+                return "مکث طرح ذخیره نشد؛ وضعیت فایل خصوصی طرح را بررسی کن."
+            if not changed:
+                return "این طرح از قبل در حالت مکث است."
+            return (
+                "طرح در حالت مکث قرار گرفت. وظایفی که قبلاً به Hub ارسال شده‌اند ادامه دارند؛ "
+                "فقط ثبت خودکار مراحل وابسته متوقف شد.\n"
+                f"برای ادامهٔ صریح: /taskplanresume {plan_id} CONFIRM"
+            )
+        if command == "/taskplanresume":
+            parts = argument.split()
+            if len(parts) != 2 or parts[1].upper() != "CONFIRM":
+                return "برای ادامهٔ طرح، تأیید صریح لازم است: /taskplanresume PLAN_ID CONFIRM"
+            if task_plans is None:
+                return "ذخیره‌سازی طرح وظایف در دسترس نیست."
+            try:
+                plan_id = str(UUID(parts[0]))
+                plan = task_plans.get_for_user(plan_id, telegram_user_id)
+            except (TaskPlanError, ValueError):
+                return "شناسه طرح نامعتبر است."
+            if plan is None:
+                return "طرح پیدا نشد، منقضی شده یا متعلق به این اتصال ربات نیست."
+            if not plan.paused:
+                return "این طرح در حالت مکث نیست."
+            try:
+                changed = task_plans.set_paused(plan_id, telegram_user_id, False)
+            except (TaskPlanError, ValueError):
+                return "ادامهٔ طرح ذخیره نشد؛ وضعیت فایل خصوصی طرح را بررسی کن."
+            if not changed:
+                return "مکث طرح از قبل برداشته شده است."
+            return (
+                "مکث طرح برداشته شد. در نوبت بعدی پایش، فقط مراحلی که همهٔ پیش‌نیازهایشان "
+                "با موفقیت تکمیل شده‌اند به Hub ارسال می‌شوند."
+            )
         if command == "/taskplans":
             if task_plans is None:
                 return "ذخیره‌سازی طرح وظایف در دسترس نیست."
@@ -627,6 +677,7 @@ async def _owner_hub_command(
                     {
                         "plan_id": plan.plan_id,
                         "task_type": plan.task_type,
+                        "paused": plan.paused,
                         "submitted_steps": plan.submitted_count,
                         "blocked_steps": sum(bool(step.blocked_reason) for step in plan.steps),
                         "ready_root_steps": sum(
@@ -655,6 +706,7 @@ async def _owner_hub_command(
                 "وضعیت مراحل طرح",
                 f"شناسه طرح: {plan.plan_id}",
                 f"ارسال‌شده به Hub: {plan.submitted_count} از {len(plan.steps)}",
+                "وضعیت طرح: " + ("مکث‌شده" if plan.paused else ("شروع‌نشده" if plan.submitted_count == 0 else "فعال")),
             ]
             for index, step in enumerate(plan.steps):
                 dependencies_label = (
@@ -823,6 +875,8 @@ async def _owner_hub_command(
                 return "شناسه طرح نامعتبر است."
             if plan is None:
                 return "طرح پیدا نشد، منقضی شده یا متعلق به این اتصال ربات نیست."
+            if plan.paused:
+                return f"این طرح در حالت مکث است؛ برای ادامهٔ صریح /taskplanresume {plan.plan_id} CONFIRM را بفرست."
             submitted_ids = [step.task_id for step in plan.steps]
             root_indices = [
                 index for index, step in enumerate(plan.steps)
@@ -1479,6 +1533,8 @@ OWNER_BOT_COMMANDS = (
     {"command": "taskplanstatus", "description": "وضعیت همه مراحل یک طرح"},
     {"command": "taskplanwatch", "description": "پایش گروهی مراحل فعال یک طرح"},
     {"command": "taskplancancel", "description": "لغو گروهی مراحل لغوپذیر یک طرح"},
+    {"command": "taskplanpause", "description": "مکث ارسال مراحل جدید یک طرح"},
+    {"command": "taskplanresume", "description": "ادامه صریح طرح مکث‌شده"},
     {"command": "taskhistory", "description": "تاریخچه صفحه‌بندی‌شده یک وظیفه"},
     {"command": "taskwatch", "description": "اعلان تغییر وضعیت وظیفه"},
     {"command": "taskunwatch", "description": "توقف اعلان‌های وظیفه"},

@@ -43,6 +43,7 @@ class TaskPlan:
     task_type: str
     created_at: int
     steps: tuple[TaskPlanStep, ...]
+    paused: bool = False
 
     @property
     def submitted_count(self) -> int:
@@ -89,7 +90,7 @@ class TaskPlanStore:
             or set(payload) != {"version", "plans"}
             or isinstance(payload.get("version"), bool)
             or not isinstance(payload.get("version"), int)
-            or payload.get("version") not in {1, 2}
+            or payload.get("version") not in {1, 2, 3}
             or not isinstance(payload.get("plans"), list)
         ):
             raise TaskPlanError("Stored Telegram task-plan state is unsupported")
@@ -97,16 +98,22 @@ class TaskPlanStore:
         plans: list[TaskPlan] = []
         seen: set[str] = set()
         for item in payload["plans"]:
-            if not isinstance(item, dict) or set(item) != {
+            expected_plan_keys = {
                 "plan_id", "telegram_user_id", "task_type", "created_at", "steps"
-            }:
+            }
+            if payload["version"] == 3:
+                expected_plan_keys.add("paused")
+            if not isinstance(item, dict) or set(item) != expected_plan_keys:
                 raise TaskPlanError("Stored Telegram task-plan entry is invalid")
             try:
                 plan_id = self._canonical_uuid(item.get("plan_id"), "plan ID")
                 user_id = item.get("telegram_user_id")
                 task_type = item.get("task_type")
                 created_at = item.get("created_at")
+                paused = item.get("paused", False)
                 raw_steps = item.get("steps")
+                if not isinstance(paused, bool):
+                    raise TaskPlanError("Stored Telegram task-plan pause state is invalid")
                 self._validate_user_id(user_id)
                 self._validate_task_type(task_type)
                 self._validate_timestamp(created_at)
@@ -159,13 +166,14 @@ class TaskPlanStore:
                 task_type=task_type,
                 created_at=created_at,
                 steps=tuple(steps),
+                paused=paused,
             ))
 
         if len(plans) > MAX_TASK_PLANS:
             raise TaskPlanError("Stored Telegram task-plan collection exceeds its limit")
         self._plans = plans
-        if payload["version"] == 1:
-            # One-way migration: v1 plans become sequential v2 dependency graphs.
+        if payload["version"] < 3:
+            # One-way migration: v1/v2 plans gain the default unpaused state.
             self._replace(plans)
         return tuple(plans)
 
@@ -298,6 +306,7 @@ class TaskPlanStore:
                 plan.task_type,
                 plan.created_at,
                 tuple(steps),
+                plan.paused,
             ))
             changed = True
         if not found:
@@ -356,6 +365,46 @@ class TaskPlanStore:
                 plan.task_type,
                 plan.created_at,
                 tuple(steps),
+                plan.paused,
+            ))
+            changed = True
+        if not found:
+            raise TaskPlanError("Task plan is unavailable")
+        if changed:
+            self._replace(updated)
+        return changed
+
+    def set_paused(
+        self,
+        plan_id: str,
+        telegram_user_id: int,
+        paused: bool,
+    ) -> bool:
+        """Persist an owner-scoped pause/resume transition idempotently."""
+        canonical_plan_id = self._canonical_uuid(plan_id, "plan ID")
+        self._validate_user_id(telegram_user_id)
+        if not isinstance(paused, bool):
+            raise ValueError("Task-plan pause state must be a boolean")
+
+        plans = self._ensure_loaded()
+        updated: list[TaskPlan] = []
+        changed = False
+        found = False
+        for plan in plans:
+            if plan.plan_id != canonical_plan_id or plan.telegram_user_id != telegram_user_id:
+                updated.append(plan)
+                continue
+            found = True
+            if plan.paused == paused:
+                updated.append(plan)
+                continue
+            updated.append(TaskPlan(
+                plan.plan_id,
+                plan.telegram_user_id,
+                plan.task_type,
+                plan.created_at,
+                plan.steps,
+                paused,
             ))
             changed = True
         if not found:
@@ -390,13 +439,14 @@ class TaskPlanStore:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             payload = {
-                "version": 2,
+                "version": 3,
                 "plans": [
                     {
                         "plan_id": plan.plan_id,
                         "telegram_user_id": plan.telegram_user_id,
                         "task_type": plan.task_type,
                         "created_at": plan.created_at,
+                        "paused": plan.paused,
                         "steps": [
                             {
                                 "description": step.description,

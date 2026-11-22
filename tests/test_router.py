@@ -53,6 +53,8 @@ def test_help_documents_public_site_query_for_owner_and_public_user():
     assert "/taskhistory TASK_ID" in router.route(_message("/help"))
     assert "/taskplanwatch PLAN_ID" in router.route(_message("/help"))
     assert "/taskplancancel PLAN_ID CONFIRM" in router.route(_message("/help"))
+    assert "/taskplanpause PLAN_ID" in router.route(_message("/help"))
+    assert "/taskplanresume PLAN_ID CONFIRM" in router.route(_message("/help"))
     assert "/agentplan [local|remote] TYPE | GOAL" in router.route(_message("/help"))
     assert "/videoproviders" in router.route(_message("/help"))
     assert "/videoroute SECONDS ASPECT" in router.route(_message("/help"))
@@ -63,6 +65,8 @@ def test_help_documents_public_site_query_for_owner_and_public_user():
     public_help = router.route(_message("/help", user_id=456))
     assert "ارسال پرسش متنی" in public_help
     assert "/taskstatus" not in public_help
+    assert "/taskplanpause" not in public_help
+    assert "/taskplanresume" not in public_help
     assert "/tasks" not in public_help
     assert "/videohistory" not in public_help
     assert "/videoroute" not in public_help
