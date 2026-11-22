@@ -1488,3 +1488,18 @@ def test_bridge_transport_does_not_start_local_telegram_polling(monkeypatch):
     asyncio.run(run(settings))
 
     assert called == [settings]
+
+
+
+def test_main_loads_dotenv_without_overriding_process_environment(monkeypatch):
+    calls = []
+    monkeypatch.setattr("el_ai.main.load_dotenv", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr("sys.argv", ["el-ai", "doctor"])
+    monkeypatch.setattr("el_ai.doctor.main", lambda json_output: 0)
+
+    try:
+        main()
+    except SystemExit as exc:
+        assert exc.code == 0
+
+    assert calls == [{"override": False}]
