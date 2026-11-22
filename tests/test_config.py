@@ -133,3 +133,13 @@ def test_cloudflare_bridge_mode_requires_owner_allowlist_and_hub(monkeypatch):
 
     with pytest.raises(ConfigurationError, match="TELEGRAM_OWNER_IDS"):
         Settings.from_env()
+
+
+
+def test_local_polling_ignores_bridge_only_configuration(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abcdefghijklmnop")
+    monkeypatch.setenv("TELEGRAM_TRANSPORT", "local_polling")
+    monkeypatch.setenv("TELEGRAM_BRIDGE_TIMEOUT_SECONDS", "not-an-integer")
+    settings = Settings.from_env()
+    assert settings.telegram_transport == "local_polling"
+    assert settings.telegram_bridge_timeout_seconds == 8
