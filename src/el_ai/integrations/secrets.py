@@ -6,8 +6,8 @@ import base64
 import binascii
 import json
 import os
+import secrets
 import stat
-import tempfile
 from pathlib import Path
 from typing import Any, Protocol
 from uuid import UUID
@@ -95,6 +95,9 @@ class EncryptedFileCredentialStore:
 
     The encryption key must be injected as a base64-encoded 32-byte secret by the
     host's secret manager. No plaintext fallback or key generation is performed.
+    All operations after opening the credential directory are relative to its
+    verified file descriptor, so renaming or replacing its pathname cannot
+    redirect credential reads or writes to a different directory.
     """
 
     SERVICE_NAME = "MR_SIAVASH_EL_AI"
@@ -128,22 +131,34 @@ class EncryptedFileCredentialStore:
         except (ValueError, TypeError, AttributeError) as exc:
             raise SecretStoreError("Credential client identity is invalid") from exc
 
-    def _prepare_directory(self) -> None:
+    def _open_directory(self) -> int:
+        """Open and pin the private credential directory without following symlinks."""
+        nofollow = getattr(os, "O_NOFOLLOW", None)
+        if nofollow is None or not hasattr(os, "O_DIRECTORY"):
+            raise SecretStoreError("Safe directory-descriptor operations are unavailable")
+
         try:
             self._directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-            info = self._directory.lstat()
-            if not stat.S_ISDIR(info.st_mode):
-                raise SecretStoreError("Credential path must be a real directory")
-            os.chmod(self._directory, 0o700)
-            info = self._directory.stat()
-            if not stat.S_ISDIR(info.st_mode) or info.st_mode & 0o077:
-                raise SecretStoreError("Credential directory permissions are not private")
+            flags = os.O_RDONLY | os.O_DIRECTORY | nofollow | getattr(os, "O_CLOEXEC", 0)
+            directory_fd = os.open(self._directory, flags)
         except OSError as exc:
-            raise SecretStoreError("Credential directory is unavailable") from exc
+            raise SecretStoreError("Credential directory is unavailable or unsafe") from exc
+
+        try:
+            info = os.fstat(directory_fd)
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid():
+                raise SecretStoreError("Credential path must be a directory owned by this user")
+            os.fchmod(directory_fd, 0o700)
+            info = os.fstat(directory_fd)
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+                raise SecretStoreError("Credential directory permissions are not private")
+            return directory_fd
+        except Exception:
+            os.close(directory_fd)
+            raise
 
     def save(self, client_id: str, credentials: dict[str, object]) -> None:
         filename = self._client_filename(client_id)
-        self._prepare_directory()
         try:
             plaintext = json.dumps(
                 credentials, separators=(",", ":"), sort_keys=True
@@ -162,57 +177,71 @@ class EncryptedFileCredentialStore:
                 separators=(",", ":"),
                 sort_keys=True,
             ).encode("ascii")
-            descriptor, temporary_name = tempfile.mkstemp(
-                prefix=".credentials-", suffix=".tmp", dir=self._directory
+        except SecretStoreError:
+            raise
+        except Exception as exc:
+            raise SecretStoreError("Could not encrypt Hub credentials securely") from exc
+
+        directory_fd = self._open_directory()
+        temporary_name = f".credentials-{secrets.token_hex(16)}.tmp"
+        temporary_fd: int | None = None
+        try:
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+            temporary_fd = os.open(temporary_name, flags, 0o600, dir_fd=directory_fd)
+            os.fchmod(temporary_fd, 0o600)
+            with os.fdopen(temporary_fd, "wb") as handle:
+                temporary_fd = None
+                handle.write(envelope)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(
+                temporary_name,
+                filename,
+                src_dir_fd=directory_fd,
+                dst_dir_fd=directory_fd,
             )
-            try:
-                os.fchmod(descriptor, 0o600)
-                with os.fdopen(descriptor, "wb") as handle:
-                    handle.write(envelope)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                os.replace(temporary_name, self._directory / filename)
-                directory_fd = os.open(self._directory, os.O_RDONLY)
-                try:
-                    os.fsync(directory_fd)
-                finally:
-                    os.close(directory_fd)
-            except Exception:
-                try:
-                    os.close(descriptor)
-                except OSError:
-                    pass
-                try:
-                    os.unlink(temporary_name)
-                except OSError:
-                    pass
-                raise
+            os.fsync(directory_fd)
         except SecretStoreError:
             raise
         except Exception as exc:
             raise SecretStoreError("Could not store Hub credentials securely") from exc
+        finally:
+            if temporary_fd is not None:
+                try:
+                    os.close(temporary_fd)
+                except OSError:
+                    pass
+            try:
+                os.unlink(temporary_name, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
+            os.close(directory_fd)
 
     def load(self, client_id: str) -> dict[str, object] | None:
         filename = self._client_filename(client_id)
-        self._prepare_directory()
-        path = self._directory / filename
+        directory_fd = self._open_directory()
+        descriptor: int | None = None
         try:
-            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-            descriptor = os.open(path, flags)
-        except FileNotFoundError:
-            return None
-        except OSError as exc:
-            raise SecretStoreError("Could not open encrypted Hub credentials safely") from exc
-        try:
+            flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+            try:
+                descriptor = os.open(filename, flags, dir_fd=directory_fd)
+            except FileNotFoundError:
+                return None
             info = os.fstat(descriptor)
             if (
                 not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.geteuid()
                 or info.st_mode & 0o077
                 or info.st_size > self.MAX_FILE_BYTES
             ):
                 raise SecretStoreError("Encrypted credential file permissions or size are invalid")
             with os.fdopen(descriptor, "rb") as handle:
+                descriptor = None
                 raw = handle.read(self.MAX_FILE_BYTES + 1)
+            if len(raw) > self.MAX_FILE_BYTES:
+                raise SecretStoreError("Encrypted credential file exceeds the supported size")
             envelope = json.loads(raw.decode("ascii"))
             if not isinstance(envelope, dict) or envelope.get("version") != 1:
                 raise SecretStoreError("Encrypted credential file format is invalid")
@@ -231,25 +260,35 @@ class EncryptedFileCredentialStore:
         except Exception as exc:
             raise SecretStoreError("Could not decrypt Hub credentials") from exc
         finally:
-            try:
-                os.close(descriptor)
-            except OSError:
-                pass
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+            os.close(directory_fd)
 
     def delete(self, client_id: str) -> None:
-        self._prepare_directory()
-        path = self._directory / self._client_filename(client_id)
+        filename = self._client_filename(client_id)
+        directory_fd = self._open_directory()
         try:
-            info = path.lstat()
-            if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077:
+            try:
+                info = os.stat(filename, dir_fd=directory_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                return
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.geteuid()
+                or info.st_mode & 0o077
+            ):
                 raise SecretStoreError("Credential file permissions are not private")
-            path.unlink()
-        except FileNotFoundError:
-            return
+            os.unlink(filename, dir_fd=directory_fd)
+            os.fsync(directory_fd)
         except SecretStoreError:
             raise
-        except OSError as exc:
+        except Exception as exc:
             raise SecretStoreError("Could not remove encrypted Hub credentials") from exc
+        finally:
+            os.close(directory_fd)
 
 
 def build_credential_store(state_directory: Path) -> CredentialStore:
