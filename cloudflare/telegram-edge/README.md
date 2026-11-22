@@ -54,6 +54,6 @@ No third-party Node dependencies are required.
 
 ## Deployment boundary
 
-**This directory is not yet a production deployment configuration.** No production account ID, D1 database ID, route, domain, token, secret, or Wrangler deployment target is committed. There is intentionally no production `wrangler.jsonc` yet: local/dev deployment must first have a separate D1 database, a separate test Telegram bot, dedicated development secrets, and a non-production webhook URL.
+**This directory is not yet a production deployment configuration.** No production account ID, D1 database ID, token, secret, or Wrangler deployment target is committed. The source retains the observed non-secret production `workers.dev` webhook URL as a default for parity with the deployed Worker; it must be overridden or replaced in a separately designed development configuration. There is intentionally no production `wrangler.jsonc` yet: local/dev deployment must first have a separate D1 database, a separate test Telegram bot, dedicated development secrets, and a non-production webhook URL.
 
 Do not deploy this snapshot directly to the live Worker. The currently deployed Worker remains unchanged until a separate reviewed release updates the source, bindings, migrations, and deployment target together.
