@@ -53,20 +53,26 @@ class TelegramBridgeWorker:
             while not stop.is_set():
                 try:
                     job = await self._client.pull()
-                    backoff = self._min_backoff
                     if job is None:
+                        backoff = self._min_backoff
                         await self._wait_or_stop(stop, self._idle_seconds)
                         continue
+
                     try:
                         reply = await self._handler(job)
-                        await self._client.complete(job, reply)
                     except asyncio.CancelledError:
                         raise
-                    except Exception:  # noqa: BLE001 - one failed job must not kill the worker
-                        LOGGER.exception(
-                            "Telegram bridge job failed; lease will expire and permit retry"
+                    except Exception:  # noqa: BLE001 - do not leak exception text or kill worker
+                        LOGGER.error(
+                            "Telegram bridge job handler failed; lease will expire and permit retry"
                         )
                         await self._wait_or_stop(stop, self._idle_seconds)
+                        continue
+
+                    # Keep completion outside the handler exception boundary:
+                    # transport failures must use the same exponential backoff as pull.
+                    await self._client.complete(job, reply)
+                    backoff = self._min_backoff
                 except asyncio.CancelledError:
                     raise
                 except TelegramBridgeError as exc:
