@@ -54,8 +54,12 @@ class KeyringCredentialStore:
         try:
             payload = json.dumps(credentials, separators=(",", ":"), sort_keys=True)
             self._backend.set_password(self.SERVICE_NAME, client_id, payload)
-        except Exception as exc:
-            raise SecretStoreError("Could not store Hub credentials securely") from exc
+        except Exception:
+            failure = SecretStoreError("Could not store Hub credentials securely")
+        else:
+            failure = None
+        if failure is not None:
+            raise failure
 
     def load(self, client_id: str) -> dict[str, object] | None:
         try:
@@ -63,8 +67,13 @@ class KeyringCredentialStore:
             if payload is None:
                 return None
             value = json.loads(payload)
-        except Exception as exc:
-            raise SecretStoreError("Could not read Hub credentials securely") from exc
+        except Exception:
+            failure = SecretStoreError("Could not read Hub credentials securely")
+            value = None
+        else:
+            failure = None
+        if failure is not None:
+            raise failure
         if not isinstance(value, dict):
             raise SecretStoreError("Stored Hub credentials have an invalid format")
         return value
@@ -73,8 +82,12 @@ class KeyringCredentialStore:
         try:
             if self._backend.get_password(self.SERVICE_NAME, client_id) is not None:
                 self._backend.delete_password(self.SERVICE_NAME, client_id)
-        except Exception as exc:
-            raise SecretStoreError("Could not remove Hub credentials") from exc
+        except Exception:
+            failure = SecretStoreError("Could not remove Hub credentials")
+        else:
+            failure = None
+        if failure is not None:
+            raise failure
 
 
 class EncryptedFileCredentialStore:
@@ -85,9 +98,13 @@ class EncryptedFileCredentialStore:
     """
 
     SERVICE_NAME = "MR_SIAVASH_EL_AI"
-    MAX_FILE_BYTES = 16 * 1024
+    MAX_FILE_BYTES = 24 * 1024
 
     def __init__(self, directory: Path, encoded_key: str | None) -> None:
+        if os.name != "posix":
+            raise SecretStoreError(
+                "encrypted_file storage requires a POSIX host; use the OS keyring on Windows"
+            )
         if not isinstance(encoded_key, str) or not encoded_key:
             raise SecretStoreError("Encrypted credential storage key is not configured")
         try:
