@@ -119,6 +119,23 @@ async def test_complete_signs_lease_bound_reply():
 
 
 @pytest.mark.asyncio
+async def test_complete_rejects_replies_over_telegram_utf16_limit():
+    job = TelegramBridgeClient._parse_job(_job_payload())
+    client = TelegramBridgeClient(
+        "https://bridge.example.test",
+        SECRET,
+        transport=httpx.MockTransport(
+            lambda _request: pytest.fail("oversized replies must fail before HTTP")
+        ),
+    )
+
+    with pytest.raises(ValueError, match="UTF-16"):
+        await client.complete(job, "😀" * 2001)
+
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_expired_lease_is_reported_without_response_body():
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(409, json={"error": "lease_not_valid", "secret": "do-not-leak"})
