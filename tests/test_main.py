@@ -8,6 +8,7 @@ from el_ai.integrations.hub import HubClientError
 from el_ai.integrations.secrets import SecretStoreError
 from el_ai.main import (
     main,
+    BRIDGE_OWNER_COMMANDS,
     _build_hub_client,
     _bridge_job_command,
     _bridge_update_id,
@@ -1509,6 +1510,17 @@ def test_bridge_job_dispatch_rejects_non_owner_and_non_private_chat():
         _bridge_job(payload, chat_id=-100, user_id=123),
         owners,
     ) is None
+
+
+def test_bridge_dispatch_allowlist_is_supported_by_the_owner_command_router():
+    assert BRIDGE_OWNER_COMMANDS <= OWNER_HUB_COMMANDS
+    owners = frozenset({123})
+
+    for command in BRIDGE_OWNER_COMMANDS:
+        assert _bridge_job_command(
+            _bridge_job({"command": "dispatch", "text": command}),
+            owners,
+        ) == command
 
 
 def test_bridge_job_rejects_unknown_extra_fields_and_non_private_chats():
