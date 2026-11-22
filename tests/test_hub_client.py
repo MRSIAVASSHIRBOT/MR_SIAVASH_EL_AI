@@ -1269,3 +1269,27 @@ async def test_authorized_hub_request_does_not_follow_redirects():
         assert requests[0].headers["Authorization"] == f"Bearer {access_token}"
     finally:
         await client.close()
+
+
+
+def test_render_private_network_hub_url_requires_explicit_allowlist():
+    import asyncio
+
+    with pytest.raises(ValueError, match="explicitly allowed"):
+        HubClient("http://mr-siavash-hub-ai:10000", "client-private", MemoryStore())
+
+    client = HubClient(
+        "http://mr-siavash-hub-ai:10000",
+        "client-private",
+        MemoryStore(),
+        allow_render_private_network=True,
+    )
+    asyncio.run(client.close())
+
+    with pytest.raises(ValueError, match="explicitly allowed"):
+        HubClient(
+            "http://hub.example.com:10000",
+            "client-public",
+            MemoryStore(),
+            allow_render_private_network=True,
+        )

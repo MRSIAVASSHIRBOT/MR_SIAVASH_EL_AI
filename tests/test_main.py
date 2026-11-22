@@ -50,11 +50,19 @@ def test_enabled_hub_integration_initializes_the_scoped_client(monkeypatch):
     store = object()
     monkeypatch.setattr("el_ai.main.KeyringCredentialStore", lambda: store)
 
-    def build_client(base_url, client_id, credential_store, *, allow_remote):
+    def build_client(
+        base_url,
+        client_id,
+        credential_store,
+        *,
+        allow_remote,
+        allow_render_private_network,
+    ):
         assert base_url == "http://127.0.0.1:8000"
         assert client_id == "client-id"
         assert credential_store is store
         assert allow_remote is False
+        assert allow_render_private_network is False
         return marker
 
     monkeypatch.setattr("el_ai.main.HubClient", build_client)
