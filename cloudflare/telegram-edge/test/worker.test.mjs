@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 
 import worker from "../src/index.js";
 
@@ -18,6 +19,205 @@ function createEnv() {
         throw new Error("D1 should not be queried by webhook registration");
       },
     },
+  };
+}
+
+
+
+function createMemoryD1() {
+  const processedUpdates = new Map();
+  const jobs = new Map();
+  const nonces = new Map();
+  const now = () => Math.floor(Date.now() / 1000);
+
+  const DB = {
+    prepare(sql) {
+      const query = sql.replace(/\\s+/g, " ").trim();
+
+      return {
+        bind(...values) {
+          return {
+            async first() {
+              if (query.startsWith("INSERT INTO telegram_processed_updates")) {
+                const [updateId] = values;
+                const existing = processedUpdates.get(updateId);
+                if (
+                  !existing ||
+                  (existing.state !== "done" && existing.lease_until < now())
+                ) {
+                  processedUpdates.set(updateId, {
+                    update_id: updateId,
+                    state: "processing",
+                    lease_until: now() + 15,
+                    processed_at: null,
+                  });
+                  return { update_id: updateId };
+                }
+                return null;
+              }
+
+              if (query.startsWith("SELECT state FROM telegram_processed_updates")) {
+                const [updateId] = values;
+                const existing = processedUpdates.get(updateId);
+                return existing ? { state: existing.state } : null;
+              }
+
+              if (query.startsWith("INSERT INTO bridge_nonces")) {
+                const [nonceHash] = values;
+                if (nonces.has(nonceHash)) return null;
+                nonces.set(nonceHash, now() + 120);
+                return { nonce_hash: nonceHash };
+              }
+
+              if (query.startsWith("UPDATE telegram_jobs SET state='leased'")) {
+                const [leaseHash] = values;
+                const job = [...jobs.values()]
+                  .filter(item =>
+                    item.state === "pending" ||
+                    (["leased", "sending"].includes(item.state) && item.lease_until < now()),
+                  )
+                  .sort((left, right) => left.created_at - right.created_at)[0];
+
+                if (!job) return null;
+                job.state = "leased";
+                job.lease_until = now() + 60;
+                job.lease_token_hash = leaseHash;
+                job.attempts += 1;
+                job.updated_at = now();
+                return {
+                  job_id: job.job_id,
+                  chat_id: job.chat_id,
+                  telegram_user_id: job.telegram_user_id,
+                  payload_ciphertext: job.payload_ciphertext,
+                  attempts: job.attempts,
+                };
+              }
+
+              if (query.startsWith("UPDATE telegram_jobs SET state='sending'")) {
+                const [jobId, leaseHash] = values;
+                const job = jobs.get(jobId);
+                if (
+                  !job ||
+                  job.state !== "leased" ||
+                  job.lease_token_hash !== leaseHash ||
+                  job.lease_until < now()
+                ) {
+                  return null;
+                }
+                job.state = "sending";
+                job.updated_at = now();
+                return { chat_id: job.chat_id };
+              }
+
+              throw new Error(`Unsupported test D1 first() query: ${query}`);
+            },
+
+            async run() {
+              if (query.startsWith("UPDATE telegram_processed_updates SET state='done'")) {
+                const [updateId] = values;
+                const row = processedUpdates.get(updateId);
+                if (row) Object.assign(row, { state: "done", lease_until: 0, processed_at: now() });
+                return { meta: { changes: row ? 1 : 0 } };
+              }
+
+              if (query.startsWith("UPDATE telegram_processed_updates SET state='retry'")) {
+                const [updateId] = values;
+                const row = processedUpdates.get(updateId);
+                if (row?.state === "processing") Object.assign(row, { state: "retry", lease_until: now() });
+                return { meta: { changes: row ? 1 : 0 } };
+              }
+
+              if (query.startsWith("INSERT OR IGNORE INTO telegram_jobs")) {
+                const [jobId, updateId, chatId, userId, ciphertext] = values;
+                const alreadyQueued = [...jobs.values()].some(job => job.update_id === updateId);
+                const activeCount = [...jobs.values()].filter(job =>
+                  ["pending", "leased", "sending"].includes(job.state),
+                ).length;
+                if (alreadyQueued || activeCount >= 1000) return { meta: { changes: 0 } };
+                jobs.set(jobId, {
+                  job_id: jobId,
+                  update_id: updateId,
+                  chat_id: chatId,
+                  telegram_user_id: userId,
+                  payload_ciphertext: ciphertext,
+                  state: "pending",
+                  lease_until: 0,
+                  lease_token_hash: null,
+                  attempts: 0,
+                  created_at: now(),
+                  updated_at: now(),
+                });
+                return { meta: { changes: 1 } };
+              }
+
+              if (query.startsWith("UPDATE telegram_jobs SET state='pending'")) {
+                const [jobId, leaseHash] = values;
+                const job = jobs.get(jobId);
+                if (
+                  job &&
+                  (values.length === 1 ||
+                    (job.state === "sending" && job.lease_token_hash === leaseHash))
+                ) {
+                  Object.assign(job, {
+                    state: "pending",
+                    lease_until: 0,
+                    lease_token_hash: null,
+                    updated_at: now(),
+                  });
+                  return { meta: { changes: 1 } };
+                }
+                return { meta: { changes: 0 } };
+              }
+
+              if (query.startsWith("UPDATE telegram_jobs SET state='done'")) {
+                const [jobId, leaseHash] = values;
+                const job = jobs.get(jobId);
+                if (job?.state === "sending" && job.lease_token_hash === leaseHash) {
+                  Object.assign(job, {
+                    state: "done",
+                    lease_until: 0,
+                    lease_token_hash: null,
+                    updated_at: now(),
+                  });
+                  return { meta: { changes: 1 } };
+                }
+                return { meta: { changes: 0 } };
+              }
+
+              throw new Error(`Unsupported test D1 run() query: ${query}`);
+            },
+          };
+        },
+      };
+    },
+  };
+
+  return { DB, processedUpdates, jobs, nonces };
+}
+
+async function signedBridgeRequest(env, path, body, options = {}) {
+  const bodyText = JSON.stringify(body);
+  const timestamp = options.timestamp || String(Math.floor(Date.now() / 1000));
+  const nonce = options.nonce || `nonce-${randomUUID()}`;
+  const bodyHash = createHash("sha256").update(bodyText).digest("hex");
+  const message = [timestamp, nonce, "POST", path, bodyHash].join("\\n");
+  const signature = createHmac("sha256", env.BRIDGE_SHARED_SECRET)
+    .update(message)
+    .digest("hex");
+
+  return {
+    timestamp,
+    nonce,
+    request: new Request(`https://edge.test${path}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Bridge-Timestamp": timestamp,
+        "X-Bridge-Nonce": nonce,
+        "X-Bridge-Signature": signature,
+      },
+      body: bodyText,
+    }),
   };
 }
 
@@ -187,3 +387,156 @@ test("readiness rejects a missing or invalid environment-specific webhook URL", 
     assert.equal((await response.json()).status, "not_ready");
   }
 });
+
+test("queues an owner command, authenticates bridge pulls, and completes a fenced Telegram reply", async () => {
+  const env = createEnv();
+  const d1 = createMemoryD1();
+  env.DB = d1.DB;
+  env.BRIDGE_SHARED_SECRET = "bridge-shared-secret-for-tests-only-0123456789";
+  env.QUEUE_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64url");
+
+  const telegramRequests = [];
+  await withRuntimeMocks({
+    fetchImpl: async (input, init) => {
+      const url = String(input);
+      const payload = JSON.parse(init.body);
+      telegramRequests.push({ url, payload });
+      assert.ok(url.endsWith("/sendMessage"), "only the final Telegram reply should leave the Worker");
+      return Response.json({ ok: true, result: { message_id: 77 } });
+    },
+    logImpl: () => {},
+  }, async () => {
+    const update = {
+      update_id: 51001,
+      message: {
+        from: { id: 123456789 },
+        chat: { id: 123456789, type: "private" },
+        text: "/status",
+      },
+    };
+    const webhookResponse = await worker.fetch(
+      new Request("https://edge.test/telegram/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Telegram-Bot-Api-Secret-Token": env.TELEGRAM_WEBHOOK_SECRET,
+        },
+        body: JSON.stringify(update),
+      }),
+      env,
+    );
+
+    assert.equal(webhookResponse.status, 200);
+    assert.deepEqual(await webhookResponse.json(), { ok: true });
+    assert.equal(d1.processedUpdates.get(51001).state, "done");
+    assert.equal(d1.jobs.size, 1);
+
+    const storedJob = [...d1.jobs.values()][0];
+    assert.equal(storedJob.state, "pending");
+    assert.equal(storedJob.payload_ciphertext.includes("status"), false);
+    assert.equal(storedJob.payload_ciphertext.includes("command"), false);
+
+    const firstPullAuth = await signedBridgeRequest(env, "/bridge/pull", {});
+    const firstPullResponse = await worker.fetch(firstPullAuth.request, env);
+    assert.equal(firstPullResponse.status, 200);
+    const firstPullBody = await firstPullResponse.json();
+    assert.equal(firstPullBody.job.payload.command, "status");
+    assert.equal(firstPullBody.job.job_id, storedJob.job_id);
+    assert.equal(firstPullBody.job.chat_id, 123456789);
+    assert.equal(firstPullBody.job.telegram_user_id, 123456789);
+    assert.equal(firstPullBody.job.attempts, 1);
+    assert.equal(typeof firstPullBody.job.lease_token, "string");
+    assert.equal("payload_ciphertext" in firstPullBody.job, false);
+
+    const replayAuth = await signedBridgeRequest(env, "/bridge/pull", {}, {
+      timestamp: firstPullAuth.timestamp,
+      nonce: firstPullAuth.nonce,
+    });
+    const replayResponse = await worker.fetch(replayAuth.request, env);
+    assert.equal(replayResponse.status, 401, "a signed nonce must be single-use");
+
+    const wrongLeaseAuth = await signedBridgeRequest(env, "/bridge/complete", {
+      job_id: storedJob.job_id,
+      lease_token: "wrong-lease-token-".repeat(4),
+      reply: "This must not be delivered",
+    });
+    const wrongLeaseResponse = await worker.fetch(wrongLeaseAuth.request, env);
+    assert.equal(wrongLeaseResponse.status, 409);
+    assert.equal(telegramRequests.length, 0);
+
+    storedJob.lease_until = 0;
+    const expiredLeaseAuth = await signedBridgeRequest(env, "/bridge/complete", {
+      job_id: storedJob.job_id,
+      lease_token: firstPullBody.job.lease_token,
+      reply: "An expired lease must not deliver",
+    });
+    const expiredLeaseResponse = await worker.fetch(expiredLeaseAuth.request, env);
+    assert.equal(expiredLeaseResponse.status, 409);
+    assert.equal(telegramRequests.length, 0);
+
+    const secondPullAuth = await signedBridgeRequest(env, "/bridge/pull", {});
+    const secondPullResponse = await worker.fetch(secondPullAuth.request, env);
+    assert.equal(secondPullResponse.status, 200);
+    const secondPullBody = await secondPullResponse.json();
+    assert.equal(secondPullBody.job.attempts, 2);
+    assert.notEqual(secondPullBody.job.lease_token, firstPullBody.job.lease_token);
+
+    const completionAuth = await signedBridgeRequest(env, "/bridge/complete", {
+      job_id: storedJob.job_id,
+      lease_token: secondPullBody.job.lease_token,
+      reply: "HUB is operational",
+    });
+    const completionResponse = await worker.fetch(completionAuth.request, env);
+    assert.equal(completionResponse.status, 200);
+    assert.deepEqual(await completionResponse.json(), { ok: true });
+    assert.equal(storedJob.state, "done");
+    assert.equal(storedJob.lease_token_hash, null);
+    assert.equal(telegramRequests.length, 1);
+    assert.deepEqual(telegramRequests[0].payload, {
+      chat_id: 123456789,
+      text: "HUB is operational",
+      disable_web_page_preview: true,
+    });
+
+    const duplicateCompletionAuth = await signedBridgeRequest(env, "/bridge/complete", {
+      job_id: storedJob.job_id,
+      lease_token: secondPullBody.job.lease_token,
+      reply: "This must not be sent twice",
+    });
+    const duplicateCompletionResponse = await worker.fetch(duplicateCompletionAuth.request, env);
+    assert.equal(duplicateCompletionResponse.status, 409);
+    assert.equal(telegramRequests.length, 1);
+  });
+});
+
+test("does not enqueue commands from a Telegram user other than the configured owner", async () => {
+  const env = createEnv();
+  const d1 = createMemoryD1();
+  env.DB = d1.DB;
+  env.BRIDGE_SHARED_SECRET = "bridge-shared-secret-for-tests-only-0123456789";
+  env.QUEUE_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64url");
+
+  const response = await worker.fetch(
+    new Request("https://edge.test/telegram/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Telegram-Bot-Api-Secret-Token": env.TELEGRAM_WEBHOOK_SECRET,
+      },
+      body: JSON.stringify({
+        update_id: 51002,
+        message: {
+          from: { id: 987654321 },
+          chat: { id: 987654321, type: "private" },
+          text: "/status",
+        },
+      }),
+    }),
+    env,
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(d1.processedUpdates.get(51002).state, "done");
+  assert.equal(d1.jobs.size, 0);
+});
+
