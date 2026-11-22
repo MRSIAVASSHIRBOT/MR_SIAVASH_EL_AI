@@ -189,3 +189,27 @@ def test_cloudflare_bridge_accepts_explicit_render_private_hub_binding(monkeypat
 
     assert settings.hub_api_base_url == "http://mr-siavash-hub-ai:10000"
     assert settings.hub_allow_render_private_network is True
+
+
+def test_cloudflare_bridge_supports_zero_cost_local_hub_profile(monkeypatch):
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("TELEGRAM_TRANSPORT", "cloudflare_bridge")
+    monkeypatch.setenv(
+        "TELEGRAM_BRIDGE_URL",
+        "https://mr-siavash-el-ir-bot.mrsiavashirbot.workers.dev",
+    )
+    monkeypatch.setenv("TELEGRAM_BRIDGE_SHARED_SECRET", "x" * 40)
+    monkeypatch.setenv("TELEGRAM_OWNER_IDS", "123")
+    monkeypatch.setenv("HUB_INTEGRATION_ENABLED", "true")
+    monkeypatch.setenv("HUB_API_BASE_URL", "http://127.0.0.1:8000")
+    monkeypatch.setenv("HUB_ALLOW_REMOTE", "false")
+    monkeypatch.setenv("HUB_ALLOW_RENDER_PRIVATE_NETWORK", "false")
+
+    settings = Settings.from_env()
+
+    assert settings.telegram_bot_token is None
+    assert settings.telegram_transport == "cloudflare_bridge"
+    assert settings.hub_integration_enabled is True
+    assert settings.hub_api_base_url == "http://127.0.0.1:8000"
+    assert settings.hub_allow_remote is False
+    assert settings.hub_allow_render_private_network is False
