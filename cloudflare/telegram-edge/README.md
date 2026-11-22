@@ -64,7 +64,7 @@ No third-party Node dependencies are required.
 
 The Worker forwards a fixed allowlist of owner Hub commands as encrypted `{ command: "dispatch", text: ... }` jobs after checking the private-chat owner identity, bridge configuration and bounded single-line text. The Python consumer applies a second independent owner check, exact payload-key validation, text bounds and its own command allowlist before invoking the existing Hub handler. `/pair` remains a distinct one-time-code payload.
 
-Background notification commands (`/taskwatch`, `/taskunwatch`, `/taskwatches`, `/taskplanwatch`) and binary `/videorenderdownload` are intentionally excluded. The Python bridge consumer does not yet run the periodic notifier or Telegram binary upload path. `/taskplanrun` remains available, but bridge mode does not silently enable background task watches.
+Bridge mode loads the private local `task-plans.json` store and runs a bounded five-second dependency scheduler. It advances only plans explicitly started by the owner with `/taskplanrun`, submits dependent steps only after every prerequisite succeeds, and reuses stable Hub idempotency keys. `/taskplanstatus` is available for manual inspection. No `TaskWatchStore` is started in bridge mode, so this scheduler does not send Telegram progress notifications. Background-notification commands (`/taskwatch`, `/taskunwatch`, `/taskwatches`, `/taskplanwatch`) and binary `/videorenderdownload` remain excluded until a separate notification loop and Telegram file-upload path are implemented.
 
 ## Deployment boundary
 
