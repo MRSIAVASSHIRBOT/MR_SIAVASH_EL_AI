@@ -182,3 +182,34 @@ def test_encrypted_file_store_delete_uses_the_pinned_directory_descriptor(
     assert replaced is True
     assert not (pinned / f"{client_id}.json").exists()
     assert list(outside.iterdir()) == []
+
+
+def test_encrypted_file_store_read_uses_the_pinned_directory_descriptor(
+    monkeypatch, tmp_path
+):
+    directory = tmp_path / "credentials"
+    outside = tmp_path / "outside"
+    pinned = tmp_path / "credentials-pinned"
+    outside.mkdir()
+    store = EncryptedFileCredentialStore(directory, _key())
+    client_id = str(uuid4())
+    expected = {"access_token": "must-be-read-from-pinned-directory"}
+    store.save(client_id, expected)
+    original_open = os.open
+    replaced = False
+
+    def open_after_swapping_path(path, flags, mode=0o777, *, dir_fd=None):
+        nonlocal replaced
+        if dir_fd is not None and not replaced:
+            directory.rename(pinned)
+            directory.symlink_to(outside, target_is_directory=True)
+            replaced = True
+        if dir_fd is None:
+            return original_open(path, flags, mode)
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr("el_ai.integrations.secrets.os.open", open_after_swapping_path)
+
+    assert store.load(client_id) == expected
+    assert replaced is True
+    assert list(outside.iterdir()) == []
