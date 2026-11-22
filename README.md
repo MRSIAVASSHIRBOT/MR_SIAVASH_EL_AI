@@ -2,6 +2,8 @@
 
 Advanced Telegram interface for the MR_SIAVASH ecosystem.
 
+**Operational capabilities:** [AWI, GPI, CGI, PAIOS, gap detection, planning, self-evaluation, quality and security requirements](docs/OPERATIONAL_CAPABILITIES.md).
+
 **Product scope:** hybrid public + owner experience, with private memory, task planning and policy-controlled execution delegated to MR_SIAVASH_HUB_AI.
 
 ## Trust boundaries
