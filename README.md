@@ -53,7 +53,7 @@ el-ai doctor --json
 python -m el_ai doctor
 ```
 
-The preflight does not contact Telegram, Hub, or the public Gateway, does not write files, and never prints credentials. It checks required environment settings, local state-directory access, Hub URL policy and trusted keyring availability (only when Hub integration is enabled). It does not prove that a Telegram token is valid or that remote services are reachable. See [docs/operations/preflight.md](docs/operations/preflight.md).
+The preflight does not contact Telegram, Hub, or the public Gateway, does not write files, and never prints credentials. It checks required environment settings, local state-directory access, Hub URL policy and the configured protected credential backend (only when Hub integration is enabled). It does not prove that a Telegram token is valid or that remote services are reachable. See [docs/operations/preflight.md](docs/operations/preflight.md).
 
 ## Configuration
 
@@ -77,7 +77,7 @@ The preflight does not contact Telegram, Hub, or the public Gateway, does not wr
 ## Owner Telegram commands
 
 - `/pairinfo`: show the numeric Telegram ID and stable EL_AI client UUID needed to create a Hub pairing challenge.
-- `/pair CODE`: exchange a five-minute, one-time Hub pairing code and store credentials in the OS credential vault.
+- `/pair CODE`: exchange a five-minute, one-time Hub pairing code and store credentials in the configured protected credential store.
 - `/owner`: confirm that the sender is the configured owner.
 - `/hub`: check the paired Hub connection.
 - `/tasks [STATUS] [CURSOR]`: list this paired bot's tasks with bounded cursor-based pagination.
