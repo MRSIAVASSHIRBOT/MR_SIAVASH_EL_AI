@@ -435,6 +435,52 @@ test("queues allowlisted owner Hub commands and rejects bridge-only unsupported 
   assert.equal(telegramRequests[0].payload.text.includes("پشتیبانی نمی‌شود"), true);
 });
 
+test("help advertises supported owner commands and excludes unavailable bridge features", async () => {
+  const env = createEnv();
+  const telegramRequests = [];
+
+  await withRuntimeMocks({
+    fetchImpl: async (input, init) => {
+      const url = String(input);
+      const payload = JSON.parse(init.body);
+      telegramRequests.push({ url, payload });
+      assert.ok(url.endsWith("/sendMessage"));
+      return Response.json({ ok: true, result: { message_id: 79 } });
+    },
+    logImpl: () => {},
+  }, async () => {
+    const response = await worker.fetch(
+      new Request("https://edge.test/telegram/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Telegram-Bot-Api-Secret-Token": env.TELEGRAM_WEBHOOK_SECRET,
+        },
+        body: JSON.stringify({
+          update_id: 51004,
+          message: {
+            from: { id: 123456789 },
+            chat: { id: 123456789, type: "private" },
+            text: "/help",
+          },
+        }),
+      }),
+      env,
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ok: true });
+  });
+
+  assert.equal(telegramRequests.length, 1);
+  const help = telegramRequests[0].payload.text;
+  for (const command of ["/memory", "/task", "/agentplan", "/taskplanrun", "/videoproviders"]) {
+    assert.ok(help.includes(command), `help should advertise ${command}`);
+  }
+  for (const command of ["/taskwatch", "/taskplanwatch", "/videorenderdownload"]) {
+    assert.equal(help.includes(command), false, `help must not advertise unavailable ${command}`);
+  }
+});
+
 test("readiness rejects a missing or invalid environment-specific webhook URL", async () => {
   const invalidValues = [
     undefined,
