@@ -165,7 +165,9 @@ test("readiness rejects a missing or invalid environment-specific webhook URL", 
     "http://edge-dev.example.test/telegram/webhook",
     "https://edge-dev.example.test/wrong-path",
     "https://edge-dev.example.test/telegram/webhook?unexpected=1",
+    "https://edge-dev.example.test/telegram/webhook?",
     "https://edge-dev.example.test/telegram/webhook#fragment",
+    "https://edge-dev.example.test/telegram/webhook#",
   ];
 
   for (const value of invalidValues) {
