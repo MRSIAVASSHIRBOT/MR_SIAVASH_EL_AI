@@ -74,6 +74,14 @@ The preflight does not contact Telegram, Hub, or the public Gateway, does not wr
 - SITE_PUBLIC_API_BASE_URL: public-only MR_SIAVASH_AI Gateway URL.
 - SITE_PUBLIC_WEB_BASE_URL: base URL used to validate and render public source links.
 
+## Zero-cost local operation
+
+The default zero-cost topology keeps `MR_SIAVASH_HUB_AI` and the EL_AI Python consumer on the same owner-controlled Windows PC. Start the Hub with `scripts/start-local.ps1`; keep its API loopback-only at `http://127.0.0.1:8000`. For Cloudflare bridge mode, the local consumer pulls signed jobs over outbound HTTPS and calls the Hub over loopback. No public tunnel or inbound access to the PC is required.
+
+For this mode, set `HUB_API_BASE_URL=http://127.0.0.1:8000`, keep `HUB_ALLOW_REMOTE=false`, retain the Windows OS Keyring, and set `TELEGRAM_TRANSPORT=cloudflare_bridge`, `HUB_INTEGRATION_ENABLED=true`, the Worker URL, a shared bridge secret, and the matching owner-ID allowlist. The bridge consumer does not need a local Telegram Bot API token; the edge Worker owns Telegram ingress and delivery. See the [zero-cost bridge runbook](docs/operations/cloudflare-telegram-bridge-runbook.md) for the exact configuration and restart procedure.
+
+When the PC is offline, local Hub execution and inference are unavailable. The edge may buffer updates within provider limits, but this is not a 24/7 availability guarantee. Do not expose the local Hub API publicly, configure a paid Render service, or enable a paid model fallback for the zero-cost profile.
+
 ## Owner Telegram commands
 
 - `/pairinfo`: show the numeric Telegram ID and stable EL_AI client UUID needed to create a Hub pairing challenge.
