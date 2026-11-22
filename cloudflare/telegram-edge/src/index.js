@@ -39,8 +39,8 @@ function getTelegramWebhookUrl(env) {
       url.username ||
       url.password ||
       url.pathname !== TELEGRAM_WEBHOOK_PATH ||
-      url.search ||
-      url.hash
+      value.includes("?") ||
+      value.includes("#")
     ) {
       return null;
     }
