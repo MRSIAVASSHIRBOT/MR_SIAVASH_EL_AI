@@ -188,7 +188,8 @@ class TelegramBridgeWorker:
                         LOGGER.error(
                             "Telegram bridge job handler failed; lease will expire and permit retry"
                         )
-                        await self._wait_or_stop(stop, self._idle_seconds)
+                        await self._wait_or_stop(stop, backoff)
+                        backoff = min(backoff * 2, self._max_backoff)
                         continue
 
                     if reply is _STOPPED:
