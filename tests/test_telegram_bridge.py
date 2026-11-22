@@ -131,7 +131,7 @@ async def test_expired_lease_is_reported_without_response_body():
         await client.complete(job, "reply")
     assert error.value.status_code == 409
     assert "do-not-leak" not in str(error.value)
-    assert error.value.__context__ is None
+    assert error.value.__suppress_context__ is True
     await client.close()
 
 
