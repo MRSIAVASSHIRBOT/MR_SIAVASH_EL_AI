@@ -17,7 +17,7 @@ const TELEGRAM_WEBHOOK_PATH = "/telegram/webhook";
 const CLIENT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const BRIDGE_OWNER_COMMANDS = new Set([
-  "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove",
+  "/doctor", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove",
   "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress",
   "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus",
   "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskresult",
@@ -306,7 +306,7 @@ async function handleTelegramMessage(env, update) {
     return;
   }
   if (command === "/help") {
-    await sendMessage(env, chatId, "فرمان‌ها:\n/start — شروع\n/help — راهنما\n/id — شناسه تلگرام\n/pairinfo — اطلاعات اتصال\n/pair CODE — اتصال امن به HUB\n/status و /tasks — وضعیت و فهرست کارها\n/memory QUERY — جست‌وجوی حافظه\n/task TYPE | DESCRIPTION — ثبت وظیفه\n/taskstatus ID و /taskresult ID — وضعیت و نتیجه\n/taskplan TYPE | STEPS — ساخت طرح\n/agentplan local TYPE | GOAL — پیشنهاد طرح AI\n/taskplanrun ID و /taskplanstatus ID — اجرای تأییدشده و بررسی طرح\n/videoproviders و /videoroute — قابلیت‌ها و مسیر ویدئو\n/videohistory و /videostatus ID — تاریخچه و وضعیت تولید\nدسترسی هر فرمان به مجوزهای HUB وابسته است. اعلان پس‌زمینه و ارسال فایل در Bridge فعلاً فعال نیست.");
+    await sendMessage(env, chatId, "فرمان‌ها:\n/start — شروع\n/help — راهنما\n/id — شناسه تلگرام\n/doctor — بررسی امن تنظیمات و آمادگی اجرا\n/pairinfo — اطلاعات اتصال\n/pair CODE — اتصال امن به HUB\n/status و /tasks — وضعیت و فهرست کارها\n/memory QUERY — جست‌وجوی حافظه\n/task TYPE | DESCRIPTION — ثبت وظیفه\n/taskstatus ID و /taskresult ID — وضعیت و نتیجه\n/taskplan TYPE | STEPS — ساخت طرح\n/agentplan local TYPE | GOAL — پیشنهاد طرح AI\n/taskplanrun ID و /taskplanstatus ID — اجرای تأییدشده و بررسی طرح\n/videoproviders و /videoroute — قابلیت‌ها و مسیر ویدئو\n/videohistory و /videostatus ID — تاریخچه و وضعیت تولید\nدسترسی هر فرمان به مجوزهای HUB وابسته است. اعلان پس‌زمینه و ارسال فایل در Bridge فعلاً فعال نیست.");
     return;
   }
   if (command === "/id") {

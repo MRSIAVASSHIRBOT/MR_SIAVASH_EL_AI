@@ -35,6 +35,7 @@ class MessageRouter:
             common = "/start — شروع\n/help — راهنما"
             owner_commands = (
                 "\n/owner — وضعیت دسترسی مالک"
+                "\n/doctor — بررسی امن تنظیمات و آمادگی اجرا"
                 "\n/pairinfo — شناسه اتصال Hub"
                 "\n/pair CODE — اتصال امن به Hub"
                 "\n/hub — وضعیت اتصال"
