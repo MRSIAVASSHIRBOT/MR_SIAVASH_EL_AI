@@ -355,6 +355,99 @@ async def test_authorized_http_error_does_not_retain_bearer_context():
     await client.close()
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["pair", "status"])
+async def test_hub_http_error_exposes_only_validated_code_and_correlation_id(operation):
+    from uuid import uuid4
+
+    request_id = str(uuid4())
+    private_detail = "api_key=private-upstream-secret"
+    store = MemoryStore()
+    if operation == "status":
+        store.save("client-error-metadata", {
+            "access_token": "access-for-test",
+            "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+            "refresh_token": "refresh-for-test",
+            "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+            "scopes": ["status:read"],
+        })
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            503,
+            json={
+                "detail": private_detail,
+                "error": {
+                    "code": "upstream_failure",
+                    "message": private_detail,
+                    "request_id": request_id,
+                },
+            },
+        )
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-error-metadata",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        with pytest.raises(HubClientError) as captured:
+            if operation == "pair":
+                await client.pair("one-time-pairing-code", 123456)
+            else:
+                await client.status(123456)
+
+        assert captured.value.status_code == 503
+        assert captured.value.error_code == "upstream_failure"
+        assert captured.value.request_id == request_id
+        assert private_detail not in str(captured.value)
+        assert private_detail not in repr(captured.value)
+        assert captured.value.__cause__ is None
+        assert captured.value.__context__ is None
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_hub_http_error_ignores_untrusted_error_metadata():
+    store = MemoryStore()
+    store.save("client-invalid-error-metadata", {
+        "access_token": "access-for-test",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "refresh-for-test",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["status:read"],
+    })
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            503,
+            json={
+                "error": {
+                    "code": "api_key=do-not-trust",
+                    "request_id": "not-a-uuid",
+                },
+            },
+        )
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-invalid-error-metadata",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        with pytest.raises(HubClientError) as captured:
+            await client.status(123456)
+        assert captured.value.error_code is None
+        assert captured.value.request_id is not None
+        assert str(UUID(captured.value.request_id)) == captured.value.request_id
+        assert "api_key" not in str(captured.value)
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_pairing_transport_error_does_not_retain_pairing_code_context():
     pairing_code = "one-time-transport-pairing-secret"
 
