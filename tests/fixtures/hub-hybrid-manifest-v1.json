@@ -1,0 +1,391 @@
+{
+  "contract_id": "mr-siavash-hybrid-integration",
+  "contract_version": "1.0.0",
+  "status": "approved",
+  "owners": {
+    "hub": "private-state-policy-and-agent-control-plane",
+    "el_ai": "telegram-transport-identity-and-command-routing",
+    "website_gateway": "public-knowledge-and-public-support"
+  },
+  "hub_telegram": {
+    "base_path": "/integrations/telegram",
+    "authentication_headers": {
+      "authorization": "Bearer <scoped_access_token>",
+      "telegram_user_id": "X-Telegram-User-Id"
+    },
+    "scopes": [
+      "memory:search",
+      "memory:write",
+      "status:read",
+      "tasks:cancel",
+      "tasks:create",
+      "tasks:read",
+      "tasks:result",
+      "video:analyze",
+      "video:cancel",
+      "video:read",
+      "video:render"
+    ],
+    "default_scopes": [
+      "status:read"
+    ],
+    "lifetimes_seconds": {
+      "access_token": 900,
+      "refresh_token": 2592000,
+      "pairing_challenge": 300
+    },
+    "endpoints": [
+      {
+        "method": "POST",
+        "path": "/integrations/telegram/pairing-challenges",
+        "auth_mode": "hub_owner_session",
+        "required_scope": null,
+        "purpose": "Create a short-lived, owner-initiated pairing challenge bound to Telegram user and client identifiers."
+      },
+      {
+        "method": "POST",
+        "path": "/integrations/telegram/exchange",
+        "auth_mode": "single_use_pairing_code",
+        "required_scope": null,
+        "purpose": "Exchange a valid pairing challenge for scoped client credentials."
+      },
+      {
+        "method": "POST",
+        "path": "/integrations/telegram/refresh",
+        "auth_mode": "refresh_token_and_telegram_user_id",
+        "required_scope": null,
+        "purpose": "Rotate the paired client's access credential."
+      },
+      {
+        "method": "GET",
+        "path": "/integrations/telegram/clients",
+        "auth_mode": "hub_owner_session",
+        "required_scope": null,
+        "purpose": "List the authenticated owner's paired Telegram clients."
+      },
+      {
+        "method": "POST",
+        "path": "/integrations/telegram/clients/{client_id}/revoke",
+        "auth_mode": "hub_owner_session",
+        "required_scope": null,
+        "purpose": "Revoke one of the authenticated owner's paired Telegram clients."
+      },
+      {
+        "method": "GET",
+        "path": "/integrations/telegram/status",
+        "auth_mode": "paired_bearer",
+        "required_scope": "status:read",
+        "purpose": "Return the authenticated paired client's status and granted scopes."
+      },
+      {
+        "method": "GET",
+        "path": "/integrations/telegram/tasks",
+        "auth_mode": "paired_bearer",
+        "required_scope": "tasks:read",
+        "purpose": "List only tasks owned by the paired client, with bounded cursor pagination and optional status filtering."
+      },
+      {
+        "method": "POST",
+        "path": "/integrations/telegram/agent/plan-preview",
+        "auth_mode": "paired_bearer",
+        "required_scope": "tasks:create",
+        "purpose": "Generate a bounded, owner-scoped AI plan preview without creating tasks, invoking tools, or starting execution; local inference is the default and remote Kimi requires explicit selection."
+      },
+      {
+        "method": "GET",
+        "path": "/integrations/telegram/tasks/{task_id}",
+        "auth_mode": "paired_bearer",
+        "required_scope": "tasks:read",
+        "purpose": "Read one task submitted by the same paired client."
+      },
+      {
+        "method": "GET",
+        "path": "/integrations/telegram/tasks/{task_id}/events",
+        "auth_mode": "paired_bearer",
+        "required_scope": "tasks:read",
+        "purpose": "Read one stable, bounded keyset page of the audit timeline for a task submitted by the same paired client."
+      },
+      {
+        "method": "GET",
+        "path": "/integrations/telegram/tasks/{task_id}/result",
+        "auth_mode": "paired_bearer",
+        "required_scope": "tasks:result",
+        "purpose": "Read a bounded terminal result for a task submitted by the same paired client."
+      },
+      {
+        "method": "POST",
+        "path": "/integrations/telegram/tasks/{task_id}/cancel",
+        "auth_mode": "paired_bearer",
+        "required_scope": "tasks:cancel",
+        "purpose": "Cancel only an owned task that is still queued or waiting for approval."
+      },
+      {
+        "method": "POST",
+        "path": "/integrations/telegram/tasks",
+        "auth_mode": "paired_bearer",
+        "required_scope": "tasks:create",
+        "purpose": "Submit a task through Hub policy evaluation and idempotency reservation."
+      },
+      {
+        "method": "POST",
+        "path": "/integrations/telegram/memory/search",
+        "auth_mode": "paired_bearer",
+        "required_scope": "memory:search",
+        "purpose": "Search owner-scoped Hub memory through the paired client."
+      },
+      {
+        "method": "GET",
+        "path": "/integrations/telegram/memory/{memory_id}",
+        "auth_mode": "paired_bearer",
+        "required_scope": "memory:search",
+        "purpose": "Inspect one active owner-owned memory entry by ID and audit the read without exposing other owners' entries."
+      },
+      {
+        "method": "POST",
+        "path": "/integrations/telegram/memory/{memory_id}/approve",
+        "auth_mode": "paired_bearer",
+        "required_scope": "memory:write",
+        "purpose": "Mark one explicitly selected active owner-owned memory entry as user-approved; cannot create, edit, or delete memory."
+      },
+      {
+        "method": "POST",
+        "path": "/integrations/telegram/memory/dream/preview",
+        "auth_mode": "paired_bearer",
+        "required_scope": "memory:search",
+        "purpose": "Return bounded, owner-scoped duplicate-memory review proposals without mutating memory; every proposal requires owner review."
+      },
+      {
+        "method": "POST",
+        "path": "/integrations/telegram/memory/validate/preview",
+        "auth_mode": "paired_bearer",
+        "required_scope": "memory:search",
+        "purpose": "Return bounded owner-scoped possible contradictions, expired notes, and unverified memory for owner review; no memory mutation."
+      },
+      {
+        "method": "PUT",
+        "path": "/integrations/telegram/clients/{client_id}/scopes",
+        "auth_mode": "hub_owner_session",
+        "required_scope": null,
+        "purpose": "Replace the scopes of one active paired client after an explicit authenticated owner action; record the change in the audit log."
+      },
+      {
+        "method": "GET",
+        "path": "/integrations/telegram/video/providers",
+        "auth_mode": "paired_bearer",
+        "required_scope": "video:read",
+        "purpose": "Return the non-secret configured video provider catalog without probing providers or starting work."
+      },
+      {
+        "method": "POST",
+        "path": "/integrations/telegram/video/route-preview",
+        "auth_mode": "paired_bearer",
+        "required_scope": "video:read",
+        "purpose": "Return a fail-closed local-first route preview without submitting, enqueueing, or billing generation work."
+      },
+      {
+        "method": "GET",
+        "path": "/integrations/telegram/video/generations",
+        "auth_mode": "paired_bearer",
+        "required_scope": "video:read",
+        "purpose": "List bounded video-generation lifecycle metadata owned by the paired account with stable cursor pagination."
+      },
+      {
+        "method": "GET",
+        "path": "/integrations/telegram/video/generations/{generation_id}",
+        "auth_mode": "paired_bearer",
+        "required_scope": "video:read",
+        "purpose": "Read one generation status for the paired owner's account without exposing provider job or private asset identifiers."
+      },
+      {
+        "method": "DELETE",
+        "path": "/integrations/telegram/video/generations/{generation_id}",
+        "auth_mode": "paired_bearer",
+        "required_scope": "video:cancel",
+        "purpose": "Cancel only an owned prepared or queued generation before provider submission; active or ambiguous provider work returns a conflict."
+      },
+      {
+        "method": "GET",
+        "path": "/integrations/telegram/video/render-drafts",
+        "auth_mode": "paired_bearer",
+        "required_scope": "video:read",
+        "purpose": "List at most five owner-scoped storyboard draft summaries for a completed video analysis; omit source IDs and timeline bodies."
+      },
+      {
+        "method": "GET",
+        "path": "/integrations/telegram/video/render-preflight-submit",
+        "auth_mode": "paired_bearer",
+        "required_scope": "video:render",
+        "purpose": "Recheck owner-scoped local-render prerequisites with the exact render-submission scope before a separate idempotent render request; does not create a job or execute work."
+      },
+      {
+        "method": "GET",
+        "path": "/integrations/telegram/video/render-preflight",
+        "auth_mode": "paired_bearer",
+        "required_scope": "video:read",
+        "purpose": "Inspect an owner-scoped saved local-render draft without creating a job, mutating the draft, invoking FFmpeg, or contacting a provider."
+      },
+      {
+        "method": "GET",
+        "path": "/integrations/telegram/video/renders",
+        "auth_mode": "paired_bearer",
+        "required_scope": "video:read",
+        "purpose": "List the paired owner's deterministic local renders with bounded stable cursor pagination."
+      },
+      {
+        "method": "POST",
+        "path": "/integrations/telegram/video/renders",
+        "auth_mode": "paired_bearer",
+        "required_scope": "video:render",
+        "purpose": "Submit a saved renderer-compatible owner-owned draft through the immutable-snapshot local FFmpeg queue using an idempotency key."
+      },
+      {
+        "method": "GET",
+        "path": "/integrations/telegram/video/renders/{render_id}",
+        "auth_mode": "paired_bearer",
+        "required_scope": "video:read",
+        "purpose": "Read one owner-scoped deterministic local render without exposing private output asset identifiers."
+      },
+      {
+        "method": "GET",
+        "path": "/integrations/telegram/video/renders/{render_id}/file",
+        "auth_mode": "paired_bearer",
+        "required_scope": "video:read",
+        "purpose": "Stream a completed owner-owned MP4 only after media size, container signature and SHA-256 verification; cap Telegram delivery at 48,000,000 bytes."
+      },
+      {
+        "method": "DELETE",
+        "path": "/integrations/telegram/video/renders/{render_id}",
+        "auth_mode": "paired_bearer",
+        "required_scope": "video:cancel",
+        "purpose": "Cancel or request cancellation for one owner-scoped local FFmpeg render."
+      },
+      {
+        "method": "POST",
+        "path": "/integrations/telegram/video/scene-jobs",
+        "auth_mode": "paired_bearer",
+        "required_scope": "video:analyze",
+        "purpose": "Queue bounded owner-scoped local scene-cut analysis for a stored video asset with idempotent admission; no remote provider is called."
+      },
+      {
+        "method": "GET",
+        "path": "/integrations/telegram/video/scene-jobs",
+        "auth_mode": "paired_bearer",
+        "required_scope": "video:read",
+        "purpose": "List bounded owner-scoped scene-analysis jobs with stable cursor pagination and timestamp-only results."
+      },
+      {
+        "method": "GET",
+        "path": "/integrations/telegram/video/scene-jobs/{job_id}",
+        "auth_mode": "paired_bearer",
+        "required_scope": "video:read",
+        "purpose": "Read one owner-scoped local scene-analysis job without exposing task IDs or private media paths."
+      },
+      {
+        "method": "POST",
+        "path": "/integrations/telegram/video/scene-jobs/{job_id}/cancel",
+        "auth_mode": "paired_bearer",
+        "required_scope": "video:cancel",
+        "purpose": "Cancel only the paired owner's queued or running local scene-analysis job."
+      }
+    ],
+    "request_constraints": {
+      "task_list_limit": {
+        "minimum": 1,
+        "maximum": 50
+      },
+      "task_cursor_max_length": 512,
+      "task_history_limit": {
+        "minimum": 1,
+        "maximum": 50
+      },
+      "task_result_max_bytes": 32768,
+      "task_create_idempotency_header": "Idempotency-Key",
+      "video_generation_list_limit": {
+        "minimum": 1,
+        "maximum": 20
+      },
+      "video_generation_cursor_max_length": 512,
+      "client_scope_update_max_scopes": 10,
+      "video_render_list_limit": {
+        "minimum": 1,
+        "maximum": 20
+      },
+      "video_render_cursor_max_length": 512,
+      "telegram_video_download_max_bytes": 48000000,
+      "task_history_cursor_max_length": 512,
+      "video_scene_job_list_limit": {
+        "minimum": 1,
+        "maximum": 20
+      },
+      "video_scene_job_cursor_max_length": 512,
+      "video_scene_max_changes": {
+        "minimum": 1,
+        "maximum": 24
+      }
+    },
+    "error_response": "FastAPI HTTPException detail envelope; consumers must avoid exposing private exception details."
+  },
+  "website_public_gateway": {
+    "source": "MR_SIAVASH_AI/cloudflare/gateway/src/index.js",
+    "data_classification": "public_only",
+    "may_call_private_hub": false,
+    "may_receive_hub_credentials": false,
+    "purpose": "Serve public website knowledge and public support workflows."
+  },
+  "trust_boundaries": {
+    "shared_database": false,
+    "website_gateway_may_call_private_hub": false,
+    "browser_may_hold_hub_credentials": false,
+    "public_gateway_data_classification": "public_only",
+    "el_ai_must_use_scoped_hub_api": true,
+    "el_ai_must_not_read_hub_database_directly": true,
+    "owner_pairing_required_for_private_operations": true
+  },
+  "observability": {
+    "request_id": {
+      "header": "X-Request-ID",
+      "status": "standardized",
+      "format": "canonical_lowercase_uuid",
+      "accepted_uuid_versions": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "input_case": "lowercase_only",
+      "server_fallback": "generate_uuid4_when_missing_or_invalid",
+      "response": "echo_canonical_request_id",
+      "request_state": "request.state.request_id",
+      "log_event": "http_request_completed",
+      "log_fields": [
+        "request_id",
+        "method",
+        "route_template",
+        "status_code"
+      ],
+      "authorization_effect": false,
+      "idempotency_effect": false,
+      "public_gateway": "independent_correlation_id_only",
+      "note": "EL_AI generates a canonical UUIDv4 for each logical Hub operation. On the single authorized 401 recovery path it refreshes credentials with a separate request ID, then retries the original operation once with its original request ID; it does not perform generic retries or backoff. EL_AI logs only request_id, method, route template, response status, and outcome. The Hub validates canonical lowercase UUIDs, replaces missing or invalid values with UUIDv4, echoes the canonical ID on handled HTTP responses, and logs only its allowlisted fields. Public Gateway calls use an independent ID and are not forwarded to the private Hub.",
+      "el_ai_log_event": "hub_request_completed",
+      "el_ai_log_fields": [
+        "request_id",
+        "method",
+        "route_template",
+        "status_code",
+        "outcome"
+      ],
+      "retry_policy": "single_401_refresh_then_one_retry_same_request_id; no_generic_retry_or_backoff"
+    },
+    "secrets_in_logs_or_urls": false
+  },
+  "compatibility_policy": {
+    "additive_change": "May be introduced within v1 when existing request and response semantics remain unchanged.",
+    "breaking_change": "Requires a new major contract directory and coordinated consumer migration.",
+    "canonical_source": "MR_SIAVASH_HUB_AI/contracts/hybrid/v1/manifest.json"
+  }
+}
