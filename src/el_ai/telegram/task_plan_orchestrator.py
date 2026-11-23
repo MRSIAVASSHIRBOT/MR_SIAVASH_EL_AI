@@ -118,6 +118,28 @@ async def advance_ready_plan_steps(
                 if waiting_for_dependencies:
                     continue
 
+                # Pause can be requested while an earlier Hub call in this same
+                # advancement cycle is in flight. Re-read the owner-scoped plan
+                # immediately before each new external dispatch so later steps
+                # stop after that request completes. An already in-flight Hub
+                # request cannot be recalled; its stable key keeps retries safe.
+                try:
+                    current_plan = plans.get_for_user(plan.plan_id, owner_id)
+                except (TaskPlanError, ValueError):
+                    LOGGER.warning(
+                        "Task-plan state could not be revalidated before dispatch for %s",
+                        plan.plan_id,
+                    )
+                    break
+                if current_plan is None or current_plan.paused:
+                    break
+                if index >= len(current_plan.steps):
+                    break
+                current_step = current_plan.steps[index]
+                if current_step.task_id is not None or current_step.blocked_reason:
+                    continue
+                step = current_step
+
                 idempotency_key = f"telegram-plan-{plan.plan_id}-{index + 1}"
                 try:
                     result = await hub.create_task(
