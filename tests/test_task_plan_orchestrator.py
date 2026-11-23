@@ -17,6 +17,7 @@ class FakeHub:
         self.tasks = {}
         self.created = []
         self.fail_create = None
+        self.on_create = None
 
     async def get_task(self, _owner_id, task_id):
         try:
@@ -41,6 +42,8 @@ class FakeHub:
             "idempotency_key": idempotency_key,
         })
         self.tasks[task_id] = {"status": "queued"}
+        if self.on_create is not None:
+            self.on_create(task_id)
         return {"task_id": task_id, "status": "queued"}
 
 
@@ -164,6 +167,34 @@ async def test_paused_plan_does_not_advance_until_explicitly_resumed(tmp_path):
     assert [(event.kind, event.step_index, event.task_id) for event in events] == [
         ("submitted", 1, TASK_B)
     ]
+    assert len(hub.created) == 1
+
+
+async def test_pause_during_advancement_stops_later_hub_dispatches(tmp_path):
+    plans = TaskPlanStore(tmp_path / "plans.json")
+    watches = TaskWatchStore(tmp_path / "watches.json")
+    hub = FakeHub()
+    plan = plans.create(
+        123,
+        "demo.echo",
+        ["collect", "inspect", "publish"],
+        dependencies=[[], [], []],
+        now=int(time.time()),
+    )
+    plans.mark_submitted(plan.plan_id, 123, 0, TASK_A)
+    hub.tasks[TASK_A] = {"status": "succeeded"}
+    hub.on_create = lambda _task_id: plans.set_paused(plan.plan_id, 123, True)
+
+    events = await advance_ready_plan_steps(hub, plans, watches, {123})
+
+    assert [(event.kind, event.step_index, event.task_id) for event in events] == [
+        ("submitted", 1, TASK_B)
+    ]
+    loaded = plans.get_for_user(plan.plan_id, 123, now=int(time.time()) + 1)
+    assert loaded is not None
+    assert loaded.paused is True
+    assert loaded.steps[1].task_id == TASK_B
+    assert loaded.steps[2].task_id is None
     assert len(hub.created) == 1
 
 
