@@ -1,78 +1,129 @@
-# Coordinated repository checkpoint — 2026-11-23
+# Four-project coordinated checkpoint — 2026-11-23
 
-**Evidence scope:** GitHub source, pull-request and Actions metadata read on 2026-11-23 UTC. This is not a live Cloudflare control-plane inventory, Telegram API acceptance, Hub staging test, or physical-device test.
+**Evidence cutoff:** GitHub source, pull-request metadata, commit comparisons, and GitHub Actions observed on 2026-11-23 UTC. This is an engineering checkpoint, not a live inventory of Cloudflare, Render, Telegram, or physical devices. Green CI does not imply production deployment or end-to-end acceptance.
 
-## Default-branch snapshots
+## 1. Default-branch snapshots
 
-| Repository | Default branch | Observed `main` SHA | Latest relevant source evidence |
+| Project | Default branch | Observed main SHA | Main-branch CI at audit |
 |---|---|---|---|
-| [MR_SIAVASH_HUB_AI](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI) | `main` | `3ec1711b223a17c1ab4b134fdd8d0ec3112c8a78` | Startup recovery now reconciles stale work before worker dispatch; the stop latch does not suppress stale-work recovery. |
-| [MR_SIAVASH_AI](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI) | `main` | `b4f6f49c68cff907f18b04de6f02f7217541f552` | The Gateway request boundary now contains unexpected asynchronous failures; PR #257 is merged. |
-| [MR_SIAVASH_EL_AI](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AI) | `main` | `02ec4022f572f97fbf31ce16d418ab61a9119566` | Telegram edge owner-command dispatch and its D1 mock regression test are on main. |
+| [MR_SIAVASH_HUB_AI](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI) | `main` | `cb999a38e845c096634c4b753a0a9e450eeec838` | 7/7 observed workflows succeeded |
+| [MR_SIAVASH_AI](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI) | `main` | `9ab2a33d5022188e7f635a7f796177717e6b774f` | 6/6 observed workflows succeeded |
+| [MR_SIAVASH_EL_AI](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AI) | `main` | `95773a348364d98ba2226c7943eb05fa613a7fa0` | 4/4 observed workflows succeeded |
+| [MR_SIAVASH_EL_AGENT](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AGENT) | `main` | `2cd70ab13def8b727464fea34c12613041440ef5` | Mainline security/idempotency commits present; Android acceptance remains separate |
 
-## Exact-main CI evidence at capture
+### Hub — exact main evidence
 
-### Hub
+All seven observed main-branch workflows succeeded on `cb999a38`:
 
-The following seven main-branch runs were queued when inspected; no green result is claimed for this SHA yet:
+- [Backend CI #45224612396](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45224612396)
+- [CI #45224612508](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45224612508)
+- [Windows Launcher Validation #45224612625](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45224612625)
+- [Video Render Integration #45224612520](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45224612520)
+- [Workflow Security Audit #45224612471](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45224612471)
+- [Defensive Python Scan #45224612787](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45224612787)
+- [OpenSSF Scorecard #45224612495](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45224612495)
 
-- [Backend CI #45164553796](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45164553796)
-- [CI #45164553862](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45164553862)
-- [Workflow Security Audit #45164553859](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45164553859)
-- [OpenSSF Scorecard #45164553868](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45164553868)
-- [Defensive Python Scan #45164553887](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45164553887)
-- [Video Render Integration #45164553805](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45164553805)
-- [Windows Launcher Validation #45164553854](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45164553854)
+The latest observed main commit merges PR #599, metadata-only tool lifecycle observation.
 
-Hub PR [#569](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/pull/569) is a one-file FFmpeg CI mirror-normalization fix. Its branch received a follow-up correction to preserve YAML block indentation; the updated head is `50d5c066952442ecfdb65fd4ee8d7173608fe9d2`. Its exact-head checks were still queued or running at capture, so it is not approved for merge. Other high-impact open candidates include [#544](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/pull/544) (server-authoritative policy inspection) and [#546](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/pull/546) (tool-definition validation and replay-safety metadata); their exact-head check suites were not complete at capture.
+### Website — exact main evidence
 
-### Website
+All six observed main-branch workflows succeeded on `9ab2a33d`:
 
-On `b4f6f49c68cff907f18b04de6f02f7217541f552`:
+- [Cloudflare Gateway Runtime Smoke #45216790365](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI/actions/runs/45216790365)
+- [Cloudflare Gateway Preview Runtime Smoke #45216790869](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI/actions/runs/45216790869)
+- [Gateway CI #45216790582](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI/actions/runs/45216790582)
+- [Quality checks / GitHub Pages #45216790277](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI/actions/runs/45216790277)
+- [Workflow Security Audit #45216791432](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI/actions/runs/45216791432)
+- [OpenSSF Scorecard #45216790709](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI/actions/runs/45216790709)
 
-- [Gateway CI #45167111616](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI/actions/runs/45167111616) — success.
-- [Production Gateway Runtime Smoke #45167111539](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI/actions/runs/45167111539) — success.
-- [Preview Gateway Runtime Smoke #45167111419](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI/actions/runs/45167111419) — success.
-- [Workflow Security Audit #45167112491](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI/actions/runs/45167112491) — success.
-- [OpenSSF Scorecard #45167111475](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI/actions/runs/45167111475) — success.
-- [Quality / GitHub Pages #45167112487](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI/actions/runs/45167112487) — queued at capture; publication is not claimed for this SHA.
+No open pull requests were returned by the repository's open-PR search during this audit. The passing production/preview smoke workflows are tied to the observed source SHA and must not be interpreted as proof that every future deployment is healthy.
 
-The remaining open Website work is organized as phase-based and stacked PRs. Do not merge a downstream phase before its declared base branch is integrated and the resulting exact-head checks pass. The static site and public Gateway remain separate from private Hub state.
+### EL_AI — exact main evidence
 
-### EL_AI
+PR [#116](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AI/pull/116) was merged at 2026-11-23 17:14:33 UTC. It adds an owner-only, read-only `/doctor` command to the local Telegram router and authenticated Cloudflare bridge, keeps the Python/Worker command allowlists aligned, and adds owner-isolation and queue/read-back tests.
 
-All four observed main-branch checks succeeded on `02ec4022f572f97fbf31ce16d418ab61a9119566`:
+All four observed workflows succeeded on merge commit `95773a348`:
 
-- [CI #45076563125](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AI/actions/runs/45076563125) — success.
-- [Telegram Edge Worker Tests #45076563112](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AI/actions/runs/45076563112) — success.
-- [Workflow Security Audit #45076563209](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AI/actions/runs/45076563209) — success.
-- [OpenSSF Scorecard #45076563181](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AI/actions/runs/45076563181) — success.
+- [CI #45225497175](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AI/actions/runs/45225497175)
+- [Telegram Edge Worker Tests #45225497195](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AI/actions/runs/45225497195)
+- [Workflow Security Audit #45225497185](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AI/actions/runs/45225497185)
+- [OpenSSF Scorecard #45225497266](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AI/actions/runs/45225497266)
 
-EL_AI PR [#110](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AI/pull/110) remains Draft. Its finite timeout/backoff validation has 3/3 exact-head checks passing, but draft status is retained pending maintainer review and explicit promotion.
+PR #116 did not deploy a Worker, register a Telegram webhook, rotate secrets, validate the Telegram token, or perform a live Telegram message round-trip. Those remain separate operational acceptance gates.
 
-## Cross-repository contract
+### EL_AGENT — main and Android candidate
 
-The approved Hub manifest is the canonical v1 private integration contract: [contracts/hybrid/v1/manifest.json](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/blob/main/contracts/hybrid/v1/manifest.json).
+The latest observed main commit is `2cd70ab1`, which includes scheduled-action exception redaction (PR #30), durable scheduled-task idempotency (PR #29), and the operational capability documentation (PR #28). The preceding redirect-hardening change is PR #26.
 
-- Hub owns private state, identity, scoped authorization, policy, approvals, task execution and audit.
-- EL_AI owns Telegram transport, identity mapping, command routing and delivery. Private Hub calls require owner-initiated, Telegram-ID-bound pairing and scoped bearer credentials.
-- MR_SIAVASH_AI owns public presentation, public learning content and public support/Gateway routes. EL_AI sends only the current public message to the public assistant; it must not forward Telegram IDs, private history, Hub credentials, memory or task data.
-- No shared database, browser-held Hub credential, public tunnel, implicit trust, or public-Gateway route into private Hub capabilities is permitted.
-- The public Gateway request ID and private Hub correlation ID are separate diagnostic contexts, not authorization or idempotency credentials.
+Android candidate [PR #25](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AGENT/pull/25) remains Draft. Its branch is 35 commits ahead and 0 behind current main at comparison time. Its latest observed exact-head runs succeeded:
 
-## Security and operational limits
+- [Python/Windows/Linux CI #45172919606](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AGENT/actions/runs/45172919606)
+- [Android build and unit tests #45172919758](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AGENT/actions/runs/45172919758)
 
-- GitHub reports `main.protected=false` for all three repositories. No branch-protection, ruleset, permission or access-control setting was changed. An owner/admin must configure and verify required current-head checks.
-- No secret values were read or copied. This checkpoint contains no credentials.
-- Cloudflare Worker versions, bindings, D1 state, routes, schedules, secrets and traffic were not re-read during this GitHub maintenance run.
-- Telegram token validity, webhook registration, live bridge pull/complete, Hub staging round-trips, and physical Windows/Android acceptance remain unverified.
-- GitHub Actions smoke success does not prove a new Cloudflare deployment or live Telegram message delivery.
+The PR changes 49 files and includes Android planning, action-scoped policy, document picker access, offline runtime scaffolding, and a foreground Hub consumer. It is not release-accepted: physical Android-device testing, Windows 11 clean-install acceptance, and isolated Hub Staging round-trip/revocation checks remain outstanding.
 
-## Prioritized next steps
+## 2. Hub dependency queue and merge discipline
 
-1. Complete the updated exact-head CI for Hub PR #569; merge only if every required check passes and the YAML workflow is parsed and executed.
-2. Complete and review Hub PRs #544 and #546 independently; preserve server-side policy authority and fail-closed tool registration.
-3. Wait for Website Quality / Pages on the current main SHA and keep phase-stacked PRs in dependency order.
-4. Review EL_AI PR #110, then promote it from Draft only after the owner/maintainer is satisfied with the bounded timing contract.
-5. Perform isolated Hub–EL_AI acceptance with a test bot and non-production resources; do not use production Telegram or Cloudflare resources as a test target.
-6. Have the repository owner apply branch protection and verify that pending/failing current-head checks block merging.
+The Hub remains the main portfolio bottleneck because the other agents depend on its owner identity, permissions, planning, tool policy, task execution, and audit contracts.
+
+### Foundation PR #597
+
+[PR #597](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/pull/597) is Draft, changes 33 files, and is based directly on the observed current `main` SHA. Its head is `d7962629591362fc2284c7037862b41c57d2e584`. It combines GPI/AWI planning, typed owner-scoped memory (migration V56), evidence-linked lesson previews, and typed API error contracts.
+
+Exact-head checks are **not yet all complete**:
+
+- [Backend CI #45225392038](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45225392038) — test/coverage step was in progress at audit time.
+- [CI #45225392012](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45225392012) — Python test jobs were queued/in progress; Windows wheel-smoke jobs had succeeded.
+- [Windows Launcher Validation #45225391768](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45225391768) — all four observed jobs succeeded.
+- [Workflow Security Audit #45225391909](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45225391909) — success.
+- [Defensive Python Scan #45225391916](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45225391916) — success.
+- [Video Render Integration #45225391958](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/actions/runs/45225391958) — success.
+
+Do not merge until all exact-head checks finish and the migration, API, worker, and regression tests have been reviewed.
+
+### Overlapping H4 approval-receipt candidates
+
+- [PR #603](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/pull/603) — Draft; 17 changed files; head `ff3775ea5d6d21114fc70b9af829c1da82d4f525`.
+- [PR #604](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/pull/604) — Draft; 15 changed files; head `38c54e8ca97fce532ffe22c8d625e805eab09e6d`.
+
+Both implement substantially overlapping migration V57 and owner-scoped, payload-bound, single-use tool approval receipts. Both are currently non-mergeable and diverged from the moving #597 base. PR #603 contains additional AgentCore checks and workflow changes; PR #604 contains a small set of additional recovery/API regression-test edits. Neither candidate should be merged as-is. Reconcile the unique tests and strongest implementation into one canonical H4 branch after #597 is accepted; then rerun the complete exact-head suite.
+
+### Render separation
+
+[PR #600](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/pull/600) remains Draft. It proposes separate Hub and EL_AI Render services and persistent disks. It is not a deployment. Review exact service pricing, workspace Blueprint Auto Sync, secrets, persistent storage, and rollback before any account sync or provisioning. No paid service should be created as part of source-code validation.
+
+## 3. Cross-project ownership and integration boundaries
+
+- Hub owns private identity, authorization, policy, approvals, memory, task execution, and audit.
+- EL_AI owns Telegram transport, Telegram identity mapping, command routing, and message delivery. Private Hub calls require owner-initiated pairing and scoped credentials.
+- MR_SIAVASH_AI owns public presentation, public learning content, and the public Gateway. Public requests must not receive private Hub context or credentials.
+- EL_AGENT owns device-local execution and device credentials. Hub pairing and heartbeat do not imply authorization for remote task dispatch or access to local files/screenshots.
+- No shared database, implicit trust, public tunnel into private Hub APIs, or transfer of private memory into public Gateway prompts is permitted.
+
+## 4. Remaining acceptance gaps
+
+The following items are not proven by source code or repository CI alone:
+
+1. A complete isolated Hub Staging workflow from planning through approval, worker execution, durable result, cancellation/recovery, and audit.
+2. A live EL_AI bridge round-trip using a test bot, including Telegram webhook/token validation, owner-only dispatch, pull/complete, timeout, and duplicate-update handling.
+3. Physical Android acceptance (Android 8+ document picker; Android 12+ foreground voice where supported), credential revoke/expiry, and Hub Staging round-trip.
+4. Clean Windows 11 installation, local API/worker lifecycle, screenshot/app-launch acceptance, and local voice/microphone acceptance.
+5. Current live Cloudflare Worker deployment/configuration and current Render workspace configuration/costs. These were not re-read in this checkpoint.
+6. A reviewed, single canonical H4 approval-receipt implementation and green exact-head CI.
+
+## 5. Execution order
+
+1. Finish and review exact-head CI for Hub PR #597; merge only after checks and migration/API/security review pass.
+2. Rebase/reconcile H4 receipt work onto the accepted Hub mainline, preserve unique recovery tests, and retain one canonical H4 PR.
+3. Complete a non-production Hub Staging integration path before claiming cross-agent task execution works.
+4. Validate EL_AI `/doctor` and bridge round-trip using a test bot; deployment/webhook actions remain separate from merge.
+5. Complete EL_AGENT physical-device and clean-Windows acceptance, then test pairing, grant expiry/revocation, and Hub task round-trip.
+6. Review PR #600's deployment plan and cost; do not provision or sync paid resources without owner/guardian review.
+7. Keep MR_SIAVASH_AI stable while the central Hub and integration contracts are changing; rerun its Gateway, Pages, and runtime smoke checks after any connected contract change.
+
+## 6. Reporting rules
+
+- Distinguish code present, exact-head CI passed, merged to main, deployed, and real-world accepted.
+- Never describe a Draft PR as delivered.
+- Never describe a green workflow as proof of physical-device, Telegram, Cloudflare, or Render acceptance.
+- Treat this checkpoint as a dated snapshot; refresh source SHAs and workflow runs before the next merge decision.
