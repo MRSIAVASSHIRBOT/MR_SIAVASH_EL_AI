@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import re
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode, urlsplit
 from uuid import UUID, uuid4
@@ -39,11 +40,55 @@ _STATIC_HUB_ROUTES = frozenset({
 
 
 class HubClientError(RuntimeError):
-    """Sanitized Hub integration failure."""
+    """Sanitized Hub integration failure with validated support metadata."""
 
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        error_code: str | None = None,
+        request_id: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.error_code = error_code
+        self.request_id = request_id
+
+
+def _canonical_request_id(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = UUID(value)
+    except (ValueError, AttributeError):
+        return None
+    return value if str(parsed) == value else None
+
+
+def _hub_error_metadata(response: httpx.Response) -> tuple[str | None, str | None]:
+    """Extract only bounded error codes and canonical correlation IDs."""
+    error_code: str | None = None
+    response_request_id: str | None = None
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    if isinstance(body, dict):
+        envelope = body.get("error")
+        if isinstance(envelope, dict):
+            candidate_code = envelope.get("code")
+            if (
+                isinstance(candidate_code, str)
+                and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", candidate_code)
+            ):
+                error_code = candidate_code
+            response_request_id = _canonical_request_id(envelope.get("request_id"))
+    response_request_id = (
+        response_request_id
+        or _canonical_request_id(response.headers.get("X-Request-ID"))
+    )
+    return error_code, response_request_id
 
 
 class HubNotPairedError(HubClientError):
@@ -165,6 +210,8 @@ class HubClient:
         response_status_code: int | None = None
         failed = False
         result: dict[str, object] | None = None
+        error_code: str | None = None
+        response_request_id: str | None = None
         try:
             response = await self._client.request(
                 method,
@@ -177,6 +224,7 @@ class HubClient:
             result = response.json()
         except httpx.HTTPStatusError as exc:
             status_code = exc.response.status_code
+            error_code, response_request_id = _hub_error_metadata(exc.response)
         except (httpx.HTTPError, ValueError):
             failed = True
         outcome = (
@@ -193,11 +241,13 @@ class HubClient:
             raise HubClientError(
                 f"Hub rejected the request (HTTP {status_code})",
                 status_code=status_code,
+                error_code=error_code,
+                request_id=response_request_id or request_id,
             )
         if failed:
-            raise HubClientError("Hub API request failed")
+            raise HubClientError("Hub API request failed", request_id=request_id)
         if not isinstance(result, dict):
-            raise HubClientError("Hub returned an invalid response")
+            raise HubClientError("Hub returned an invalid response", request_id=request_id)
         return result
 
     @staticmethod
@@ -324,6 +374,8 @@ class HubClient:
             response_status_code: int | None = None
             failed = False
             result: dict[str, object] | None = None
+            error_code: str | None = None
+            response_request_id: str | None = None
             try:
                 request_kwargs = {"headers": headers}
                 if payload is not None:
@@ -336,6 +388,7 @@ class HubClient:
                 result = response.json()
             except httpx.HTTPStatusError as exc:
                 status_code = exc.response.status_code
+                error_code, response_request_id = _hub_error_metadata(exc.response)
             except (httpx.HTTPError, ValueError):
                 failed = True
             outcome = (
@@ -352,11 +405,13 @@ class HubClient:
                 raise HubClientError(
                     f"Hub rejected the request (HTTP {status_code})",
                     status_code=status_code,
+                    error_code=error_code,
+                    request_id=response_request_id or request_id,
                 )
             if failed:
-                raise HubClientError("Hub API request failed")
+                raise HubClientError("Hub API request failed", request_id=request_id)
             if not isinstance(result, dict):
-                raise HubClientError("Hub returned an invalid response")
+                raise HubClientError("Hub returned an invalid response", request_id=request_id)
             return result
 
         token = await self._access_token(telegram_user_id)
