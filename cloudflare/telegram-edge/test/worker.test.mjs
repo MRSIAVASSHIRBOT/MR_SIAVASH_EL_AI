@@ -435,6 +435,47 @@ test("queues allowlisted owner Hub commands and rejects bridge-only unsupported 
   assert.equal(telegramRequests[0].payload.text.includes("پشتیبانی نمی‌شود"), true);
 });
 
+test("queues the read-only doctor command for the configured owner", async () => {
+  const env = createEnv();
+  const d1 = createMemoryD1();
+  env.DB = d1.DB;
+  env.BRIDGE_SHARED_SECRET = "bridge-shared-secret-for-tests-only-0123456789";
+  env.QUEUE_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64url");
+
+  const response = await worker.fetch(
+    new Request("https://edge.test/telegram/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Telegram-Bot-Api-Secret-Token": env.TELEGRAM_WEBHOOK_SECRET,
+      },
+      body: JSON.stringify({
+        update_id: 51005,
+        message: {
+          from: { id: 123456789 },
+          chat: { id: 123456789, type: "private" },
+          text: "/doctor",
+        },
+      }),
+    }),
+    env,
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(d1.jobs.size, 1);
+  const storedJob = [...d1.jobs.values()][0];
+  assert.equal(storedJob.payload_ciphertext.includes("doctor"), false);
+
+  const pullAuth = await signedBridgeRequest(env, "/bridge/pull", {});
+  const pullResponse = await worker.fetch(pullAuth.request, env);
+  assert.equal(pullResponse.status, 200);
+  const pulled = await pullResponse.json();
+  assert.deepEqual(pulled.job.payload, {
+    command: "dispatch",
+    text: "/doctor",
+  });
+});
+
 test("help advertises supported owner commands and excludes unavailable bridge features", async () => {
   const env = createEnv();
   const database = createMemoryD1();
@@ -476,7 +517,7 @@ test("help advertises supported owner commands and excludes unavailable bridge f
 
   assert.equal(telegramRequests.length, 1);
   const help = telegramRequests[0].payload.text;
-  for (const command of ["/memory", "/task", "/agentplan", "/taskplanrun", "/videoproviders"]) {
+  for (const command of ["/doctor", "/memory", "/task", "/agentplan", "/taskplanrun", "/videoproviders"]) {
     assert.ok(help.includes(command), `help should advertise ${command}`);
   }
   for (const command of ["/taskwatch", "/taskplanwatch", "/videorenderdownload"]) {
