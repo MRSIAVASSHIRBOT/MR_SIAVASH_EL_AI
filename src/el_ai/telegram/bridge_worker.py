@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -14,6 +15,18 @@ from el_ai.telegram.bridge import BridgeJob, TelegramBridgeClient, TelegramBridg
 LOGGER = logging.getLogger("el_ai.telegram.bridge_worker")
 
 JobHandler = Callable[[BridgeJob], Awaitable[str]]
+
+
+def _valid_seconds(value: object, *, maximum: float) -> bool:
+    """Accept only finite, positive numeric intervals within a hard ceiling."""
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and 0 < value <= maximum
+        and math.isfinite(value)
+    )
+
+
 _STOPPED = object()
 
 _MAX_TELEGRAM_REPLY_UNITS = 3900
@@ -118,9 +131,13 @@ class TelegramBridgeWorker:
         max_backoff_seconds: float = 30.0,
         metrics: BridgeWorkerMetrics | None = None,
     ) -> None:
-        if idle_seconds <= 0:
-            raise ValueError("Bridge worker idle interval must be positive")
-        if min_backoff_seconds <= 0 or max_backoff_seconds < min_backoff_seconds:
+        if not _valid_seconds(idle_seconds, maximum=60):
+            raise ValueError("Bridge worker idle interval must be between 0 and 60 seconds")
+        if (
+            not _valid_seconds(min_backoff_seconds, maximum=60)
+            or not _valid_seconds(max_backoff_seconds, maximum=300)
+            or max_backoff_seconds < min_backoff_seconds
+        ):
             raise ValueError("Bridge worker backoff bounds are invalid")
         self._client = client
         self._handler = handler

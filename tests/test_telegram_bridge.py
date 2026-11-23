@@ -177,6 +177,19 @@ def test_bridge_client_requires_https_and_a_strong_shared_secret():
     with pytest.raises(ValueError, match="32 characters"):
         TelegramBridgeClient("https://bridge.example.test", "short")
 
+
+@pytest.mark.parametrize(
+    "timeout_seconds",
+    [True, False, "8", 0, 2, 31, float("nan"), float("inf"), float("-inf"), 10**1000],
+)
+def test_bridge_client_rejects_non_numeric_non_finite_or_unbounded_timeouts(timeout_seconds):
+    with pytest.raises(ValueError, match="Bridge timeout"):
+        TelegramBridgeClient(
+            "https://bridge.example.test",
+            SECRET,
+            timeout_seconds=timeout_seconds,
+        )
+
 @pytest.mark.asyncio
 async def test_pull_rejects_non_json_success_response_without_exposing_body():
     client = TelegramBridgeClient(
