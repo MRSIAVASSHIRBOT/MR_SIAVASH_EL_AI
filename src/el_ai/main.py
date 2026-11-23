@@ -44,7 +44,7 @@ TASK_STATUSES = frozenset({
     "failed", "cancelled", "rejected",
 })
 OWNER_HUB_COMMANDS = frozenset({
-    "/pair", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskplanpause", "/taskplanresume",
+    "/pair", "/doctor", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskplanpause", "/taskplanresume",
     "/taskresult", "/taskcancel", "/taskhistory", "/taskwatch", "/taskunwatch",
     "/taskwatches", "/videoproviders", "/videoroute",
     "/videohistory", "/videostatus", "/videocancel",
@@ -56,7 +56,7 @@ OWNER_HUB_COMMANDS = frozenset({
 
 # This is intentionally narrower than OWNER_HUB_COMMANDS and must match the edge Worker.
 BRIDGE_OWNER_COMMANDS = frozenset({
-    "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove",
+    "/doctor", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove",
     "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress",
     "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus",
     "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskresult",
@@ -391,6 +391,13 @@ async def _owner_hub_command(
     parts = text.strip().split(maxsplit=1)
     command = parts[0].split("@", 1)[0].lower()
     argument = parts[1].strip() if len(parts) > 1 else ""
+
+    if command == "/doctor":
+        if argument:
+            return "روش استفاده: /doctor"
+        from el_ai.doctor import collect_report, render_text
+
+        return render_text(collect_report())
 
     if command == "/pair":
         if not settings.hub_integration_enabled:
@@ -1531,6 +1538,7 @@ PUBLIC_BOT_COMMANDS = (
 OWNER_BOT_COMMANDS = (
     *PUBLIC_BOT_COMMANDS,
     {"command": "owner", "description": "بررسی دسترسی مالک"},
+    {"command": "doctor", "description": "بررسی امن تنظیمات و آمادگی اجرا"},
     {"command": "pairinfo", "description": "شناسه اتصال امن Hub"},
     {"command": "pair", "description": "اتصال امن به Hub"},
     {"command": "hub", "description": "وضعیت اتصال Hub"},
