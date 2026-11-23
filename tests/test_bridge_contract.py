@@ -10,29 +10,30 @@ from el_ai.main import BRIDGE_OWNER_COMMANDS
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 _WORKER_SOURCE = _REPOSITORY_ROOT / "cloudflare" / "telegram-edge" / "src" / "index.js"
-_ALLOWLIST_BLOCK = re.compile(
-    r"^const BRIDGE_OWNER_COMMANDS = new Set\\(\\[(?P<body>.*?)^\\]\\);",
-    re.MULTILINE | re.DOTALL,
-)
 _COMMAND_LITERAL = re.compile(r'"(?P<command>/[a-z0-9_]+)"')
 
 
 def _read_worker_bridge_commands() -> tuple[str, ...]:
     """Read the Worker allowlist and reject source shapes this check cannot parse."""
     source = _WORKER_SOURCE.read_text(encoding="utf-8")
-    match = _ALLOWLIST_BLOCK.search(source)
-    assert match is not None, (
+    declaration = "const BRIDGE_OWNER_COMMANDS = new Set(["
+    start = source.find(declaration)
+    assert start >= 0, (
         "Cloudflare Worker BRIDGE_OWNER_COMMANDS declaration changed; "
         "update this contract test deliberately"
     )
 
-    body = match.group("body")
+    body_start = start + len(declaration)
+    end = source.find("]);", body_start)
+    assert end >= 0, "Cloudflare Worker bridge command allowlist is not closed"
+    body = source[body_start:end]
+
     commands = tuple(
         item.group("command") for item in _COMMAND_LITERAL.finditer(body)
     )
     unparsed = _COMMAND_LITERAL.sub("", body)
     assert commands, "Cloudflare Worker bridge command allowlist must not be empty"
-    assert re.fullmatch(r"[\\s,]*", unparsed), (
+    assert not unparsed.replace(",", "").strip(), (
         "Cloudflare Worker bridge command allowlist contains unparsed entries"
     )
     return commands
