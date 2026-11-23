@@ -725,6 +725,29 @@ test("does not enqueue commands from a Telegram user other than the configured o
   assert.equal(response.status, 200);
   assert.equal(d1.processedUpdates.get(51002).state, "done");
   assert.equal(d1.jobs.size, 0);
+
+  const doctorResponse = await worker.fetch(
+    new Request("https://edge.test/telegram/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Telegram-Bot-Api-Secret-Token": env.TELEGRAM_WEBHOOK_SECRET,
+      },
+      body: JSON.stringify({
+        update_id: 51006,
+        message: {
+          from: { id: 987654321 },
+          chat: { id: 987654321, type: "private" },
+          text: "/doctor",
+        },
+      }),
+    }),
+    env,
+  );
+
+  assert.equal(doctorResponse.status, 200);
+  assert.equal(d1.processedUpdates.get(51006).state, "done");
+  assert.equal(d1.jobs.size, 0, "the doctor command must remain owner-only");
 });
 
 test("requeues a job after Telegram reply delivery fails and accepts a fresh lease retry", async () => {
