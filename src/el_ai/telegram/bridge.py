@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import re
 import secrets
 import time
@@ -103,8 +104,13 @@ class TelegramBridgeClient:
             raise ValueError("Bridge URL must be HTTPS; HTTP is allowed only for loopback tests")
         if not isinstance(shared_secret, str) or len(shared_secret) < 32:
             raise ValueError("Bridge shared secret must contain at least 32 characters")
-        if timeout_seconds <= 0:
-            raise ValueError("Bridge timeout must be positive")
+        if (
+            not isinstance(timeout_seconds, (int, float))
+            or isinstance(timeout_seconds, bool)
+            or not (3 <= timeout_seconds <= 30)
+            or not math.isfinite(timeout_seconds)
+        ):
+            raise ValueError("Bridge timeout must be between 3 and 30 seconds")
 
         self._secret = shared_secret.encode("utf-8")
         self._client = httpx.AsyncClient(
