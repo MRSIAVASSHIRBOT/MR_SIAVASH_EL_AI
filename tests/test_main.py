@@ -1477,6 +1477,14 @@ def test_bridge_job_maps_only_allowlisted_owner_dispatch_text():
         _bridge_job({"command": "dispatch", "text": "/tasks"}),
         owners,
     ) == "/tasks"
+    assert _bridge_job_command(
+        _bridge_job({"command": "dispatch", "text": "/doctor"}),
+        owners,
+    ) == "/doctor"
+    assert _bridge_job_command(
+        _bridge_job({"command": "dispatch", "text": "/doctor"}, user_id=456),
+        owners,
+    ) is None
 
 
 def test_bridge_job_rejects_unsafe_or_unapproved_dispatch_text():
@@ -1764,3 +1772,35 @@ def test_cloudflare_bridge_runs_dependency_plan_scheduler_without_telegram_watch
     assert calls[0][2] is None
     assert calls[0][3] == frozenset({123})
 
+
+
+
+def test_doctor_command_is_read_only_and_available_without_hub_opt_in(monkeypatch):
+    from el_ai import doctor
+
+    report = {
+        "ready": True,
+        "mode": "read_only_offline",
+        "network_requests": 0,
+        "filesystem_writes": 0,
+        "secrets_displayed": False,
+        "checks": [],
+    }
+    monkeypatch.setattr(doctor, "collect_report", lambda: report)
+    monkeypatch.setattr(doctor, "render_text", lambda value: "EL_AI preflight report")
+
+    response = asyncio.run(_owner_hub_command(
+        "/doctor",
+        telegram_user_id=123,
+        update_id=1,
+        hub=None,
+        settings=_settings(enabled=False),
+    ))
+
+    assert response == "EL_AI preflight report"
+    assert "/doctor" in OWNER_HUB_COMMANDS
+    assert "/doctor" in BRIDGE_OWNER_COMMANDS
+    assert any(item["command"] == "doctor" for item in OWNER_BOT_COMMANDS)
+    assert report["network_requests"] == 0
+    assert report["filesystem_writes"] == 0
+    assert report["secrets_displayed"] is False
