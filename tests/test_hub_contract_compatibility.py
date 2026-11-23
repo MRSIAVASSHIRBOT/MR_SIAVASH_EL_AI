@@ -66,12 +66,9 @@ def test_all_paired_bearer_routes_have_declared_scopes_and_safe_log_templates() 
         )
 
 
-def test_static_hub_route_templates_exist_in_the_paired_contract() -> None:
+def test_static_hub_route_templates_exist_in_the_contract() -> None:
     endpoints = _contract()["hub_telegram"]["endpoints"]
-    paired_paths = {
-        endpoint["path"]
-        for endpoint in endpoints
-        if endpoint["auth_mode"] == "paired_bearer"
-    }
+    contract_paths = {endpoint["path"] for endpoint in endpoints}
 
-    assert _STATIC_HUB_ROUTES <= paired_paths
+    # Pairing exchange and refresh routes intentionally use their own auth modes.
+    assert _STATIC_HUB_ROUTES <= contract_paths
