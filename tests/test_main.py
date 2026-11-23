@@ -1772,9 +1772,6 @@ def test_cloudflare_bridge_runs_dependency_plan_scheduler_without_telegram_watch
     assert calls[0][2] is None
     assert calls[0][3] == frozenset({123})
 
-
-
-
 def test_doctor_command_is_read_only_and_available_without_hub_opt_in(monkeypatch):
     from el_ai import doctor
 
