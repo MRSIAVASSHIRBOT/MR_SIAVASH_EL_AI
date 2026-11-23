@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from el_ai.integrations.hub import HubClient
+from el_ai.integrations.hub import HubClient, _STATIC_HUB_ROUTES
 
 
 _MANIFEST_PATH = (
@@ -74,4 +74,4 @@ def test_static_hub_route_templates_exist_in_the_paired_contract() -> None:
         if endpoint["auth_mode"] == "paired_bearer"
     }
 
-    assert HubClient._STATIC_HUB_ROUTES <= paired_paths
+    assert _STATIC_HUB_ROUTES <= paired_paths
