@@ -30,12 +30,17 @@ from el_ai.telegram.bridge import BridgeJob
 from el_ai.telegram.api import TelegramAPIError
 
 
-def _settings(*, enabled: bool) -> Settings:
+def _settings(
+    *,
+    enabled: bool,
+    allow_render_private_network: bool = False,
+) -> Settings:
     return Settings(
         telegram_bot_token="test-token",
         owner_ids=frozenset({123}),
         hub_api_base_url="http://127.0.0.1:8000",
         hub_integration_enabled=enabled,
+        hub_allow_render_private_network=allow_render_private_network,
     )
 
 
@@ -52,15 +57,55 @@ def test_enabled_hub_integration_initializes_the_scoped_client(monkeypatch):
     store = object()
     monkeypatch.setattr("el_ai.main.KeyringCredentialStore", lambda: store)
 
-    def build_client(base_url, client_id, credential_store, *, allow_remote):
+    def build_client(
+        base_url,
+        client_id,
+        credential_store,
+        *,
+        allow_remote,
+        allow_render_private_network,
+    ):
         assert base_url == "http://127.0.0.1:8000"
         assert client_id == "client-id"
         assert credential_store is store
         assert allow_remote is False
+        assert allow_render_private_network is False
         return marker
 
     monkeypatch.setattr("el_ai.main.HubClient", build_client)
     assert _build_hub_client(_settings(enabled=True), "client-id") is marker
+
+
+def test_enabled_hub_client_forwards_explicit_render_private_network_opt_in(monkeypatch):
+    marker = object()
+    store = object()
+    monkeypatch.setattr("el_ai.main.KeyringCredentialStore", lambda: store)
+
+    def build_client(
+        base_url,
+        client_id,
+        credential_store,
+        *,
+        allow_remote,
+        allow_render_private_network,
+    ):
+        assert base_url == "http://mr-siavash-hub-ai:10000"
+        assert client_id == "client-id"
+        assert credential_store is store
+        assert allow_remote is False
+        assert allow_render_private_network is True
+        return marker
+
+    monkeypatch.setattr("el_ai.main.HubClient", build_client)
+    settings = Settings(
+        telegram_bot_token=None,
+        owner_ids=frozenset({123}),
+        hub_api_base_url="http://mr-siavash-hub-ai:10000",
+        hub_integration_enabled=True,
+        hub_allow_render_private_network=True,
+    )
+
+    assert _build_hub_client(settings, "client-id") is marker
 
 
 def test_unavailable_keyring_fails_closed(monkeypatch):
