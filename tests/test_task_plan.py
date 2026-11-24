@@ -322,3 +322,30 @@ def test_task_plan_store_rejects_non_boolean_v3_pause_state(tmp_path):
 
     with pytest.raises(TaskPlanError, match="pause state"):
         TaskPlanStore(path).load()
+
+
+def test_task_plan_store_pause_all_is_atomic_idempotent_and_owner_scoped(tmp_path):
+    path = tmp_path / "task-plans.json"
+    store = TaskPlanStore(path)
+    first = store.create(123, "demo.echo", ["first", "publish"], now=100)
+    second = store.create(123, "demo.echo", ["prepare", "ship"], now=101)
+    foreign = store.create(456, "demo.echo", ["other", "owner"], now=102)
+
+    assert store.set_all_paused(123, True) == 2
+    assert store.set_all_paused(123, True) == 0
+    assert store.get_for_user(first.plan_id, 123, now=103).paused is True
+    assert store.get_for_user(second.plan_id, 123, now=103).paused is True
+    assert store.get_for_user(foreign.plan_id, 456, now=103).paused is False
+
+    assert store.set_all_paused(123, False) == 2
+    assert store.set_all_paused(123, False) == 0
+    assert store.get_for_user(first.plan_id, 123, now=104).paused is False
+    assert store.get_for_user(foreign.plan_id, 456, now=104).paused is False
+
+
+def test_task_plan_store_pause_all_rejects_invalid_owner_and_state(tmp_path):
+    store = TaskPlanStore(tmp_path / "task-plans.json")
+    with pytest.raises(ValueError, match="positive integer"):
+        store.set_all_paused(True, True)
+    with pytest.raises(ValueError, match="boolean"):
+        store.set_all_paused(123, 1)

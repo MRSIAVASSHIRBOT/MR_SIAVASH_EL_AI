@@ -413,6 +413,31 @@ class TaskPlanStore:
             self._replace(updated)
         return changed
 
+    def set_all_paused(self, telegram_user_id: int, paused: bool) -> int:
+        """Atomically pause or resume every stored plan belonging to one owner."""
+        self._validate_user_id(telegram_user_id)
+        if not isinstance(paused, bool):
+            raise ValueError("Task-plan pause state must be a boolean")
+
+        plans = self._ensure_loaded()
+        updated: list[TaskPlan] = []
+        changed_count = 0
+        for plan in plans:
+            if plan.telegram_user_id != telegram_user_id or plan.paused == paused:
+                updated.append(plan)
+                continue
+            updated.append(TaskPlan(
+                plan.plan_id,
+                plan.telegram_user_id,
+                plan.task_type,
+                plan.created_at,
+                plan.steps,
+                paused,
+            ))
+            changed_count += 1
+        if changed_count:
+            self._replace(updated)
+        return changed_count
     def _prune_expired(self, now: int) -> None:
         cutoff = now - MAX_TASK_PLAN_AGE_SECONDS
         plans = self._ensure_loaded()
