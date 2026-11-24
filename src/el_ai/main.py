@@ -29,6 +29,7 @@ from el_ai.telegram.cursor import UpdateCursor, UpdateCursorError
 from el_ai.telegram.router import MessageRouter
 from el_ai.telegram.task_plan import TaskPlanError, TaskPlanStore
 from el_ai.telegram.task_plan_orchestrator import advance_ready_plan_steps
+from el_ai.telegram.task_plan_evaluation import evaluate_task_plan_evidence
 from el_ai.telegram.task_watch import (
     TERMINAL_TASK_STATUSES,
     TaskWatch,
@@ -44,7 +45,7 @@ TASK_STATUSES = frozenset({
     "failed", "cancelled", "rejected",
 })
 OWNER_HUB_COMMANDS = frozenset({
-    "/pair", "/doctor", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskplanspauseall", "/taskplansresumeall",
+    "/pair", "/doctor", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskplanspauseall", "/taskplansresumeall", "/taskplanevaluate",
     "/taskresult", "/taskcancel", "/taskhistory", "/taskwatch", "/taskunwatch",
     "/taskwatches", "/videoproviders", "/videoroute",
     "/videohistory", "/videostatus", "/videocancel",
@@ -59,7 +60,7 @@ BRIDGE_OWNER_COMMANDS = frozenset({
     "/doctor", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove",
     "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress",
     "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus",
-    "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskplanspauseall", "/taskplansresumeall", "/taskresult",
+    "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskplanspauseall", "/taskplansresumeall", "/taskplanevaluate", "/taskresult",
     "/taskcancel", "/taskhistory", "/videoproviders", "/videoroute",
     "/videohistory", "/videostatus", "/videocancel", "/videodrafts",
     "/videorenders", "/videorendercheck", "/videorender",
@@ -418,7 +419,7 @@ async def _owner_hub_command(
             return "اتصال انجام نشد؛ کد ممکن است نامعتبر یا منقضی شده باشد. هیچ اطلاعات محرمانه‌ای ثبت نشده است."
 
     if command not in {
-        "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskplanspauseall", "/taskplansresumeall", "/taskresult", "/taskcancel",
+        "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskplanspauseall", "/taskplansresumeall", "/taskplanevaluate", "/taskresult", "/taskcancel",
         "/taskhistory", "/taskwatch", "/taskunwatch", "/taskwatches",
         "/videoproviders", "/videoroute", "/videohistory", "/videostatus", "/videocancel",
         "/videodrafts", "/videorenders", "/videorendercheck", "/videorender", "/videorenderstatus",
@@ -787,6 +788,22 @@ async def _owner_hub_command(
                 )
                 lines.append(f"{index + 1}. {status_label} — {step.task_id}{dependencies_label}")
             return "\n".join(lines)
+        if command == "/taskplanevaluate":
+            if task_plans is None:
+                return "ذخیره‌سازی طرح وظایف در دسترس نیست."
+            if not argument:
+                return "روش استفاده: /taskplanevaluate PLAN_ID"
+            if hub is None:
+                return "اتصال Hub برای خواندن شواهد نتایج در دسترس نیست."
+            try:
+                plan_id = str(UUID(argument))
+                plan = task_plans.get_for_user(plan_id, telegram_user_id)
+            except (TaskPlanError, ValueError):
+                return "شناسه طرح نامعتبر است."
+            if plan is None:
+                return "طرح پیدا نشد، منقضی شده یا متعلق به این اتصال ربات نیست."
+            report = await evaluate_task_plan_evidence(hub, telegram_user_id, plan)
+            return _format_result(report.as_dict())
         if command == "/taskplanwatch":
             if task_plans is None or task_watches is None:
                 return "ذخیره‌سازی طرح یا پایش وظایف در دسترس نیست."
@@ -1589,6 +1606,7 @@ OWNER_BOT_COMMANDS = (
     {"command": "taskplanresume", "description": "ادامه صریح طرح مکث‌شده"},
     {"command": "taskplanspauseall", "description": "توقف ارسال مرحله‌های همه طرح‌های مالک"},
     {"command": "taskplansresumeall", "description": "ادامه ارسال مرحله‌های طرح‌های مالک"},
+    {"command": "taskplanevaluate", "description": "ارزیابی فقط‌خواندنی شواهد نتایج طرح"},
     {"command": "taskhistory", "description": "تاریخچه صفحه‌بندی‌شده یک وظیفه"},
     {"command": "taskwatch", "description": "اعلان تغییر وضعیت وظیفه"},
     {"command": "taskunwatch", "description": "توقف اعلان‌های وظیفه"},
