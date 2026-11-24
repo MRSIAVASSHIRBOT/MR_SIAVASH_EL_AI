@@ -12,6 +12,7 @@ EL_AI is the conversation and Telegram transport layer. It should apply the user
 - **Memory/context:** Use explicitly scoped public and owner-private context, avoid unnecessary retention, and do not put tokens, pairing secrets, private message bodies or raw provider payloads in logs.
 - **Research/uncertainty:** Use appropriate research capability for fresh facts, distinguish verified results from assumptions, and cite where user-facing claims need evidence.
 - **Quality and recovery:** Idempotent delivery keys, bounded retries, task-state reconciliation, cancellation where supported, graceful shutdown and user-visible partial/failure states.
+- **E8 evidence review (partial):** `/taskplanevaluate PLAN_ID` reports owner-scoped task statuses and structurally valid result envelopes without exposing result content or mutating work. This confirms result availability, not semantic goal satisfaction; missing or unknown evidence is surfaced for review without automatic retry.
 
 ## Boundaries and acceptance targets
 - Owner-private access is identity-bound, paired and scope-limited; revocation and expiry are respected.
