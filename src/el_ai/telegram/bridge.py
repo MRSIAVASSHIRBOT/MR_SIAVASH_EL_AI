@@ -16,7 +16,7 @@ from uuid import UUID
 import httpx
 
 
-_MAX_REPLY_LENGTH = 4000
+_MAX_REPLY_LENGTH = 3900
 _MAX_RESPONSE_BYTES = 64 * 1024
 _NONCE_PATTERN = re.compile(r"^[A-Za-z0-9_-]{20,80}$")
 _LEASE_PATTERN = re.compile(r"^[a-f0-9]{64}$")
