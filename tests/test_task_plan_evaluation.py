@@ -11,10 +11,11 @@ TASK_B = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
 
 class FakeHub:
-    def __init__(self, tasks=None, results=None, errors=None):
+    def __init__(self, tasks=None, results=None, errors=None, result_errors=None):
         self.tasks = tasks or {}
         self.results = results or {}
         self.errors = errors or {}
+        self.result_errors = result_errors or {}
         self.task_reads = []
         self.result_reads = []
 
@@ -28,8 +29,8 @@ class FakeHub:
     async def get_task_result(self, owner_id, task_id):
         assert owner_id == OWNER_ID
         self.result_reads.append(task_id)
-        if task_id in self.errors:
-            raise self.errors[task_id]
+        if task_id in self.result_errors:
+            raise self.result_errors[task_id]
         return self.results[task_id]
 
 
@@ -84,7 +85,7 @@ async def test_succeeded_task_without_result_is_insufficient_evidence(tmp_path):
     plan = store.get_for_user(plan.plan_id, OWNER_ID, now=101)
     hub = FakeHub(
         tasks={TASK_A: {"status": "succeeded"}},
-        errors={TASK_A: HubClientError("result not ready", status_code=409)},
+        result_errors={TASK_A: HubClientError("result not ready", status_code=409)},
     )
 
     report = await evaluate_task_plan_evidence(hub, OWNER_ID, plan)
