@@ -7,6 +7,7 @@ import logging
 import math
 import re
 from datetime import UTC, datetime, timedelta
+from time import perf_counter
 from urllib.parse import urlencode, urlsplit
 from uuid import UUID, uuid4
 
@@ -145,21 +146,24 @@ class HubClient:
         path: str,
         status_code: int | None,
         outcome: str,
+        duration_ms: float = 0.0,
     ) -> None:
         route_template = HubClient._route_template(path)
         logger.info(
-            "hub_request_completed request_id=%s method=%s route_template=%s status_code=%s outcome=%s",
+            "hub_request_completed request_id=%s method=%s route_template=%s status_code=%s outcome=%s duration_ms=%.3f",
             request_id,
             method,
             route_template,
             status_code,
             outcome,
+            duration_ms,
             extra={
                 "request_id": request_id,
                 "method": method,
                 "route_template": route_template,
                 "status_code": status_code,
                 "outcome": outcome,
+                "duration_ms": duration_ms,
             },
         )
 
@@ -206,6 +210,7 @@ class HubClient:
 
     async def _request(self, method: str, path: str, payload: dict[str, object]) -> dict[str, object]:
         request_id = str(uuid4())
+        started_at = perf_counter()
         status_code: int | None = None
         response_status_code: int | None = None
         failed = False
@@ -236,7 +241,10 @@ class HubClient:
             if not isinstance(result, dict)
             else "success"
         )
-        self._log_request(request_id, method, path, response_status_code or status_code, outcome)
+        duration_ms = round(max(0.0, (perf_counter() - started_at) * 1000), 3)
+        self._log_request(
+            request_id, method, path, response_status_code or status_code, outcome, duration_ms
+        )
         if status_code is not None:
             raise HubClientError(
                 f"Hub rejected the request (HTTP {status_code})",
@@ -369,6 +377,7 @@ class HubClient:
         request_id = str(uuid4())
 
         async def send(token: str) -> dict[str, object]:
+            started_at = perf_counter()
             headers = {
                 "Authorization": f"Bearer {token}",
                 "X-Telegram-User-Id": str(telegram_user_id),
@@ -406,7 +415,10 @@ class HubClient:
                 if not isinstance(result, dict)
                 else "success"
             )
-            self._log_request(request_id, method, path, response_status_code or status_code, outcome)
+            duration_ms = round(max(0.0, (perf_counter() - started_at) * 1000), 3)
+            self._log_request(
+                request_id, method, path, response_status_code or status_code, outcome, duration_ms
+            )
             if status_code is not None:
                 raise HubClientError(
                     f"Hub rejected the request (HTTP {status_code})",
@@ -455,6 +467,7 @@ class HubClient:
         request_id = str(uuid4())
 
         async def send(token: str) -> bytes:
+            started_at = perf_counter()
             headers = {
                 "Authorization": f"Bearer {token}",
                 "X-Telegram-User-Id": str(telegram_user_id),
@@ -469,25 +482,25 @@ class HubClient:
                     response.raise_for_status()
                     content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
                     if content_type != "video/mp4":
-                        self._log_request(request_id, "GET", path, response_status_code, "invalid_response")
+                        self._log_request(request_id, "GET", path, response_status_code, "invalid_response", duration_ms=round(max(0.0, (perf_counter() - started_at) * 1000), 3))
                         raise HubClientError("Hub returned an invalid video response", status_code=502)
                     content_length = response.headers.get("content-length")
                     if content_length is not None:
                         if not content_length.isdecimal():
-                            self._log_request(request_id, "GET", path, response_status_code, "invalid_response")
+                            self._log_request(request_id, "GET", path, response_status_code, "invalid_response", duration_ms=round(max(0.0, (perf_counter() - started_at) * 1000), 3))
                             raise HubClientError("Hub returned an invalid video size", status_code=502)
                         if int(content_length) > max_bytes:
-                            self._log_request(request_id, "GET", path, response_status_code, "http_error")
+                            self._log_request(request_id, "GET", path, response_status_code, "http_error", duration_ms=round(max(0.0, (perf_counter() - started_at) * 1000), 3))
                             raise HubClientError("Video exceeds the Telegram upload limit", status_code=413)
                     data = bytearray()
                     async for chunk in response.aiter_bytes():
                         if len(data) + len(chunk) > max_bytes:
-                            self._log_request(request_id, "GET", path, response_status_code, "http_error")
+                            self._log_request(request_id, "GET", path, response_status_code, "http_error", duration_ms=round(max(0.0, (perf_counter() - started_at) * 1000), 3))
                             raise HubClientError("Video exceeds the Telegram upload limit", status_code=413)
                         data.extend(chunk)
             except httpx.HTTPStatusError as exc:
                 status_code = exc.response.status_code
-                self._log_request(request_id, "GET", path, status_code, "http_error")
+                self._log_request(request_id, "GET", path, status_code, "http_error", duration_ms=round(max(0.0, (perf_counter() - started_at) * 1000), 3))
                 raise HubClientError(
                     f"Hub rejected the request (HTTP {status_code})",
                     status_code=status_code,
@@ -495,13 +508,13 @@ class HubClient:
             except HubClientError:
                 raise
             except httpx.HTTPError:
-                self._log_request(request_id, "GET", path, response_status_code, "request_failed")
+                self._log_request(request_id, "GET", path, response_status_code, "request_failed", duration_ms=round(max(0.0, (perf_counter() - started_at) * 1000), 3))
                 raise HubClientError("Hub video download failed") from None
 
             if len(data) < 12 or data[4:8] != b"ftyp":
-                self._log_request(request_id, "GET", path, response_status_code, "invalid_response")
+                self._log_request(request_id, "GET", path, response_status_code, "invalid_response", duration_ms=round(max(0.0, (perf_counter() - started_at) * 1000), 3))
                 raise HubClientError("Hub returned an invalid MP4 file", status_code=502)
-            self._log_request(request_id, "GET", path, response_status_code, "success")
+            self._log_request(request_id, "GET", path, response_status_code, "success", duration_ms=round(max(0.0, (perf_counter() - started_at) * 1000), 3))
             return bytes(data)
 
         token = await self._access_token(telegram_user_id)
