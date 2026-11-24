@@ -1212,7 +1212,7 @@ def test_task_plan_status_reports_each_step_without_exposing_task_payloads(tmp_p
 
 def test_task_plan_evidence_command_is_owner_scoped_and_read_only(tmp_path):
     plan_store = TaskPlanStore(tmp_path / "task-plans.json")
-    plan = plan_store.create(123, "demo.echo", ["first", "second"], now=100)
+    plan = plan_store.create(123, "demo.echo", ["first", "second"], now=int(time.time()))
     task_ids = [
         "12345678-1234-4234-8234-123456789abc",
         "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
