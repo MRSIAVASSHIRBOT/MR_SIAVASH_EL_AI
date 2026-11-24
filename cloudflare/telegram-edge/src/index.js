@@ -12,6 +12,8 @@ const SAFE_NETWORK_ERROR_CODES = new Set([
   "ERR_CERT_AUTHORITY_INVALID",
 ]);
 const TELEGRAM_TIMEOUT_MS = 8000;
+const MAX_BRIDGE_JOB_ATTEMPTS = 5;
+const MAX_TELEGRAM_RETRY_AFTER_SECONDS = 3600;
 const HUB_CLIENT_ID_DEFAULT = "3a1c9d72-6f84-4b35-9e21-7d0c8a6f4b52";
 const TELEGRAM_WEBHOOK_PATH = "/telegram/webhook";
 const CLIENT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -201,6 +203,10 @@ async function telegramCall(env, method, payload) {
     failure.kind = "api_rejected";
     failure.http_status = response.status;
     failure.telegram_error_code = Number.isInteger(data?.error_code) ? data.error_code : null;
+    const retryAfter = data?.parameters?.retry_after;
+    if (Number.isSafeInteger(retryAfter) && retryAfter > 0) {
+      failure.retry_after_seconds = Math.min(retryAfter, MAX_TELEGRAM_RETRY_AFTER_SECONDS);
+    }
     throw failure;
   }
   return data.result;
@@ -284,11 +290,25 @@ async function enqueueJob(env, updateId, chatId, userId, payload) {
   const encrypted = await encryptPayload(payload, env);
   const jobId = crypto.randomUUID();
   const inserted = await env.DB.prepare(
-    "INSERT OR IGNORE INTO telegram_jobs (job_id, update_id, chat_id, telegram_user_id, payload_ciphertext, state, lease_until, lease_token_hash, attempts, created_at, updated_at) SELECT ?, ?, ?, ?, ?, 'pending', 0, NULL, 0, unixepoch(), unixepoch() WHERE (SELECT COUNT(*) FROM telegram_jobs WHERE state IN ('pending','leased','sending')) < 1000",
+    "INSERT OR IGNORE INTO telegram_jobs (job_id, update_id, chat_id, telegram_user_id, payload_ciphertext, state, lease_until, lease_token_hash, attempts, created_at, updated_at) SELECT ?, ?, ?, ?, ?, 'pending', 0, NULL, 0, unixepoch(), unixepoch() WHERE (SELECT COUNT(*) FROM telegram_jobs WHERE quarantined_at IS NULL AND state IN ('pending','leased','sending')) < 1000",
   ).bind(jobId, updateId, chatId, userId, encrypted).run();
   if (Number(inserted.meta?.changes || 0) > 0) return true;
   const existing = await env.DB.prepare("SELECT job_id FROM telegram_jobs WHERE update_id = ?").bind(updateId).first();
   return Boolean(existing);
+}
+
+async function readQueueSummary(env) {
+  const row = await env.DB.prepare(
+    "SELECT COALESCE(SUM(CASE WHEN quarantined_at IS NULL AND state IN ('pending','leased','sending') THEN 1 ELSE 0 END), 0) AS active_count, COALESCE(SUM(CASE WHEN quarantined_at IS NULL AND state='pending' THEN 1 ELSE 0 END), 0) AS pending_count, COALESCE(SUM(CASE WHEN quarantined_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS quarantined_count, MIN(CASE WHEN quarantined_at IS NULL AND state='pending' THEN created_at END) AS oldest_pending_at FROM telegram_jobs",
+  ).bind().first();
+  const oldestRaw = row?.oldest_pending_at;
+  const oldest = oldestRaw === null || oldestRaw === undefined ? null : Number(oldestRaw);
+  return {
+    active_count: Number(row?.active_count || 0),
+    pending_count: Number(row?.pending_count || 0),
+    quarantined_count: Number(row?.quarantined_count || 0),
+    oldest_pending_at: Number.isSafeInteger(oldest) && oldest > 0 ? oldest : null,
+  };
 }
 
 async function handleTelegramMessage(env, update) {
@@ -306,7 +326,27 @@ async function handleTelegramMessage(env, update) {
     return;
   }
   if (command === "/help") {
-    await sendMessage(env, chatId, "فرمان‌ها:\n/start — شروع\n/help — راهنما\n/id — شناسه تلگرام\n/doctor — بررسی امن تنظیمات و آمادگی اجرا\n/pairinfo — اطلاعات اتصال\n/pair CODE — اتصال امن به HUB\n/status و /tasks — وضعیت و فهرست کارها\n/memory QUERY — جست‌وجوی حافظه\n/task TYPE | DESCRIPTION — ثبت وظیفه\n/taskstatus ID و /taskresult ID — وضعیت و نتیجه\n/taskplan TYPE | STEPS — ساخت طرح\n/agentplan local TYPE | GOAL — پیشنهاد طرح AI\n/taskplanrun ID و /taskplanstatus ID — اجرای تأییدشده و بررسی طرح\n/videoproviders و /videoroute — قابلیت‌ها و مسیر ویدئو\n/videohistory و /videostatus ID — تاریخچه و وضعیت تولید\nدسترسی هر فرمان به مجوزهای HUB وابسته است. اعلان پس‌زمینه و ارسال فایل در Bridge فعلاً فعال نیست.");
+    await sendMessage(env, chatId, "فرمان‌ها:\n/start — شروع\n/help — راهنما\n/id — شناسه تلگرام\n/queue — وضعیت صف و درخواست‌های قرنطینه\n/doctor — بررسی امن تنظیمات و آمادگی اجرا\n/pairinfo — اطلاعات اتصال\n/pair CODE — اتصال امن به HUB\n/status و /tasks — وضعیت و فهرست کارها\n/memory QUERY — جست‌وجوی حافظه\n/task TYPE | DESCRIPTION — ثبت وظیفه\n/taskstatus ID و /taskresult ID — وضعیت و نتیجه\n/taskplan TYPE | STEPS — ساخت طرح\n/agentplan local TYPE | GOAL — پیشنهاد طرح AI\n/taskplanrun ID و /taskplanstatus ID — اجرای تأییدشده و بررسی طرح\n/videoproviders و /videoroute — قابلیت‌ها و مسیر ویدئو\n/videohistory و /videostatus ID — تاریخچه و وضعیت تولید\nدسترسی هر فرمان به مجوزهای HUB وابسته است. اعلان پس‌زمینه و ارسال فایل در Bridge فعلاً فعال نیست.");
+    return;
+  }
+  if (command === "/queue") {
+    if (!env.DB || typeof env.DB.prepare !== "function") {
+      await sendMessage(env, chatId, "وضعیت صف در دسترس نیست؛ پایگاه داده پیکربندی نشده است.");
+      return;
+    }
+    try {
+      const summary = await readQueueSummary(env);
+      const age = summary.oldest_pending_at === null
+        ? "ندارد"
+        : `${Math.max(0, Math.floor(Date.now() / 1000) - summary.oldest_pending_at)} ثانیه`;
+      await sendMessage(
+        env,
+        chatId,
+        `وضعیت صف ربات:\nدر انتظار: ${summary.pending_count}\nفعال: ${summary.active_count}\nقرنطینه: ${summary.quarantined_count}\nقدیمی‌ترین درخواست: ${age}`,
+      );
+    } catch {
+      await sendMessage(env, chatId, "خواندن وضعیت صف موقتاً ممکن نیست.");
+    }
     return;
   }
   if (command === "/id") {
@@ -394,12 +434,27 @@ async function bridgeSignatureValid(request, bodyBytes, env) {
   return Boolean(inserted);
 }
 
+async function quarantineJob(env, jobId, leaseHash, expectedState, reason) {
+  const result = await env.DB.prepare(
+    "UPDATE telegram_jobs SET state='pending', quarantined_at=unixepoch(), quarantine_reason=?, lease_until=0, lease_token_hash=NULL, updated_at=unixepoch() WHERE job_id=? AND state=? AND lease_token_hash=? AND quarantined_at IS NULL",
+  ).bind(reason, jobId, expectedState, leaseHash).run();
+  return Number(result.meta?.changes || 0) > 0;
+}
+
 async function bridgePull(env) {
+  // A job that reached "sending" may already have been delivered. Never replay it.
+  await env.DB.prepare(
+    "UPDATE telegram_jobs SET state='pending', quarantined_at=unixepoch(), quarantine_reason='delivery_unknown', lease_until=0, lease_token_hash=NULL, updated_at=unixepoch() WHERE quarantined_at IS NULL AND state='sending' AND lease_until < unixepoch()",
+  ).bind().run();
+  await env.DB.prepare(
+    "UPDATE telegram_jobs SET state='pending', quarantined_at=unixepoch(), quarantine_reason='attempt_limit_exceeded', lease_until=0, lease_token_hash=NULL, updated_at=unixepoch() WHERE quarantined_at IS NULL AND attempts >= ? AND ((state='pending' AND lease_until <= unixepoch()) OR (state='leased' AND lease_until < unixepoch()))",
+  ).bind(MAX_BRIDGE_JOB_ATTEMPTS).run();
+
   const leaseToken = Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, "0")).join("");
   const leaseHash = await sha256Hex(leaseToken);
   const job = await env.DB.prepare(
-    "UPDATE telegram_jobs SET state='leased', lease_until=unixepoch()+60, lease_token_hash=?, attempts=attempts+1, updated_at=unixepoch() WHERE job_id=(SELECT job_id FROM telegram_jobs WHERE state='pending' OR (state IN ('leased','sending') AND lease_until < unixepoch()) ORDER BY created_at LIMIT 1) RETURNING job_id, chat_id, telegram_user_id, payload_ciphertext, attempts",
-  ).bind(leaseHash).first();
+    "UPDATE telegram_jobs SET state='leased', lease_until=unixepoch()+60, lease_token_hash=?, attempts=attempts+1, updated_at=unixepoch() WHERE job_id=(SELECT job_id FROM telegram_jobs WHERE quarantined_at IS NULL AND attempts < ? AND ((state='pending' AND lease_until <= unixepoch()) OR (state='leased' AND lease_until < unixepoch())) ORDER BY created_at, job_id LIMIT 1) RETURNING job_id, chat_id, telegram_user_id, payload_ciphertext, attempts",
+  ).bind(leaseHash, MAX_BRIDGE_JOB_ATTEMPTS).first();
   if (!job) return { job: null };
   try {
     const payload = await decryptPayload(job.payload_ciphertext, env);
@@ -414,9 +469,7 @@ async function bridgePull(env) {
       },
     };
   } catch {
-    await env.DB.prepare(
-      "UPDATE telegram_jobs SET state='pending', lease_until=0, lease_token_hash=NULL, updated_at=unixepoch() WHERE job_id=?",
-    ).bind(job.job_id).run();
+    await quarantineJob(env, job.job_id, leaseHash, "leased", "payload_decryption_failed");
     throw new Error("queued payload could not be decrypted");
   }
 }
@@ -433,15 +486,35 @@ async function bridgeComplete(env, payload) {
   if (!claimed) return json({ error: "lease_not_valid" }, 409);
   try {
     await sendMessage(env, Number(claimed.chat_id), reply);
-  } catch {
-    await env.DB.prepare(
-      "UPDATE telegram_jobs SET state='pending', lease_until=0, lease_token_hash=NULL, updated_at=unixepoch() WHERE job_id=? AND state='sending' AND lease_token_hash=?",
-    ).bind(jobId, leaseHash).run();
-    return json({ error: "telegram_delivery_failed" }, 503);
+  } catch (error) {
+    const retryAfter = error?.retry_after_seconds;
+    if (
+      error?.kind === "api_rejected" &&
+      (error.http_status === 429 || error.telegram_error_code === 429) &&
+      Number.isSafeInteger(retryAfter) &&
+      retryAfter > 0
+    ) {
+      const released = await env.DB.prepare(
+        "UPDATE telegram_jobs SET state='pending', lease_until=unixepoch()+?, lease_token_hash=NULL, updated_at=unixepoch() WHERE job_id=? AND state='sending' AND lease_token_hash=? AND quarantined_at IS NULL",
+      ).bind(retryAfter, jobId, leaseHash).run();
+      if (Number(released.meta?.changes || 0) === 0) return json({ error: "lease_not_valid" }, 409);
+      return json({ error: "telegram_rate_limited", retry_after_seconds: retryAfter }, 503);
+    }
+
+    const reason = error?.kind === "api_rejected" &&
+      Number.isInteger(error.http_status) &&
+      error.http_status >= 400 &&
+      error.http_status < 500
+      ? "telegram_api_rejected"
+      : "delivery_unknown";
+    const quarantined = await quarantineJob(env, jobId, leaseHash, "sending", reason);
+    if (!quarantined) return json({ error: "lease_not_valid" }, 409);
+    return json({ error: "telegram_delivery_quarantined", reason }, 502);
   }
-  await env.DB.prepare(
-    "UPDATE telegram_jobs SET state='done', lease_until=0, lease_token_hash=NULL, updated_at=unixepoch() WHERE job_id=? AND state='sending' AND lease_token_hash=?",
+  const completed = await env.DB.prepare(
+    "UPDATE telegram_jobs SET state='done', lease_until=0, lease_token_hash=NULL, updated_at=unixepoch() WHERE job_id=? AND state='sending' AND lease_token_hash=? AND quarantined_at IS NULL",
   ).bind(jobId, leaseHash).run();
+  if (Number(completed.meta?.changes || 0) === 0) return json({ error: "lease_not_valid" }, 409);
   return json({ ok: true });
 }
 

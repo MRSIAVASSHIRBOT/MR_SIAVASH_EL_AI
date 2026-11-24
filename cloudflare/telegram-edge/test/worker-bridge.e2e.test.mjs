@@ -63,10 +63,12 @@ class InMemoryD1 {
     }
 
     if (sql.startsWith("UPDATE telegram_jobs SET state='leased'")) {
-      const leaseHash = values[0];
+      const [leaseHash, maxAttempts] = values;
       const job = this.jobs.find((item) =>
-        item.state === "pending" ||
-        ((item.state === "leased" || item.state === "sending") && item.leaseUntil < now)
+        item.quarantined_at == null &&
+        item.attempts < maxAttempts &&
+        ((item.state === "pending" && item.leaseUntil <= now) ||
+          (item.state === "leased" && item.leaseUntil < now))
       );
       if (!job) return null;
       job.state = "leased";
@@ -109,7 +111,8 @@ class InMemoryD1 {
       const [jobId, updateId, chatId, userId, ciphertext] = values;
       const duplicate = this.jobs.some((item) => item.update_id === updateId);
       const active = this.jobs.filter((item) =>
-        item.state === "pending" || item.state === "leased" || item.state === "sending"
+        item.quarantined_at == null &&
+        (item.state === "pending" || item.state === "leased" || item.state === "sending")
       ).length;
       if (duplicate || active >= 1000) return { meta: { changes: 0 } };
       this.jobs.push({
@@ -122,6 +125,8 @@ class InMemoryD1 {
         leaseUntil: 0,
         lease_token_hash: null,
         attempts: 0,
+        quarantined_at: null,
+        quarantine_reason: null,
         created_at: now,
         updated_at: now,
       });
@@ -146,16 +151,75 @@ class InMemoryD1 {
       return { meta: { changes: current ? 1 : 0 } };
     }
 
-    if (sql.startsWith("UPDATE telegram_jobs SET state='pending'")) {
-      const [jobId, leaseHash] = values;
-      const job = this.jobs.find((item) => item.job_id === jobId);
-      if (job && (values.length === 1 || job.lease_token_hash === leaseHash)) {
-        job.state = "pending";
-        job.leaseUntil = 0;
-        job.lease_token_hash = null;
-        job.updated_at = now;
+    if (sql.startsWith("UPDATE telegram_jobs SET state='pending', quarantined_at=unixepoch(), quarantine_reason='delivery_unknown'")) {
+      let changes = 0;
+      for (const job of this.jobs) {
+        if (job.quarantined_at == null && job.state === "sending" && job.leaseUntil < now) {
+          Object.assign(job, {
+            state: "pending",
+            quarantined_at: now,
+            quarantine_reason: "delivery_unknown",
+            leaseUntil: 0,
+            lease_token_hash: null,
+            updated_at: now,
+          });
+          changes += 1;
+        }
       }
-      return { meta: { changes: job ? 1 : 0 } };
+      return { meta: { changes } };
+    }
+
+    if (sql.startsWith("UPDATE telegram_jobs SET state='pending', quarantined_at=unixepoch(), quarantine_reason='attempt_limit_exceeded'")) {
+      const [maxAttempts] = values;
+      let changes = 0;
+      for (const job of this.jobs) {
+        const eligible = (job.state === "pending" && job.leaseUntil <= now) ||
+          (job.state === "leased" && job.leaseUntil < now);
+        if (job.quarantined_at == null && job.attempts >= maxAttempts && eligible) {
+          Object.assign(job, {
+            state: "pending",
+            quarantined_at: now,
+            quarantine_reason: "attempt_limit_exceeded",
+            leaseUntil: 0,
+            lease_token_hash: null,
+            updated_at: now,
+          });
+          changes += 1;
+        }
+      }
+      return { meta: { changes } };
+    }
+
+    if (sql.startsWith("UPDATE telegram_jobs SET state='pending', quarantined_at=unixepoch(), quarantine_reason=?")) {
+      const [reason, jobId, expectedState, leaseHash] = values;
+      const job = this.jobs.find((item) => item.job_id === jobId);
+      if (job && job.quarantined_at == null && job.state === expectedState && job.lease_token_hash === leaseHash) {
+        Object.assign(job, {
+          state: "pending",
+          quarantined_at: now,
+          quarantine_reason: reason,
+          leaseUntil: 0,
+          lease_token_hash: null,
+          updated_at: now,
+        });
+        return { meta: { changes: 1 } };
+      }
+      return { meta: { changes: 0 } };
+    }
+
+    if (sql.startsWith("UPDATE telegram_jobs SET state='pending', lease_until=unixepoch()+?")) {
+      const [retryAfter, jobId, leaseHash] = values;
+      const job = this.jobs.find((item) => item.job_id === jobId);
+      if (job && job.state === "sending" && job.lease_token_hash === leaseHash && job.quarantined_at == null) {
+        Object.assign(job, {
+          state: "pending",
+          leaseUntil: now + retryAfter,
+          lease_token_hash: null,
+          updated_at: now,
+        });
+        return { meta: { changes: 1 } };
+      }
+      return { meta: { changes: 0 } };
     }
 
     if (sql.startsWith("UPDATE telegram_jobs SET state='done'")) {

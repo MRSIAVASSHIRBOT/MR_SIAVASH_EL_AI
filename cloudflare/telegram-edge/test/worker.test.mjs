@@ -69,12 +69,31 @@ function createMemoryD1() {
                 return { nonce_hash: nonceHash };
               }
 
+              if (query.startsWith("SELECT COALESCE(SUM(CASE WHEN quarantined_at IS NULL")) {
+                const active = [...jobs.values()].filter(item =>
+                  item.quarantined_at == null && ["pending", "leased", "sending"].includes(item.state),
+                );
+                const pending = active.filter(item => item.state === "pending");
+                const quarantined = [...jobs.values()].filter(item => item.quarantined_at != null);
+                const oldest = pending.length
+                  ? Math.min(...pending.map(item => item.created_at))
+                  : null;
+                return {
+                  active_count: active.length,
+                  pending_count: pending.length,
+                  quarantined_count: quarantined.length,
+                  oldest_pending_at: oldest,
+                };
+              }
+
               if (query.startsWith("UPDATE telegram_jobs SET state='leased'")) {
-                const [leaseHash] = values;
+                const [leaseHash, maxAttempts] = values;
                 const job = [...jobs.values()]
                   .filter(item =>
-                    item.state === "pending" ||
-                    (["leased", "sending"].includes(item.state) && item.lease_until < now()),
+                    item.quarantined_at == null &&
+                    item.attempts < maxAttempts &&
+                    ((item.state === "pending" && item.lease_until <= now()) ||
+                      (item.state === "leased" && item.lease_until < now())),
                   )
                   .sort((left, right) => left.created_at - right.created_at)[0];
 
@@ -131,7 +150,7 @@ function createMemoryD1() {
                 const [jobId, updateId, chatId, userId, ciphertext] = values;
                 const alreadyQueued = [...jobs.values()].some(job => job.update_id === updateId);
                 const activeCount = [...jobs.values()].filter(job =>
-                  ["pending", "leased", "sending"].includes(job.state),
+                  job.quarantined_at == null && ["pending", "leased", "sending"].includes(job.state),
                 ).length;
                 if (alreadyQueued || activeCount >= 1000) return { meta: { changes: 0 } };
                 jobs.set(jobId, {
@@ -144,23 +163,82 @@ function createMemoryD1() {
                   lease_until: 0,
                   lease_token_hash: null,
                   attempts: 0,
+                  quarantined_at: null,
+                  quarantine_reason: null,
                   created_at: now(),
                   updated_at: now(),
                 });
                 return { meta: { changes: 1 } };
               }
 
-              if (query.startsWith("UPDATE telegram_jobs SET state='pending'")) {
-                const [jobId, leaseHash] = values;
+              if (query.startsWith("UPDATE telegram_jobs SET state='pending', quarantined_at=unixepoch(), quarantine_reason='delivery_unknown'")) {
+                let changes = 0;
+                for (const job of jobs.values()) {
+                  if (job.quarantined_at == null && job.state === "sending" && job.lease_until < now()) {
+                    Object.assign(job, {
+                      state: "pending",
+                      quarantined_at: now(),
+                      quarantine_reason: "delivery_unknown",
+                      lease_until: 0,
+                      lease_token_hash: null,
+                      updated_at: now(),
+                    });
+                    changes += 1;
+                  }
+                }
+                return { meta: { changes } };
+              }
+
+              if (query.startsWith("UPDATE telegram_jobs SET state='pending', quarantined_at=unixepoch(), quarantine_reason='attempt_limit_exceeded'")) {
+                const [maxAttempts] = values;
+                let changes = 0;
+                for (const job of jobs.values()) {
+                  const eligible = (job.state === "pending" && job.lease_until <= now()) ||
+                    (job.state === "leased" && job.lease_until < now());
+                  if (job.quarantined_at == null && job.attempts >= maxAttempts && eligible) {
+                    Object.assign(job, {
+                      state: "pending",
+                      quarantined_at: now(),
+                      quarantine_reason: "attempt_limit_exceeded",
+                      lease_until: 0,
+                      lease_token_hash: null,
+                      updated_at: now(),
+                    });
+                    changes += 1;
+                  }
+                }
+                return { meta: { changes } };
+              }
+
+              if (query.startsWith("UPDATE telegram_jobs SET state='pending', quarantined_at=unixepoch(), quarantine_reason=?")) {
+                const [reason, jobId, expectedState, leaseHash] = values;
                 const job = jobs.get(jobId);
                 if (
                   job &&
-                  (values.length === 1 ||
-                    (job.state === "sending" && job.lease_token_hash === leaseHash))
+                  job.quarantined_at == null &&
+                  job.state === expectedState &&
+                  job.lease_token_hash === leaseHash
                 ) {
                   Object.assign(job, {
                     state: "pending",
+                    quarantined_at: now(),
+                    quarantine_reason: reason,
                     lease_until: 0,
+                    lease_token_hash: null,
+                    updated_at: now(),
+                  });
+                  return { meta: { changes: 1 } };
+                }
+                return { meta: { changes: 0 } };
+              }
+
+              if (query.startsWith("UPDATE telegram_jobs SET state='pending', lease_until=unixepoch()+?")) {
+                const [retryAfter, jobId, leaseHash] = values;
+                const job = jobs.get(jobId);
+                if (job && job.state === "sending" && job.lease_token_hash === leaseHash && job.quarantined_at == null) {
+                  Object.assign(job, {
+                    state: "pending",
+                    lease_until: now() + retryAfter,
                     lease_token_hash: null,
                     updated_at: now(),
                   });
@@ -750,7 +828,7 @@ test("does not enqueue commands from a Telegram user other than the configured o
   assert.equal(d1.jobs.size, 0, "the doctor command must remain owner-only");
 });
 
-test("requeues a job after Telegram reply delivery fails and accepts a fresh lease retry", async () => {
+test("ambiguous Telegram API failures quarantine the job instead of retrying a possibly delivered reply", async () => {
   const env = createEnv();
   const d1 = createMemoryD1();
   env.DB = d1.DB;
@@ -758,18 +836,13 @@ test("requeues a job after Telegram reply delivery fails and accepts a fresh lea
   env.QUEUE_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64url");
 
   const telegramRequests = [];
-  let failNextDelivery = true;
   await withRuntimeMocks({
     fetchImpl: async (input, init) => {
       telegramRequests.push({
         url: String(input),
         payload: JSON.parse(init.body),
       });
-      if (failNextDelivery) {
-        failNextDelivery = false;
-        return Response.json({ ok: false, error_code: 503 }, { status: 503 });
-      }
-      return Response.json({ ok: true, result: { message_id: 78 } });
+      return Response.json({ ok: false, error_code: 503 }, { status: 503 });
     },
     logImpl: () => {},
   }, async () => {
@@ -806,12 +879,17 @@ test("requeues a job after Telegram reply delivery fails and accepts a fresh lea
     const failedCompletionAuth = await signedBridgeRequest(env, "/bridge/complete", {
       job_id: job.job_id,
       lease_token: firstPull.job.lease_token,
-      reply: "Retry this response",
+      reply: "Do not replay an ambiguous response",
     });
     const failedCompletionResponse = await worker.fetch(failedCompletionAuth.request, env);
-    assert.equal(failedCompletionResponse.status, 503);
-    assert.deepEqual(await failedCompletionResponse.json(), { error: "telegram_delivery_failed" });
+    assert.equal(failedCompletionResponse.status, 502);
+    assert.deepEqual(await failedCompletionResponse.json(), {
+      error: "telegram_delivery_quarantined",
+      reason: "delivery_unknown",
+    });
     assert.equal(job.state, "pending");
+    assert.equal(job.quarantine_reason, "delivery_unknown");
+    assert.ok(job.quarantined_at);
     assert.equal(job.lease_until, 0);
     assert.equal(job.lease_token_hash, null);
     assert.equal(telegramRequests.length, 1);
@@ -819,25 +897,8 @@ test("requeues a job after Telegram reply delivery fails and accepts a fresh lea
     const retryPullAuth = await signedBridgeRequest(env, "/bridge/pull", {});
     const retryPullResponse = await worker.fetch(retryPullAuth.request, env);
     assert.equal(retryPullResponse.status, 200);
-    const retryPull = await retryPullResponse.json();
-    assert.equal(retryPull.job.attempts, 2);
-    assert.notEqual(retryPull.job.lease_token, firstPull.job.lease_token);
-
-    const retryCompletionAuth = await signedBridgeRequest(env, "/bridge/complete", {
-      job_id: job.job_id,
-      lease_token: retryPull.job.lease_token,
-      reply: "Retry this response",
-    });
-    const retryCompletionResponse = await worker.fetch(retryCompletionAuth.request, env);
-    assert.equal(retryCompletionResponse.status, 200);
-    assert.deepEqual(await retryCompletionResponse.json(), { ok: true });
-    assert.equal(job.state, "done");
-    assert.equal(telegramRequests.length, 2);
-    assert.deepEqual(telegramRequests[1].payload, {
-      chat_id: 123456789,
-      text: "Retry this response",
-      disable_web_page_preview: true,
-    });
+    assert.deepEqual(await retryPullResponse.json(), { job: null });
+    assert.equal(telegramRequests.length, 1, "an ambiguous Telegram send must never be replayed automatically");
   });
 });
 
@@ -879,3 +940,234 @@ test("rejects stale timestamps and tampered HMAC signatures before consuming bri
   assert.equal(d1.nonces.size, 1, "only a valid, fresh signature may consume a nonce");
 });
 
+
+
+test("owner queue command reports only aggregate pending and quarantined counts", async () => {
+  const env = createEnv();
+  const d1 = createMemoryD1();
+  env.DB = d1.DB;
+  const telegramRequests = [];
+
+  await withRuntimeMocks({
+    fetchImpl: async (input, init) => {
+      telegramRequests.push({ url: String(input), payload: JSON.parse(init.body) });
+      return Response.json({ ok: true, result: { message_id: 78 } });
+    },
+    logImpl: () => {},
+  }, async () => {
+    const response = await worker.fetch(
+      new Request("https://edge.test/telegram/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Telegram-Bot-Api-Secret-Token": env.TELEGRAM_WEBHOOK_SECRET,
+        },
+        body: JSON.stringify({
+          update_id: 52001,
+          message: {
+            from: { id: 123456789 },
+            chat: { id: 123456789, type: "private" },
+            text: "/queue",
+          },
+        }),
+      }),
+      env,
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(d1.jobs.size, 0, "queue inspection must not enqueue another bridge job");
+    assert.equal(telegramRequests.length, 1);
+    assert.match(telegramRequests[0].payload.text, /در انتظار: 0/);
+    assert.match(telegramRequests[0].payload.text, /قرنطینه: 0/);
+    assert.doesNotMatch(telegramRequests[0].payload.text, /job_id|123456789/);
+  });
+});
+
+test("expired sending jobs are quarantined instead of being replayed", async () => {
+  const env = createEnv();
+  const d1 = createMemoryD1();
+  env.DB = d1.DB;
+  env.BRIDGE_SHARED_SECRET = "bridge-shared-secret-for-tests-only-0123456789";
+  env.QUEUE_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64url");
+
+  const webhook = await worker.fetch(
+    new Request("https://edge.test/telegram/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Telegram-Bot-Api-Secret-Token": env.TELEGRAM_WEBHOOK_SECRET,
+      },
+      body: JSON.stringify({
+        update_id: 52002,
+        message: {
+          from: { id: 123456789 },
+          chat: { id: 123456789, type: "private" },
+          text: "/status",
+        },
+      }),
+    }),
+    env,
+  );
+  assert.equal(webhook.status, 200);
+
+  const job = [...d1.jobs.values()][0];
+  const pull = await worker.fetch((await signedBridgeRequest(env, "/bridge/pull", {})).request, env);
+  const pulled = await pull.json();
+  assert.equal(pulled.job.attempts, 1);
+  job.state = "sending";
+  job.lease_until = 0;
+
+  const nextPull = await worker.fetch((await signedBridgeRequest(env, "/bridge/pull", {})).request, env);
+  assert.deepEqual(await nextPull.json(), { job: null });
+  assert.equal(job.quarantine_reason, "delivery_unknown");
+  assert.ok(job.quarantined_at);
+  assert.equal(job.lease_token_hash, null);
+});
+
+test("bridge jobs stop after the bounded attempt budget", async () => {
+  const env = createEnv();
+  const d1 = createMemoryD1();
+  env.DB = d1.DB;
+  env.BRIDGE_SHARED_SECRET = "bridge-shared-secret-for-tests-only-0123456789";
+  env.QUEUE_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64url");
+
+  const webhook = await worker.fetch(
+    new Request("https://edge.test/telegram/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Telegram-Bot-Api-Secret-Token": env.TELEGRAM_WEBHOOK_SECRET,
+      },
+      body: JSON.stringify({
+        update_id: 52003,
+        message: {
+          from: { id: 123456789 },
+          chat: { id: 123456789, type: "private" },
+          text: "/status",
+        },
+      }),
+    }),
+    env,
+  );
+  assert.equal(webhook.status, 200);
+
+  const job = [...d1.jobs.values()][0];
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const pull = await worker.fetch((await signedBridgeRequest(env, "/bridge/pull", {})).request, env);
+    const body = await pull.json();
+    assert.equal(body.job.attempts, attempt);
+    job.lease_until = 0;
+  }
+
+  const exhausted = await worker.fetch((await signedBridgeRequest(env, "/bridge/pull", {})).request, env);
+  assert.deepEqual(await exhausted.json(), { job: null });
+  assert.equal(job.attempts, 5);
+  assert.equal(job.quarantine_reason, "attempt_limit_exceeded");
+  assert.ok(job.quarantined_at);
+});
+
+test("ambiguous Telegram transport failures quarantine the delivery and cannot be replayed", async () => {
+  const env = createEnv();
+  const d1 = createMemoryD1();
+  env.DB = d1.DB;
+  env.BRIDGE_SHARED_SECRET = "bridge-shared-secret-for-tests-only-0123456789";
+  env.QUEUE_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64url");
+
+  await worker.fetch(
+    new Request("https://edge.test/telegram/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Telegram-Bot-Api-Secret-Token": env.TELEGRAM_WEBHOOK_SECRET,
+      },
+      body: JSON.stringify({
+        update_id: 52004,
+        message: {
+          from: { id: 123456789 },
+          chat: { id: 123456789, type: "private" },
+          text: "/status",
+        },
+      }),
+    }),
+    env,
+  );
+  const job = [...d1.jobs.values()][0];
+  const pull = await worker.fetch((await signedBridgeRequest(env, "/bridge/pull", {})).request, env);
+  const pulled = await pull.json();
+
+  const completion = await withRuntimeMocks({
+    fetchImpl: async () => { throw new TypeError("network timeout"); },
+    logImpl: () => {},
+  }, async () => {
+    const auth = await signedBridgeRequest(env, "/bridge/complete", {
+      job_id: job.job_id,
+      lease_token: pulled.job.lease_token,
+      reply: "A possibly delivered reply",
+    });
+    return worker.fetch(auth.request, env);
+  });
+  assert.equal(completion.status, 502);
+  assert.equal(job.quarantine_reason, "delivery_unknown");
+  assert.ok(job.quarantined_at);
+
+  const nextPull = await worker.fetch((await signedBridgeRequest(env, "/bridge/pull", {})).request, env);
+  assert.deepEqual(await nextPull.json(), { job: null });
+});
+
+test("Telegram 429 uses bounded retry-after without discarding the job", async () => {
+  const env = createEnv();
+  const d1 = createMemoryD1();
+  env.DB = d1.DB;
+  env.BRIDGE_SHARED_SECRET = "bridge-shared-secret-for-tests-only-0123456789";
+  env.QUEUE_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64url");
+
+  await worker.fetch(
+    new Request("https://edge.test/telegram/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Telegram-Bot-Api-Secret-Token": env.TELEGRAM_WEBHOOK_SECRET,
+      },
+      body: JSON.stringify({
+        update_id: 52005,
+        message: {
+          from: { id: 123456789 },
+          chat: { id: 123456789, type: "private" },
+          text: "/status",
+        },
+      }),
+    }),
+    env,
+  );
+  const job = [...d1.jobs.values()][0];
+  const pull = await worker.fetch((await signedBridgeRequest(env, "/bridge/pull", {})).request, env);
+  const pulled = await pull.json();
+
+  const completion = await withRuntimeMocks({
+    fetchImpl: async () => Response.json({
+      ok: false,
+      error_code: 429,
+      parameters: { retry_after: 30 },
+    }, { status: 429 }),
+    logImpl: () => {},
+  }, async () => {
+    const auth = await signedBridgeRequest(env, "/bridge/complete", {
+      job_id: job.job_id,
+      lease_token: pulled.job.lease_token,
+      reply: "Retry after Telegram rate limit",
+    });
+    return worker.fetch(auth.request, env);
+  });
+  assert.equal(completion.status, 503);
+  assert.equal(job.state, "pending");
+  assert.equal(job.quarantined_at, null);
+  assert.ok(job.lease_until > Math.floor(Date.now() / 1000));
+
+  const earlyPull = await worker.fetch((await signedBridgeRequest(env, "/bridge/pull", {})).request, env);
+  assert.deepEqual(await earlyPull.json(), { job: null });
+
+  job.lease_until = 0;
+  const retryPull = await worker.fetch((await signedBridgeRequest(env, "/bridge/pull", {})).request, env);
+  const retried = await retryPull.json();
+  assert.equal(retried.job.attempts, 2);
+});
