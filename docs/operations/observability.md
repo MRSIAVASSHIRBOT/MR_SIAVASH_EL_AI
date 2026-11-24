@@ -41,6 +41,7 @@ The scoped Hub client emits one `hub_request_completed` structured log event for
 - HTTP `method`;
 - allowlisted `route_template` (task UUIDs are replaced with `{task_id}`);
 - `status_code` (null when no HTTP response was received);
+- monotonic `duration_ms` (bounded to a non-negative millisecond value);
 - coarse `outcome` (`success`, `http_error`, `request_failed`, or `invalid_response`).
 
 The same request ID is reused for the single permitted 401 refresh/retry of one authorized operation; the refresh request has its own ID. Pairing and refresh operations each receive fresh IDs. Query strings, raw URLs, request/response bodies, Telegram identities, task IDs, client IDs, and credentials are excluded. Request IDs are diagnostic metadata only and are not authorization or idempotency values.

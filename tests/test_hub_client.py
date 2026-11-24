@@ -795,6 +795,8 @@ async def test_hub_request_logs_are_correlated_and_privacy_safe(caplog):
     assert record.route_template == "/integrations/telegram/tasks/{task_id}/events"
     assert record.status_code == 200
     assert record.outcome == "success"
+    assert isinstance(record.duration_ms, (int, float))
+    assert record.duration_ms >= 0
     assert task_id not in caplog.text
     assert "limit=7" not in caplog.text
     assert "123456" not in caplog.text
