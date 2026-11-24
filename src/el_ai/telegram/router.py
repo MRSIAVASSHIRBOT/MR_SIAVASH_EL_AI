@@ -57,6 +57,7 @@ class MessageRouter:
                 "\n/taskplancancel PLAN_ID CONFIRM — لغو گروهی مراحل لغوپذیر"
                 "\n/taskplanpause PLAN_ID — مکث ارسال مراحل جدید؛ وظایف ثبت‌شده ادامه دارند"
                 "\n/taskplanresume PLAN_ID CONFIRM — ادامهٔ صریح طرح مکث‌شده"
+                "\n/taskplanevaluate PLAN_ID — ارزیابی فقط‌خواندنی شواهد نتایج طرح"
                 "\n/taskhistory TASK_ID [CURSOR] — تاریخچه صفحه‌بندی‌شده وظیفه"
                 "\n/taskwatch TASK_ID — دریافت اعلان تغییر وضعیت وظیفه"
                 "\n/taskunwatch TASK_ID — توقف اعلان‌های وظیفه"
