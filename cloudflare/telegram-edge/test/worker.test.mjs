@@ -595,7 +595,7 @@ test("help advertises supported owner commands and excludes unavailable bridge f
 
   assert.equal(telegramRequests.length, 1);
   const help = telegramRequests[0].payload.text;
-  for (const command of ["/doctor", "/memory", "/task", "/agentplan", "/taskplanrun", "/videoproviders"]) {
+  for (const command of ["/doctor", "/memory", "/task", "/agentplan", "/taskplanrun", "/taskplanevaluate", "/videoproviders"]) {
     assert.ok(help.includes(command), `help should advertise ${command}`);
   }
   for (const command of ["/taskwatch", "/taskplanwatch", "/videorenderdownload"]) {
