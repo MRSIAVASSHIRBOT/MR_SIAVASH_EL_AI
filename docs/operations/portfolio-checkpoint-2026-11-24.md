@@ -7,7 +7,7 @@
 | Repository | Default branch | Current `main` SHA | Main check-runs | Open PRs |
 |---|---|---|---:|---|
 | [Hub](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI) | `main` | `6166a16c75da1520139e9eae7d9ffbbe3afa88f4` | 15/15 success | #615 Draft; #616 documentation |
-| [Website](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI) | `main` | `9ab2a33d5022188e7f635a7f796177717e6b774f` | 8/8 success | #307 documentation |
+| [Website](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI) | `main` | `ea11609f0ba596c8080703fbfb285f05f908ca9f` | 4/6 completed success; 2 in progress | None |
 | [EL_AI](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_EL_AI) | `main` | `5cbbd7c4fed09e61556184859641331398305757` | 4/4 success | None |
 
 All three repositories report `main.protected=false`. No branch-protection or ruleset setting was changed.
@@ -27,7 +27,7 @@ All three repositories report `main.protected=false`. No branch-protection or ru
 
 ### Website
 
-- [PR #307 — release source checkpoint refresh](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI/pull/307) changes only `docs/RELEASE_STATUS.md`. It records current main and CI while clearly labeling Cloudflare/D1 observations as the last read-only snapshot from 2026-11-23. At the last read, test and Workflow Security Audit succeeded; syntax/structure was still in progress. Recheck exact-head CI before merge.
+- [PR #307 — release source checkpoint refresh](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_AI/pull/307) merged as `ea11609f0ba596c8080703fbfb285f05f908ca9f`. Its exact-head test, syntax/structure and Workflow Security Audit checks succeeded; Pages artifact/deploy steps were skipped for the documentation-only change. At the last read, 4/6 post-merge check-runs had succeeded and supply-chain posture plus syntax/structure were still in progress.
 
 ### EL_AI
 
@@ -51,7 +51,7 @@ The latest recorded Website Cloudflare/D1 read-only inventory is dated **2026-11
 - Production Gateway v14, Preview Gateway v10.
 - Preview query-string redaction was reported disabled.
 - The last recorded Production and Preview D1 ledgers contained migrations 0001–0005.
-- The current Website main is 172 commits ahead / 0 behind the last recorded Production Worker source annotation. This is Git source drift, not proof of deployed code.
+- The current Website main is 173 commits ahead / 0 behind the last recorded Production Worker source annotation. This is Git source drift, not proof of deployed code.
 
 These values must be re-read through the authorized control plane before any Preview or Production release. No migration, Worker upload, traffic change, secret, Access policy, DNS change or production data operation is claimed.
 
