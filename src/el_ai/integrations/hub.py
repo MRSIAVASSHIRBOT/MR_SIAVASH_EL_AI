@@ -252,9 +252,15 @@ class HubClient:
 
     @staticmethod
     def _expiry(seconds: object) -> str:
-        if not isinstance(seconds, int) or seconds < 1:
+        # bool is an int subclass in Python; accepting True here would turn a
+        # malformed server response into a one-second credential lifetime.
+        if type(seconds) is not int or seconds < 1:
             raise HubClientError("Hub returned an invalid credential lifetime")
-        return (datetime.now(UTC) + timedelta(seconds=seconds)).isoformat()
+        try:
+            deadline = datetime.now(UTC) + timedelta(seconds=seconds)
+        except (OverflowError, ValueError):
+            raise HubClientError("Hub returned an invalid credential lifetime") from None
+        return deadline.isoformat()
 
     async def pair(self, pairing_code: str, telegram_user_id: int) -> dict[str, object]:
         result = await self._request(

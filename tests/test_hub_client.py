@@ -9,6 +9,15 @@ import pytest
 from el_ai.integrations.hub import HubClient, HubClientError, HubNotPairedError
 
 
+@pytest.mark.parametrize(
+    "lifetime",
+    [True, False, 1.5, "900", 0, -1, 10**1000],
+)
+def test_credential_lifetime_rejects_non_integer_and_unrepresentable_values(lifetime):
+    with pytest.raises(HubClientError, match="invalid credential lifetime"):
+        HubClient._expiry(lifetime)
+
+
 class MemoryStore:
     def __init__(self):
         self.values = {}
