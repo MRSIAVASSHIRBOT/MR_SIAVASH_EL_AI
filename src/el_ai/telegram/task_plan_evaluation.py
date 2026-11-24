@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
 from el_ai.integrations.hub import HubClient, HubClientError
 from el_ai.telegram.task_plan import TaskPlan
