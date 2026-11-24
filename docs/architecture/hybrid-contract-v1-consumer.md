@@ -38,7 +38,7 @@ The coordinated request-correlation implementation is merged into the default br
 - EL_AI assigns a canonical lowercase UUIDv4 to each logical Hub operation and to each independent public Website Gateway request.
 - Hub validates canonical lowercase UUIDs (versions 1–8), replaces missing or invalid values with a server-generated UUIDv4, stores the canonical value in request state, and returns it in `X-Request-ID` on handled HTTP responses.
 - On one authorized Hub operation receiving HTTP 401, EL_AI refreshes credentials using a separate request ID, then replays the original operation at most once using the original request ID. A second 401 is surfaced; no generic retries or backoff are performed.
-- Hub logs contain `request_id`, HTTP `method`, route template, and `status_code`; EL_AI logs contain those fields plus an `outcome`. Task IDs are represented as route placeholders.
+- Hub and EL_AI logs contain `request_id`, HTTP `method`, route template, `status_code`, monotonic `duration_ms`, and bounded `outcome`. Task IDs are represented as route placeholders.
 - Query strings, request bodies, Telegram identities, client IDs, credentials, and raw URLs are excluded from correlation logs.
 - Public Website Gateway request IDs are independent; they are not forwarded to the private Hub and do not imply a shared request context.
 
