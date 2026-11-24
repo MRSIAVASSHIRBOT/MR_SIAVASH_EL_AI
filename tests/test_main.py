@@ -1209,6 +1209,99 @@ def test_task_plan_status_reports_each_step_without_exposing_task_payloads(tmp_p
     assert any(item["command"] == "taskplanstatus" for item in OWNER_BOT_COMMANDS)
 
 
+
+def test_task_plan_evidence_command_is_owner_scoped_and_read_only(tmp_path):
+    plan_store = TaskPlanStore(tmp_path / "task-plans.json")
+    plan = plan_store.create(123, "demo.echo", ["first", "second"], now=100)
+    task_ids = [
+        "12345678-1234-4234-8234-123456789abc",
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    ]
+    for index, task_id in enumerate(task_ids):
+        plan_store.mark_submitted(plan.plan_id, 123, index, task_id)
+
+    class FakeHub:
+        def __init__(self):
+            self.task_reads = []
+            self.result_reads = []
+            self.mutations = 0
+
+        async def get_task(self, telegram_user_id, task_id):
+            assert telegram_user_id == 123
+            self.task_reads.append(task_id)
+            return {"status": "succeeded"}
+
+        async def get_task_result(self, telegram_user_id, task_id):
+            assert telegram_user_id == 123
+            self.result_reads.append(task_id)
+            return {
+                "result": {"message": "private result must not appear in evaluation"},
+                "error_code": None,
+                "attempt_count": 1,
+                "finished_at": "2026-11-24T10:00:01+00:00",
+            }
+
+        async def create_task(self, *_args, **_kwargs):
+            self.mutations += 1
+            raise AssertionError("Evaluation must never submit tasks")
+
+        async def cancel_task(self, *_args, **_kwargs):
+            self.mutations += 1
+            raise AssertionError("Evaluation must never cancel tasks")
+
+    hub = FakeHub()
+    rendered = asyncio.run(_owner_hub_command(
+        f"/taskplanevaluate {plan.plan_id}",
+        telegram_user_id=123,
+        update_id=900,
+        hub=hub,
+        settings=_settings(enabled=True),
+        task_plans=plan_store,
+    ))
+    report = json.loads(rendered)
+
+    assert report["status"] == "evidence_complete"
+    assert report["read_only"] is True
+    assert report["automatic_correction"] is False
+    assert report["evidence_available"] == 2
+    assert hub.task_reads == task_ids
+    assert hub.result_reads == task_ids
+    assert hub.mutations == 0
+    assert "private result must not appear" not in rendered
+    assert "/taskplanevaluate" in OWNER_HUB_COMMANDS
+    assert "taskplanevaluate" in {item["command"] for item in OWNER_BOT_COMMANDS}
+
+
+def test_task_plan_evidence_command_rejects_missing_or_foreign_plan(tmp_path):
+    store = TaskPlanStore(tmp_path / "task-plans.json")
+    plan = store.create(123, "demo.echo", ["first", "second"], now=100)
+
+    class FakeHub:
+        async def get_task(self, *_args):
+            raise AssertionError("No Hub request should occur for a foreign plan")
+
+    foreign = asyncio.run(_owner_hub_command(
+        f"/taskplanevaluate {plan.plan_id}",
+        telegram_user_id=456,
+        update_id=901,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+        task_plans=store,
+    ))
+    assert "طرح پیدا نشد" in foreign
+
+    malformed = asyncio.run(_owner_hub_command(
+        "/taskplanevaluate not-a-uuid",
+        telegram_user_id=123,
+        update_id=902,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+        task_plans=store,
+    ))
+    assert "شناسه طرح نامعتبر" in malformed
+
+
+
 def test_task_plan_watch_registers_all_active_steps_atomically_and_skips_terminal_steps(tmp_path):
     from el_ai.telegram.task_plan import TaskPlanStore
 
@@ -1723,8 +1816,8 @@ def test_task_plan_cannot_be_paused_before_explicit_start(tmp_path):
 
 def test_task_plan_pause_controls_are_owner_menu_only():
     commands = {item["command"] for item in OWNER_BOT_COMMANDS}
-    assert {"taskplanpause", "taskplanresume"} <= commands
-    assert {"/taskplanpause", "/taskplanresume"} <= OWNER_HUB_COMMANDS
+    assert {"taskplanpause", "taskplanresume", "taskplanevaluate"} <= commands
+    assert {"/taskplanpause", "/taskplanresume", "/taskplanevaluate"} <= OWNER_HUB_COMMANDS
 
 def test_cloudflare_bridge_persists_owner_task_plans_in_private_state_dir(tmp_path, monkeypatch):
     settings = Settings(
