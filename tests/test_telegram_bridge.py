@@ -121,6 +121,52 @@ async def test_complete_signs_lease_bound_reply():
 
 
 @pytest.mark.asyncio
+async def test_complete_accepts_exact_worker_utf16_reply_limit():
+    job = TelegramBridgeClient._parse_job(_job_payload())
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(_assert_signature(request))
+        calls.append(body["reply"])
+        return httpx.Response(200, json={"ok": True})
+
+    client = TelegramBridgeClient(
+        "https://bridge.example.test",
+        SECRET,
+        transport=httpx.MockTransport(handler),
+    )
+    reply = "😀" * 1950
+    await client.complete(job, reply)
+
+    assert calls == [reply]
+    assert len(calls[0].encode("utf-16-le")) // 2 == 3900
+    await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reply",
+    ["x" * 3901, "😀" * 1951, "x" * 3899 + "😀"],
+)
+async def test_complete_rejects_replies_over_worker_utf16_limit_before_network(reply):
+    job = TelegramBridgeClient._parse_job(_job_payload())
+    calls = []
+    client = TelegramBridgeClient(
+        "https://bridge.example.test",
+        SECRET,
+        transport=httpx.MockTransport(
+            lambda request: calls.append(request) or httpx.Response(200, json={"ok": True})
+        ),
+    )
+
+    with pytest.raises(ValueError, match="1 to 3900 Telegram UTF-16 units"):
+        await client.complete(job, reply)
+
+    assert calls == []
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_expired_lease_is_reported_without_response_body():
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(409, json={"error": "lease_not_valid", "secret": "do-not-leak"})
