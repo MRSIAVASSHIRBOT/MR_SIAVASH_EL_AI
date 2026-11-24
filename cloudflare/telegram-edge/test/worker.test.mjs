@@ -828,7 +828,7 @@ test("does not enqueue commands from a Telegram user other than the configured o
   assert.equal(d1.jobs.size, 0, "the doctor command must remain owner-only");
 });
 
-test("requeues a job after Telegram reply delivery fails and accepts a fresh lease retry", async () => {
+test("ambiguous Telegram API failures quarantine the job instead of retrying a possibly delivered reply", async () => {
   const env = createEnv();
   const d1 = createMemoryD1();
   env.DB = d1.DB;
@@ -836,18 +836,13 @@ test("requeues a job after Telegram reply delivery fails and accepts a fresh lea
   env.QUEUE_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64url");
 
   const telegramRequests = [];
-  let failNextDelivery = true;
   await withRuntimeMocks({
     fetchImpl: async (input, init) => {
       telegramRequests.push({
         url: String(input),
         payload: JSON.parse(init.body),
       });
-      if (failNextDelivery) {
-        failNextDelivery = false;
-        return Response.json({ ok: false, error_code: 503 }, { status: 503 });
-      }
-      return Response.json({ ok: true, result: { message_id: 78 } });
+      return Response.json({ ok: false, error_code: 503 }, { status: 503 });
     },
     logImpl: () => {},
   }, async () => {
@@ -884,12 +879,17 @@ test("requeues a job after Telegram reply delivery fails and accepts a fresh lea
     const failedCompletionAuth = await signedBridgeRequest(env, "/bridge/complete", {
       job_id: job.job_id,
       lease_token: firstPull.job.lease_token,
-      reply: "Retry this response",
+      reply: "Do not replay an ambiguous response",
     });
     const failedCompletionResponse = await worker.fetch(failedCompletionAuth.request, env);
-    assert.equal(failedCompletionResponse.status, 503);
-    assert.deepEqual(await failedCompletionResponse.json(), { error: "telegram_delivery_failed" });
+    assert.equal(failedCompletionResponse.status, 502);
+    assert.deepEqual(await failedCompletionResponse.json(), {
+      error: "telegram_delivery_quarantined",
+      reason: "delivery_unknown",
+    });
     assert.equal(job.state, "pending");
+    assert.equal(job.quarantine_reason, "delivery_unknown");
+    assert.ok(job.quarantined_at);
     assert.equal(job.lease_until, 0);
     assert.equal(job.lease_token_hash, null);
     assert.equal(telegramRequests.length, 1);
@@ -897,25 +897,8 @@ test("requeues a job after Telegram reply delivery fails and accepts a fresh lea
     const retryPullAuth = await signedBridgeRequest(env, "/bridge/pull", {});
     const retryPullResponse = await worker.fetch(retryPullAuth.request, env);
     assert.equal(retryPullResponse.status, 200);
-    const retryPull = await retryPullResponse.json();
-    assert.equal(retryPull.job.attempts, 2);
-    assert.notEqual(retryPull.job.lease_token, firstPull.job.lease_token);
-
-    const retryCompletionAuth = await signedBridgeRequest(env, "/bridge/complete", {
-      job_id: job.job_id,
-      lease_token: retryPull.job.lease_token,
-      reply: "Retry this response",
-    });
-    const retryCompletionResponse = await worker.fetch(retryCompletionAuth.request, env);
-    assert.equal(retryCompletionResponse.status, 200);
-    assert.deepEqual(await retryCompletionResponse.json(), { ok: true });
-    assert.equal(job.state, "done");
-    assert.equal(telegramRequests.length, 2);
-    assert.deepEqual(telegramRequests[1].payload, {
-      chat_id: 123456789,
-      text: "Retry this response",
-      disable_web_page_preview: true,
-    });
+    assert.deepEqual(await retryPullResponse.json(), { job: null });
+    assert.equal(telegramRequests.length, 1, "an ambiguous Telegram send must never be replayed automatically");
   });
 });
 
