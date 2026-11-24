@@ -1846,3 +1846,54 @@ def test_doctor_command_is_read_only_and_available_without_hub_opt_in(monkeypatc
     assert report["network_requests"] == 0
     assert report["filesystem_writes"] == 0
     assert report["secrets_displayed"] is False
+
+
+def test_owner_wide_plan_kill_switch_pauses_and_resumes_without_hub_access(tmp_path):
+    plans = TaskPlanStore(tmp_path / "task-plans.json")
+    first = plans.create(123, "demo.echo", ["collect", "publish"], now=100)
+    second = plans.create(123, "demo.echo", ["inspect", "release"], now=101)
+    foreign = plans.create(456, "demo.echo", ["foreign", "plan"], now=102)
+
+    paused = asyncio.run(_owner_hub_command(
+        "/taskplanspauseall CONFIRM",
+        telegram_user_id=123,
+        update_id=950,
+        hub=None,
+        settings=_settings(enabled=False),
+        task_plans=plans,
+    ))
+    assert "کلید توقف طرح‌ها فعال شد" in paused
+    assert plans.get_for_user(first.plan_id, 123, now=103).paused is True
+    assert plans.get_for_user(second.plan_id, 123, now=103).paused is True
+    assert plans.get_for_user(foreign.plan_id, 456, now=103).paused is False
+
+    missing_confirmation = asyncio.run(_owner_hub_command(
+        "/taskplansresumeall",
+        telegram_user_id=123,
+        update_id=951,
+        hub=None,
+        settings=_settings(enabled=False),
+        task_plans=plans,
+    ))
+    assert "CONFIRM" in missing_confirmation
+    assert plans.get_for_user(first.plan_id, 123, now=104).paused is True
+
+    resumed = asyncio.run(_owner_hub_command(
+        "/taskplansresumeall CONFIRM",
+        telegram_user_id=123,
+        update_id=952,
+        hub=None,
+        settings=_settings(enabled=False),
+        task_plans=plans,
+    ))
+    assert "کلید توقف غیرفعال شد" in resumed
+    assert plans.get_for_user(first.plan_id, 123, now=105).paused is False
+    assert plans.get_for_user(second.plan_id, 123, now=105).paused is False
+    assert plans.get_for_user(foreign.plan_id, 456, now=105).paused is False
+
+
+def test_owner_wide_plan_kill_switch_commands_are_owner_menu_only():
+    commands = {item["command"] for item in OWNER_BOT_COMMANDS}
+    assert {"taskplanspauseall", "taskplansresumeall"} <= commands
+    assert {"/taskplanspauseall", "/taskplansresumeall"} <= OWNER_HUB_COMMANDS
+    assert {"/taskplanspauseall", "/taskplansresumeall"} <= BRIDGE_OWNER_COMMANDS
