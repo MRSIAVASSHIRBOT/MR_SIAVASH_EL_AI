@@ -44,7 +44,7 @@ TASK_STATUSES = frozenset({
     "failed", "cancelled", "rejected",
 })
 OWNER_HUB_COMMANDS = frozenset({
-    "/pair", "/doctor", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskplanpause", "/taskplanresume",
+    "/pair", "/doctor", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskplanspauseall", "/taskplansresumeall",
     "/taskresult", "/taskcancel", "/taskhistory", "/taskwatch", "/taskunwatch",
     "/taskwatches", "/videoproviders", "/videoroute",
     "/videohistory", "/videostatus", "/videocancel",
@@ -59,7 +59,7 @@ BRIDGE_OWNER_COMMANDS = frozenset({
     "/doctor", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove",
     "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress",
     "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus",
-    "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskresult",
+    "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskplanspauseall", "/taskplansresumeall", "/taskresult",
     "/taskcancel", "/taskhistory", "/videoproviders", "/videoroute",
     "/videohistory", "/videostatus", "/videocancel", "/videodrafts",
     "/videorenders", "/videorendercheck", "/videorender",
@@ -418,7 +418,7 @@ async def _owner_hub_command(
             return "اتصال انجام نشد؛ کد ممکن است نامعتبر یا منقضی شده باشد. هیچ اطلاعات محرمانه‌ای ثبت نشده است."
 
     if command not in {
-        "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskresult", "/taskcancel",
+        "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskplanspauseall", "/taskplansresumeall", "/taskresult", "/taskcancel",
         "/taskhistory", "/taskwatch", "/taskunwatch", "/taskwatches",
         "/videoproviders", "/videoroute", "/videohistory", "/videostatus", "/videocancel",
         "/videodrafts", "/videorenders", "/videorendercheck", "/videorender", "/videorenderstatus",
@@ -427,6 +427,32 @@ async def _owner_hub_command(
     "/videoscenehistory", "/videosceneexport",
     }:
         return None
+    if command in {"/taskplanspauseall", "/taskplansresumeall"}:
+        if task_plans is None:
+            return "ذخیره‌سازی طرح وظایف در دسترس نیست؛ هیچ تغییری انجام نشد."
+        if argument.upper() != "CONFIRM":
+            return (
+                "برای مکث همهٔ طرح‌های مالک، دستور دقیق را با تأیید بفرست: "
+                "/taskplanspauseall CONFIRM"
+                if command == "/taskplanspauseall"
+                else "برای ادامهٔ همهٔ طرح‌های مالک، دستور دقیق را با تأیید بفرست: /taskplansresumeall CONFIRM"
+            )
+        try:
+            paused = command == "/taskplanspauseall"
+            changed = task_plans.set_all_paused(telegram_user_id, paused)
+        except (TaskPlanError, ValueError):
+            return "تغییر وضعیت طرح‌ها ذخیره نشد؛ هیچ مرحلهٔ جدیدی ارسال نشد."
+        if paused:
+            return (
+                f"کلید توقف طرح‌ها فعال شد؛ {changed} طرح مکث شد. "
+                "مرحله‌های جدید از این ربات به Hub ارسال نمی‌شوند. "
+                "وظایفی که قبلاً به Hub تحویل شده‌اند ادامه دارند و با این دستور متوقف نمی‌شوند."
+            )
+        return (
+            f"کلید توقف غیرفعال شد؛ {changed} طرح از مکث خارج شد. "
+            "ارسال مرحله‌های آماده در چرخهٔ بعدی هماهنگ‌ساز از سر گرفته می‌شود."
+        )
+
     if not settings.hub_integration_enabled:
         return "اتصال Hub هنوز در تنظیمات این اجرا فعال نشده است."
     if hub is None:
@@ -1561,6 +1587,8 @@ OWNER_BOT_COMMANDS = (
     {"command": "taskplancancel", "description": "لغو گروهی مراحل لغوپذیر یک طرح"},
     {"command": "taskplanpause", "description": "مکث ارسال مراحل جدید یک طرح"},
     {"command": "taskplanresume", "description": "ادامه صریح طرح مکث‌شده"},
+    {"command": "taskplanspauseall", "description": "توقف ارسال مرحله‌های همه طرح‌های مالک"},
+    {"command": "taskplansresumeall", "description": "ادامه ارسال مرحله‌های طرح‌های مالک"},
     {"command": "taskhistory", "description": "تاریخچه صفحه‌بندی‌شده یک وظیفه"},
     {"command": "taskwatch", "description": "اعلان تغییر وضعیت وظیفه"},
     {"command": "taskunwatch", "description": "توقف اعلان‌های وظیفه"},
