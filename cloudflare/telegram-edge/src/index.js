@@ -22,7 +22,7 @@ const BRIDGE_OWNER_COMMANDS = new Set([
   "/doctor", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove",
   "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress",
   "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus",
-  "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskresult",
+  "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskplanevaluate", "/taskresult",
   "/taskcancel", "/taskhistory", "/videoproviders", "/videoroute",
   "/videohistory", "/videostatus", "/videocancel", "/videodrafts",
   "/videorenders", "/videorendercheck", "/videorender",
