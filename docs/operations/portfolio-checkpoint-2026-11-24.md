@@ -23,7 +23,7 @@ All three repositories report `main.protected=false`. No branch-protection or ru
 ### Hub
 
 - [PR #615 — isolated Render Hub and EL_AI services](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/pull/615) remains **Draft**. All 13 observed exact-head checks passed. The Blueprint declares two Starter compute services and two persistent disks. Do not sync or provision until the account owner/guardian reviews the complete plan and recurring charges, verifies Workspace Blueprint Auto Sync is disabled, and explicitly authorizes the cost.
-- [PR #616 — 73-phase evidence refresh](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/pull/616) is documentation-only. The latest documentation refresh is on head `82d171b7ed5c726509613c48547807af9aeee7e7`; no exact-head check-runs had appeared for that new commit at the last read. Recheck all applicable CI and security checks before merge.
+- [PR #616 — 73-phase evidence refresh](https://github.com/MRSIAVASSHIRBOT/MR_SIAVASH_HUB_AI/pull/616) is documentation-only. On head `82d171b7ed5c726509613c48547807af9aeee7e7`, 4 of 9 exact-head check-runs had completed successfully and 5 were still in progress at 11:32 UTC. Recheck all applicable CI and security checks before merge.
 
 ### Website
 
