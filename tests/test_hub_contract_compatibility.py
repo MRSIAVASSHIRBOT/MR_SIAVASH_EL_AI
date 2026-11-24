@@ -72,3 +72,10 @@ def test_static_hub_route_templates_exist_in_the_contract() -> None:
 
     # Pairing exchange and refresh routes intentionally use their own auth modes.
     assert _STATIC_HUB_ROUTES <= contract_paths
+
+
+def test_canonical_request_observability_contract_includes_bounded_duration():
+    request_id = _contract()["observability"]["request_id"]
+    expected = ["request_id", "method", "route_template", "status_code", "duration_ms", "outcome"]
+    assert request_id["log_fields"] == expected
+    assert request_id["el_ai_log_fields"] == expected
