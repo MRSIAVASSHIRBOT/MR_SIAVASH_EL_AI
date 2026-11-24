@@ -44,6 +44,7 @@
 - [x] Add owner-authored bounded task-plan previews, explicit resumable idempotent batch submission, aggregate plan status, and structured task-watch progress notifications.
 - [x] Add bounded AI-generated sequential task-plan preview through Hub; local provider is default, remote Kimi requires explicit selection, and preview never creates or executes tasks.
 - [x] Add bounded dependency-aware task-plan DAGs, explicit root-first plan start, success-gated progression, persisted blocked checkpoints, idempotent recovery, and structured progress notifications.
+- [x] Add a read-only E8 evidence snapshot for owner-scoped task plans: successful task statuses are counted as evidence only when the Hub result envelope is structurally valid; missing/unknown evidence is reported without retries or mutation. Semantic acceptance-criteria evaluation and automatic correction remain incomplete.
 - [x] Add runtime-level owner/public message-routing isolation coverage: owner private text never reaches the public Gateway, and public messages send only their own text (PR #67).
 - [x] Extend isolation coverage to prove private Hub results and task context never cross into the public Gateway or public Telegram replies (PR #67).
 
