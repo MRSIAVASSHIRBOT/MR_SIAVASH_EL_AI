@@ -4,20 +4,24 @@ from pathlib import Path
 import pytest
 
 
-MIGRATION_PATH = (
+MIGRATIONS_DIR = (
     Path(__file__).resolve().parents[1]
     / "cloudflare"
     / "telegram-edge"
     / "migrations"
-    / "0001_initial.sql"
 )
+MIGRATION_PATHS = sorted(MIGRATIONS_DIR.glob("*.sql"))
 
 
 def test_initial_edge_migration_creates_application_schema_and_enforces_constraints():
-    migration_sql = MIGRATION_PATH.read_text(encoding="utf-8")
+    assert [path.name for path in MIGRATION_PATHS] == [
+        "0001_initial.sql",
+        "0002_queue_delivery_safety.sql",
+    ]
 
     with sqlite3.connect(":memory:") as database:
-        database.executescript(migration_sql)
+        for migration_path in MIGRATION_PATHS:
+            database.executescript(migration_path.read_text(encoding="utf-8"))
 
         tables = {
             row[0]
@@ -44,9 +48,15 @@ def test_initial_edge_migration_creates_application_schema_and_enforces_constrai
             "idx_bridge_nonces_expires_at",
             "idx_telegram_jobs_pending",
             "idx_telegram_jobs_updated_at",
+            "idx_telegram_jobs_quarantine",
             "idx_telegram_processed_updates_processed_at",
         }
         assert "_cf_KV" not in tables
+
+        job_columns = {
+            row[1] for row in database.execute("PRAGMA table_info(telegram_jobs)")
+        }
+        assert {"quarantined_at", "quarantine_reason"} <= job_columns
 
         valid_job = (
             "job-1",
@@ -68,6 +78,15 @@ def test_initial_edge_migration_creates_application_schema_and_enforces_constrai
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         database.execute(insert_job, valid_job)
+        database.execute(
+            "UPDATE telegram_jobs SET quarantined_at=?, quarantine_reason=? WHERE job_id=?",
+            (200, "delivery_unknown", "job-1"),
+        )
+        quarantine = database.execute(
+            "SELECT quarantined_at, quarantine_reason FROM telegram_jobs WHERE job_id=?",
+            ("job-1",),
+        ).fetchone()
+        assert tuple(quarantine) == (200, "delivery_unknown")
 
         with pytest.raises(sqlite3.IntegrityError):
             database.execute(insert_job, ("job-invalid-state", *valid_job[1:5], "unknown", *valid_job[6:]))
