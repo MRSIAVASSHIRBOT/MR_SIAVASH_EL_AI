@@ -159,6 +159,7 @@ def _build_hub_client(settings: Settings, client_id: str) -> HubClient | None:
         client_id,
         store,
         allow_remote=settings.hub_allow_remote,
+        allow_render_private_network=settings.hub_allow_render_private_network,
     )
 
 
