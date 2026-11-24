@@ -326,7 +326,7 @@ async function handleTelegramMessage(env, update) {
     return;
   }
   if (command === "/help") {
-    await sendMessage(env, chatId, "فرمان‌ها:\n/start — شروع\n/help — راهنما\n/id — شناسه تلگرام\n/queue — وضعیت صف و درخواست‌های قرنطینه\n/doctor — بررسی امن تنظیمات و آمادگی اجرا\n/pairinfo — اطلاعات اتصال\n/pair CODE — اتصال امن به HUB\n/status و /tasks — وضعیت و فهرست کارها\n/memory QUERY — جست‌وجوی حافظه\n/task TYPE | DESCRIPTION — ثبت وظیفه\n/taskstatus ID و /taskresult ID — وضعیت و نتیجه\n/taskplan TYPE | STEPS — ساخت طرح\n/agentplan local TYPE | GOAL — پیشنهاد طرح AI\n/taskplanrun ID و /taskplanstatus ID — اجرای تأییدشده و بررسی طرح\n/videoproviders و /videoroute — قابلیت‌ها و مسیر ویدئو\n/videohistory و /videostatus ID — تاریخچه و وضعیت تولید\nدسترسی هر فرمان به مجوزهای HUB وابسته است. اعلان پس‌زمینه و ارسال فایل در Bridge فعلاً فعال نیست.");
+    await sendMessage(env, chatId, "فرمان‌ها:\n/start — شروع\n/help — راهنما\n/id — شناسه تلگرام\n/queue — وضعیت صف و درخواست‌های قرنطینه\n/doctor — بررسی امن تنظیمات و آمادگی اجرا\n/pairinfo — اطلاعات اتصال\n/pair CODE — اتصال امن به HUB\n/status و /tasks — وضعیت و فهرست کارها\n/memory QUERY — جست‌وجوی حافظه\n/task TYPE | DESCRIPTION — ثبت وظیفه\n/taskstatus ID و /taskresult ID — وضعیت و نتیجه\n/taskplan TYPE | STEPS — ساخت طرح\n/agentplan local TYPE | GOAL — پیشنهاد طرح AI\n/taskplanrun ID و /taskplanstatus ID — اجرای تأییدشده و بررسی طرح\n/taskplanevaluate ID — ارزیابی فقط‌خواندنی شواهد نتایج\n/videoproviders و /videoroute — قابلیت‌ها و مسیر ویدئو\n/videohistory و /videostatus ID — تاریخچه و وضعیت تولید\nدسترسی هر فرمان به مجوزهای HUB وابسته است. اعلان پس‌زمینه و ارسال فایل در Bridge فعلاً فعال نیست.");
     return;
   }
   if (command === "/queue") {
