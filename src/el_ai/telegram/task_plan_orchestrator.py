@@ -35,6 +35,8 @@ def _dispatch_retry_delay_seconds(attempt_number: int) -> int:
         DISPATCH_RETRY_MAX_SECONDS,
     )
     return 1 + secrets.randbelow(ceiling)
+
+
 _ACTIVE_WATCH_STATUSES = frozenset({"queued", "running", "waiting_approval"})
 
 
@@ -207,8 +209,14 @@ async def advance_ready_plan_steps(
 
                 idempotency_key = f"telegram-plan-{plan.plan_id}-{index + 1}"
                 try:
+                    next_attempt = current_step.dispatch_attempts + 1
+                    reservation_delay = _dispatch_retry_delay_seconds(next_attempt)
                     attempt_number = plans.reserve_dispatch_attempt(
-                        plan.plan_id, owner_id, index, now=current_time
+                        plan.plan_id,
+                        owner_id,
+                        index,
+                        now=current_time,
+                        retry_at=current_time + reservation_delay,
                     )
                 except TaskPlanDispatchDeferred:
                     continue
