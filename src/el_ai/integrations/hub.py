@@ -15,10 +15,17 @@ import httpx
 
 from el_ai.config import _is_render_private_network_url
 from el_ai.integrations.secrets import CredentialStore
+from el_ai.integrations.request_context import current_correlation_id
 
 
 logger = logging.getLogger("el_ai.hub")
 MAX_TELEGRAM_VIDEO_BYTES = 48_000_000
+
+
+def _correlation_headers() -> dict[str, str]:
+    """Propagate only a canonical correlation UUID from the current async task."""
+    correlation_id = current_correlation_id()
+    return {"X-Correlation-ID": correlation_id} if correlation_id is not None else {}
 
 _STATIC_HUB_ROUTES = frozenset({
     "/integrations/telegram/exchange",
@@ -149,9 +156,11 @@ class HubClient:
         duration_ms: float = 0.0,
     ) -> None:
         route_template = HubClient._route_template(path)
+        correlation_id = current_correlation_id() or request_id
         logger.info(
-            "hub_request_completed request_id=%s method=%s route_template=%s status_code=%s outcome=%s duration_ms=%.3f",
+            "hub_request_completed request_id=%s correlation_id=%s method=%s route_template=%s status_code=%s outcome=%s duration_ms=%.3f",
             request_id,
+            correlation_id,
             method,
             route_template,
             status_code,
@@ -159,6 +168,7 @@ class HubClient:
             duration_ms,
             extra={
                 "request_id": request_id,
+                "correlation_id": correlation_id,
                 "method": method,
                 "route_template": route_template,
                 "status_code": status_code,
@@ -218,11 +228,12 @@ class HubClient:
         error_code: str | None = None
         response_request_id: str | None = None
         try:
+            headers = {"X-Request-ID": request_id, **_correlation_headers()}
             response = await self._client.request(
                 method,
                 path.lstrip("/"),
                 json=payload,
-                headers={"X-Request-ID": request_id},
+                headers=headers,
             )
             response_status_code = response.status_code
             response.raise_for_status()
@@ -382,6 +393,7 @@ class HubClient:
                 "Authorization": f"Bearer {token}",
                 "X-Telegram-User-Id": str(telegram_user_id),
                 "X-Request-ID": request_id,
+                **_correlation_headers(),
             }
             if idempotency_key is not None:
                 headers["Idempotency-Key"] = idempotency_key
@@ -472,6 +484,7 @@ class HubClient:
                 "Authorization": f"Bearer {token}",
                 "X-Telegram-User-Id": str(telegram_user_id),
                 "X-Request-ID": request_id,
+                **_correlation_headers(),
             }
             response_status_code: int | None = None
             try:
