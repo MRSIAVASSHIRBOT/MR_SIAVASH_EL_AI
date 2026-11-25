@@ -567,6 +567,237 @@ class TaskPlanStore:
                 except FileNotFoundError:
                     pass
 
+    @staticmethod
+    def _validate_acceptance_criteria(value: object, *, allow_empty: bool = True) -> tuple[TaskPlanAcceptanceCriterion, ...]:
+        if not isinstance(value, (list, tuple)):
+            raise TaskPlanError("Stored acceptance criteria must be a list")
+        if len(value) > 12 or (not allow_empty and not value):
+            raise TaskPlanError("Acceptance criteria count is invalid")
+        normalized: list[TaskPlanAcceptanceCriterion] = []
+        seen: set[str] = set()
+        for item in value:
+            if isinstance(item, TaskPlanAcceptanceCriterion):
+                criterion_id, statement = item.criterion_id, item.statement
+            elif isinstance(item, dict) and set(item) == {"criterion_id", "statement"}:
+                criterion_id, statement = item.get("criterion_id"), item.get("statement")
+            else:
+                raise TaskPlanError("Acceptance criterion entry is invalid")
+            if not isinstance(criterion_id, str) or not re.fullmatch(r"ac_[0-9]{3}", criterion_id):
+                raise TaskPlanError("Acceptance criterion ID is invalid")
+            if criterion_id in seen:
+                raise TaskPlanError("Acceptance criterion IDs cannot be duplicated")
+            if not isinstance(statement, str) or not statement.strip() or len(statement.strip()) > 300:
+                raise TaskPlanError("Acceptance criterion statement is invalid")
+            seen.add(criterion_id)
+            normalized.append(TaskPlanAcceptanceCriterion(criterion_id, statement.strip()))
+        return tuple(normalized)
+
+    @staticmethod
+    def _validate_verification_steps(value: object, *, allow_empty: bool = False) -> tuple[str, ...]:
+        if not isinstance(value, (list, tuple)) or len(value) > 12:
+            raise TaskPlanError("Verification steps must be a bounded list")
+        if not allow_empty and not value:
+            raise TaskPlanError("At least one verification step is required")
+        normalized: list[str] = []
+        for item in value:
+            if not isinstance(item, str) or not item.strip() or len(item.strip()) > 500:
+                raise TaskPlanError("Verification step is invalid")
+            normalized.append(item.strip())
+        return tuple(normalized)
+
+    @staticmethod
+    def _validate_step_contract_fields(
+        step_id: object,
+        verifies_criteria: object,
+        verification: object,
+    ) -> tuple[str | None, tuple[str, ...], str | None]:
+        if step_id is None and verifies_criteria == [] and verification is None:
+            return None, (), None
+        if not isinstance(step_id, str) or not re.fullmatch(r"[a-z][a-z0-9_-]{0,39}", step_id):
+            raise TaskPlanError("Task-plan contract step ID is invalid")
+        if not isinstance(verifies_criteria, (list, tuple)) or not 1 <= len(verifies_criteria) <= 12:
+            raise TaskPlanError("Task-plan criterion coverage is invalid")
+        normalized: list[str] = []
+        for criterion_id in verifies_criteria:
+            if not isinstance(criterion_id, str) or not re.fullmatch(r"ac_[0-9]{3}", criterion_id):
+                raise TaskPlanError("Task-plan criterion reference is invalid")
+            if criterion_id in normalized:
+                raise TaskPlanError("Task-plan criterion references cannot be duplicated")
+            normalized.append(criterion_id)
+        if not isinstance(verification, str) or not verification.strip() or len(verification.strip()) > 500:
+            raise TaskPlanError("Task-plan step verification is invalid")
+        return step_id, tuple(normalized), verification.strip()
+
+    @classmethod
+    def _validate_plan_contract(
+        cls,
+        contract: object,
+        descriptions: list[str] | tuple[str, ...],
+    ) -> tuple[
+        tuple[tuple[int, ...], ...],
+        tuple[tuple[str, tuple[str, ...], str], ...],
+        dict[str, object],
+    ]:
+        expected_keys = {
+            "contract_version", "planning_status", "evaluation_scope", "goal_satisfaction",
+            "goal", "intent", "scope", "assumptions", "constraints", "dependencies",
+            "required_capabilities", "capability_availability", "authorization_checked",
+            "estimated_complexity", "missing_information", "clarification_questions",
+            "research_required", "research_questions", "risk_class", "risk_class_is_authoritative",
+            "acceptance_criteria", "verification_steps", "steps", "execution_ready",
+            "execution_started", "tools_executed", "tasks_created",
+        }
+        if not isinstance(contract, dict) or set(contract) != expected_keys:
+            raise TaskPlanError("Hub plan contract fields do not match telegram_agent_plan.v1")
+        if contract.get("contract_version") != "telegram_agent_plan.v1":
+            raise TaskPlanError("Hub plan contract version is unsupported")
+        if contract.get("evaluation_scope") != "planning_only" or contract.get("goal_satisfaction") != "not_evaluated":
+            raise TaskPlanError("Hub plan contract evaluation scope is invalid")
+        if (
+            contract.get("capability_availability") != "not_assessed"
+            or contract.get("authorization_checked") is not False
+            or contract.get("risk_class_is_authoritative") is not False
+            or contract.get("execution_ready") is not False
+            or contract.get("execution_started") is not False
+            or contract.get("tools_executed") is not False
+            or type(contract.get("tasks_created")) is not int
+            or contract.get("tasks_created") != 0
+        ):
+            raise TaskPlanError("Hub plan contract execution boundary is invalid")
+        if contract.get("planning_status") not in {"needs_clarification", "needs_research", "ready_for_review"}:
+            raise TaskPlanError("Hub plan planning status is invalid")
+        if contract.get("estimated_complexity") not in {"low", "moderate", "high"}:
+            raise TaskPlanError("Hub plan complexity is invalid")
+        if not isinstance(contract.get("research_required"), bool):
+            raise TaskPlanError("Hub research flag is invalid")
+        for key, limit in {
+            "goal": 1_000, "intent": 500, "scope": 1_000, "risk_class": 32,
+        }.items():
+            value = contract.get(key)
+            if not isinstance(value, str) or not value.strip() or len(value) > limit:
+                raise TaskPlanError("Hub plan contract text field is invalid")
+        for key, limit in {
+            "assumptions": 12, "constraints": 20, "dependencies": 20,
+            "required_capabilities": 20, "missing_information": 12,
+            "clarification_questions": 12, "research_questions": 8,
+        }.items():
+            values = contract.get(key)
+            if not isinstance(values, list) or len(values) > limit or any(
+                not isinstance(value, str) or not value.strip() or len(value) > 500
+                for value in values
+            ):
+                raise TaskPlanError("Hub plan contract list field is invalid")
+
+        criteria = cls._validate_acceptance_criteria(contract.get("acceptance_criteria"), allow_empty=False)
+        criterion_ids = {item.criterion_id for item in criteria}
+        verification_steps = cls._validate_verification_steps(contract.get("verification_steps"))
+        raw_steps = contract.get("steps")
+        if not isinstance(raw_steps, list) or len(raw_steps) != len(descriptions) or not (
+            MIN_TASK_PLAN_STEPS <= len(raw_steps) <= MAX_TASK_PLAN_STEPS
+        ):
+            raise TaskPlanError("Hub plan contract step count is invalid")
+
+        step_ids: list[str] = []
+        step_metadata: list[tuple[str, tuple[str, ...], str]] = []
+        dependencies: list[list[int]] = []
+        covered_criteria: set[str] = set()
+        for index, item in enumerate(raw_steps):
+            if not isinstance(item, dict) or set(item) != {
+                "step_id", "description", "depends_on", "required_capabilities",
+                "verifies_criteria", "verification",
+            }:
+                raise TaskPlanError("Hub plan contract step shape is invalid")
+            description = cls._validate_description(item.get("description"))
+            if description != descriptions[index]:
+                raise TaskPlanError("Hub plan contract descriptions do not match the legacy step list")
+            step_id, coverage, verification = cls._validate_step_contract_fields(
+                item.get("step_id"), item.get("verifies_criteria"), item.get("verification")
+            )
+            if step_id is None or step_id in step_ids:
+                raise TaskPlanError("Hub plan step IDs are missing or duplicated")
+            step_ids.append(step_id)
+            if any(criterion_id not in criterion_ids for criterion_id in coverage):
+                raise TaskPlanError("Hub plan step references an unknown acceptance criterion")
+            covered_criteria.update(coverage)
+            raw_dependencies = item.get("depends_on")
+            if not isinstance(raw_dependencies, list):
+                raise TaskPlanError("Hub plan step dependencies are invalid")
+            dependency_indexes: list[int] = []
+            for dependency_id in raw_dependencies:
+                if not isinstance(dependency_id, str) or dependency_id not in step_ids[:index]:
+                    raise TaskPlanError("Hub plan dependencies must reference earlier steps")
+                dependency_indexes.append(step_ids.index(dependency_id))
+            if len(set(dependency_indexes)) != len(dependency_indexes):
+                raise TaskPlanError("Hub plan dependencies cannot be duplicated")
+            dependencies.append(dependency_indexes)
+            capabilities = item.get("required_capabilities")
+            if not isinstance(capabilities, list) or len(capabilities) > 20 or any(
+                not isinstance(capability, str) or not capability.strip() or len(capability) > 80
+                for capability in capabilities
+            ):
+                raise TaskPlanError("Hub plan step capabilities are invalid")
+            step_metadata.append((step_id, coverage, verification))
+
+        if covered_criteria != criterion_ids:
+            raise TaskPlanError("Hub plan does not map every acceptance criterion to a step")
+        normalized_dependencies = cls._normalize_dependencies(dependencies, len(descriptions))
+        metadata: dict[str, object] = {
+            "contract_version": "telegram_agent_plan.v1",
+            "evaluation_scope": "planning_only",
+            "planning_status": contract["planning_status"],
+            "acceptance_criteria": criteria,
+            "verification_steps": verification_steps,
+            "goal_satisfaction": "not_evaluated",
+            "capability_availability": "not_assessed",
+            "authorization_checked": False,
+        }
+        return normalized_dependencies, tuple(step_metadata), metadata
+
+    @classmethod
+    def _validate_stored_plan_contract(
+        cls,
+        *,
+        contract_version: object,
+        evaluation_scope: object,
+        planning_status: object,
+        acceptance_criteria: tuple[TaskPlanAcceptanceCriterion, ...],
+        verification_steps: tuple[str, ...],
+        goal_satisfaction: object,
+        capability_availability: object,
+        authorization_checked: object,
+        steps: tuple[TaskPlanStep, ...],
+    ) -> None:
+        if goal_satisfaction != "not_evaluated" or capability_availability != "not_assessed" or authorization_checked is not False:
+            raise TaskPlanError("Stored task-plan execution boundary is invalid")
+        if contract_version is None:
+            if (
+                evaluation_scope is not None or planning_status is not None
+                or acceptance_criteria or verification_steps
+                or any(step.step_id is not None or step.verifies_criteria or step.verification is not None for step in steps)
+            ):
+                raise TaskPlanError("Stored task-plan contract metadata is incomplete")
+            return
+        if (
+            contract_version != "telegram_agent_plan.v1"
+            or evaluation_scope != "planning_only"
+            or planning_status not in {"needs_clarification", "needs_research", "ready_for_review"}
+            or not acceptance_criteria
+            or not verification_steps
+        ):
+            raise TaskPlanError("Stored task-plan contract metadata is invalid")
+        criterion_ids = {item.criterion_id for item in acceptance_criteria}
+        seen_steps: set[str] = set()
+        covered: set[str] = set()
+        for step in steps:
+            if step.step_id is None or step.step_id in seen_steps or step.verification is None:
+                raise TaskPlanError("Stored contract step metadata is invalid")
+            seen_steps.add(step.step_id)
+            if not step.verifies_criteria or any(item not in criterion_ids for item in step.verifies_criteria):
+                raise TaskPlanError("Stored contract criterion mapping is invalid")
+            covered.update(step.verifies_criteria)
+        if covered != criterion_ids:
+            raise TaskPlanError("Stored plan does not cover every acceptance criterion")
+
     @classmethod
     def _normalize_dependencies(
         cls,
