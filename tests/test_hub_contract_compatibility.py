@@ -100,7 +100,7 @@ def test_bridge_job_correlation_contract_is_bounded_and_diagnostic_only():
     assert correlation["el_ai_log_event"] == "hub_request_completed"
     assert correlation["el_ai_log_fields"] == [
         "request_id", "correlation_id", "method", "route_template",
-        "status_code", "outcome",
+        "status_code", "duration_ms", "outcome",
     ]
     assert correlation["authorization_effect"] is False
     assert correlation["idempotency_effect"] is False
