@@ -406,21 +406,8 @@ class TaskPlanStore:
                 raise TaskPlanError("A blocked task-plan step cannot be submitted")
             if any(steps[dependency].task_id is None for dependency in current_step.depends_on):
                 raise TaskPlanError("Task-plan dependencies must be submitted before this step")
-            steps[step_index] = TaskPlanStep(
-                current_step.description,
-                canonical_task_id,
-                current_step.depends_on,
-                current_step.blocked_by,
-                current_step.blocked_reason,
-            )
-            updated.append(TaskPlan(
-                plan.plan_id,
-                plan.telegram_user_id,
-                plan.task_type,
-                plan.created_at,
-                tuple(steps),
-                plan.paused,
-            ))
+            steps[step_index] = replace(current_step, task_id=canonical_task_id)
+            updated.append(replace(plan, steps=tuple(steps)))
             changed = True
         if not found:
             raise TaskPlanError("Task plan is unavailable")
@@ -465,21 +452,12 @@ class TaskPlanStore:
             if step.blocked_reason == normalized_reason and step.blocked_by == normalized_blockers:
                 updated.append(plan)
                 continue
-            steps[step_index] = TaskPlanStep(
-                step.description,
-                step.task_id,
-                step.depends_on,
-                normalized_blockers,
-                normalized_reason,
+            steps[step_index] = replace(
+                step,
+                blocked_by=normalized_blockers,
+                blocked_reason=normalized_reason,
             )
-            updated.append(TaskPlan(
-                plan.plan_id,
-                plan.telegram_user_id,
-                plan.task_type,
-                plan.created_at,
-                tuple(steps),
-                plan.paused,
-            ))
+            updated.append(replace(plan, steps=tuple(steps)))
             changed = True
         if not found:
             raise TaskPlanError("Task plan is unavailable")
@@ -511,14 +489,7 @@ class TaskPlanStore:
             if plan.paused == paused:
                 updated.append(plan)
                 continue
-            updated.append(TaskPlan(
-                plan.plan_id,
-                plan.telegram_user_id,
-                plan.task_type,
-                plan.created_at,
-                plan.steps,
-                paused,
-            ))
+            updated.append(replace(plan, paused=paused))
             changed = True
         if not found:
             raise TaskPlanError("Task plan is unavailable")
@@ -539,14 +510,7 @@ class TaskPlanStore:
             if plan.telegram_user_id != telegram_user_id or plan.paused == paused:
                 updated.append(plan)
                 continue
-            updated.append(TaskPlan(
-                plan.plan_id,
-                plan.telegram_user_id,
-                plan.task_type,
-                plan.created_at,
-                plan.steps,
-                paused,
-            ))
+            updated.append(replace(plan, paused=paused))
             changed_count += 1
         if changed_count:
             self._replace(updated)
