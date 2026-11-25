@@ -18,7 +18,7 @@ Advanced Telegram interface for the MR_SIAVASH ecosystem.
 
 ## Current implementation status
 
-Latest coordinated GitHub source and CI evidence: [portfolio checkpoint — 2026-11-24](docs/operations/portfolio-checkpoint-2026-11-24.md). This is a dated source/CI snapshot, not proof of live Cloudflare, Telegram, Hub staging, or physical-device acceptance.
+Latest coordinated GitHub source and CI evidence: [portfolio checkpoint — 2026-11-25](docs/operations/portfolio-checkpoint-2026-11-25.md). This dated checkpoint supersedes older source/CI values below; historical Cloudflare, Telegram, Hub-staging and physical-device notes are not fresh live acceptance evidence.
 
 The Telegram transport, owner/public separation, scoped Hub client, stable local client identity, OS-backed Keyring storage, and public MR_SIAVASH_AI assistant client are implemented on `main`. Public conversations and Hub access remain opt-in. A separate Cloudflare edge Worker (`mr-siavash-el-ir-bot`) is deployed and its live `/health` and `/ready` endpoints returned healthy responses on 2026-11-22; required secret binding names are present. This does not prove the Telegram token is valid, webhook registration succeeded, the signed bridge is operational, or messages reach the Python command router. The local Python polling runtime remains unconfigured, and end-to-end Telegram acceptance is not claimed.
 
