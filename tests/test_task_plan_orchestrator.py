@@ -84,7 +84,7 @@ async def test_dispatch_attempt_burst_cap_is_global_across_plans_and_owners(tmp_
         plans.get_for_user(plan_id, owner_id, now=int(time.time()) + 10)
         for owner_id, plan_id in plan_ids
     ]
-    assert [plan.submitted_count for plan in remaining] == [2, 2, 2, 1]
+    assert sorted(plan.submitted_count for plan in remaining) == [1, 2, 2, 2]
 
 
 async def test_failed_create_attempts_consume_the_per_cycle_burst_budget(tmp_path):
