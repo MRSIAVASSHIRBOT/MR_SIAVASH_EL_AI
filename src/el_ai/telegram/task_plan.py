@@ -54,6 +54,7 @@ class TaskPlan:
     steps: tuple[TaskPlanStep, ...]
     paused: bool = False
     contract_version: str | None = None
+    evaluation_scope: str | None = None
     planning_status: str | None = None
     acceptance_criteria: tuple[TaskPlanAcceptanceCriterion, ...] = ()
     verification_steps: tuple[str, ...] = ()
@@ -106,7 +107,7 @@ class TaskPlanStore:
             or set(payload) != {"version", "plans"}
             or isinstance(payload.get("version"), bool)
             or not isinstance(payload.get("version"), int)
-            or payload.get("version") not in {1, 2, 3}
+            or payload.get("version") not in {1, 2, 3, 4}
             or not isinstance(payload.get("plans"), list)
         ):
             raise TaskPlanError("Stored Telegram task-plan state is unsupported")
@@ -117,8 +118,14 @@ class TaskPlanStore:
             expected_plan_keys = {
                 "plan_id", "telegram_user_id", "task_type", "created_at", "steps"
             }
-            if payload["version"] == 3:
+            if payload["version"] >= 3:
                 expected_plan_keys.add("paused")
+            if payload["version"] == 4:
+                expected_plan_keys.update({
+                    "contract_version", "evaluation_scope", "planning_status",
+                    "acceptance_criteria", "verification_steps", "goal_satisfaction",
+                    "capability_availability", "authorization_checked",
+                })
             if not isinstance(item, dict) or set(item) != expected_plan_keys:
                 raise TaskPlanError("Stored Telegram task-plan entry is invalid")
             try:
@@ -128,6 +135,14 @@ class TaskPlanStore:
                 created_at = item.get("created_at")
                 paused = item.get("paused", False)
                 raw_steps = item.get("steps")
+                contract_version = item.get("contract_version")
+                evaluation_scope = item.get("evaluation_scope")
+                planning_status = item.get("planning_status")
+                raw_criteria = item.get("acceptance_criteria", [])
+                raw_verification_steps = item.get("verification_steps", [])
+                goal_satisfaction = item.get("goal_satisfaction", "not_evaluated")
+                capability_availability = item.get("capability_availability", "not_assessed")
+                authorization_checked = item.get("authorization_checked", False)
                 if not isinstance(paused, bool):
                     raise TaskPlanError("Stored Telegram task-plan pause state is invalid")
                 self._validate_user_id(user_id)
@@ -144,12 +159,17 @@ class TaskPlanStore:
                         if payload["version"] == 1
                         else {"description", "task_id", "depends_on", "blocked_by", "blocked_reason"}
                     )
+                    if payload["version"] == 4:
+                        expected_keys.update({"step_id", "verifies_criteria", "verification"})
                     if not isinstance(raw_step, dict) or set(raw_step) != expected_keys:
                         raise TaskPlanError("Stored Telegram task-plan step is invalid")
                     description = self._validate_description(raw_step.get("description"))
                     task_id = raw_step.get("task_id")
                     if task_id is not None:
                         task_id = self._canonical_uuid(task_id, "task ID")
+                    step_id = raw_step.get("step_id") if payload["version"] == 4 else None
+                    verifies_criteria = raw_step.get("verifies_criteria", []) if payload["version"] == 4 else []
+                    verification = raw_step.get("verification") if payload["version"] == 4 else None
                     if payload["version"] == 1:
                         dependencies = () if step_index == 0 else (step_index - 1,)
                         blocked_by = ()
@@ -169,7 +189,9 @@ class TaskPlanStore:
                     if blocked_reason and task_id is not None:
                         raise TaskPlanError("A submitted task-plan step cannot be blocked")
                     steps.append(TaskPlanStep(
-                        description, task_id, dependencies, blocked_by, blocked_reason
+                        description, task_id, dependencies, blocked_by, blocked_reason,
+                        step_id, tuple(verifies_criteria) if isinstance(verifies_criteria, list) else (),
+                        verification,
                     ))
             except ValueError as exc:
                 raise TaskPlanError("Stored Telegram task-plan entry is invalid") from exc
@@ -183,13 +205,21 @@ class TaskPlanStore:
                 created_at=created_at,
                 steps=tuple(steps),
                 paused=paused,
+                contract_version=contract_version,
+                evaluation_scope=evaluation_scope,
+                planning_status=planning_status,
+                acceptance_criteria=self._validate_acceptance_criteria(raw_criteria),
+                verification_steps=self._validate_verification_steps(raw_verification_steps, allow_empty=True),
+                goal_satisfaction=goal_satisfaction,
+                capability_availability=capability_availability,
+                authorization_checked=authorization_checked,
             ))
 
         if len(plans) > MAX_TASK_PLANS:
             raise TaskPlanError("Stored Telegram task-plan collection exceeds its limit")
         self._plans = plans
-        if payload["version"] < 3:
-            # One-way migration: v1/v2 plans gain the default unpaused state.
+        if payload["version"] < 4:
+            # One-way migration: v1-v3 plans gain explicit non-evaluation defaults.
             self._replace(plans)
         return tuple(plans)
 
