@@ -682,12 +682,23 @@ class TaskPlanStore:
             self._plans = previous
             raise
 
-    def _save(self) -> None:
+    def downgrade_to_v4(self) -> None:
+        """Write a v4-compatible store for a controlled application rollback.
+
+        Pause plan advancement and create a private backup before calling this
+        method. Dispatch-budget counters are intentionally discarded.
+        """
+        self._ensure_loaded()
+        self._save(schema_version=4)
+
+    def _save(self, *, schema_version: int = 5) -> None:
+        if schema_version not in {4, 5}:
+            raise ValueError("Task-plan schema version is unsupported")
         temporary_path: str | None = None
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             payload = {
-                "version": 5,
+                "version": schema_version,
                 "plans": [
                     {
                         "plan_id": plan.plan_id,
@@ -716,8 +727,13 @@ class TaskPlanStore:
                                 "step_id": step.step_id,
                                 "verifies_criteria": list(step.verifies_criteria),
                                 "verification": step.verification,
-                                "dispatch_attempts": step.dispatch_attempts,
-                                "next_dispatch_at": step.next_dispatch_at,
+                                **(
+                                    {
+                                        "dispatch_attempts": step.dispatch_attempts,
+                                        "next_dispatch_at": step.next_dispatch_at,
+                                    }
+                                    if schema_version >= 5 else {}
+                                ),
                             }
                             for step in plan.steps
                         ],
