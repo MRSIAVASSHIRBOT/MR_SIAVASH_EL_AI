@@ -158,7 +158,8 @@ class HubClient:
         route_template = HubClient._route_template(path)
         correlation_id = current_correlation_id() or request_id
         logger.info(
-            "hub_request_completed request_id=%s correlation_id=%s method=%s route_template=%s status_code=%s outcome=%s duration_ms=%.3f",
+            "hub_request_completed request_id=%s correlation_id=%s "
+            "method=%s route_template=%s status_code=%s outcome=%s duration_ms=%.3f",
             request_id,
             correlation_id,
             method,
