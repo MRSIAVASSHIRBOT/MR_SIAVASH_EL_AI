@@ -5,9 +5,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from el_ai.integrations.request_context import current_correlation_id
 from el_ai.telegram.bridge import BridgeJob, TelegramBridgeError
 from el_ai.telegram.bridge_worker import BridgeWorkerMetrics, TelegramBridgeWorker
-from el_ai.integrations.request_context import current_correlation_id
 
 
 def _job():
