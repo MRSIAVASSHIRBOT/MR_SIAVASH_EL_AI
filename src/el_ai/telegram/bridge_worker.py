@@ -10,8 +10,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from el_ai.telegram.bridge import BridgeJob, TelegramBridgeClient, TelegramBridgeError
 from el_ai.integrations.request_context import request_correlation_scope
+from el_ai.telegram.bridge import BridgeJob, TelegramBridgeClient, TelegramBridgeError
 
 LOGGER = logging.getLogger("el_ai.telegram.bridge_worker")
 
