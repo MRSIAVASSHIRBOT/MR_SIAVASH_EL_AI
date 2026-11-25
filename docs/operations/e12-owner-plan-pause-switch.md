@@ -15,6 +15,12 @@ The EL_AI plan orchestrator already checks the persisted `paused` flag before di
 
 **This is not a remote task kill operation.** Tasks that were already submitted to Hub continue under Hub's worker, approval, cancellation and emergency-stop policies. The pause switch does not claim to stop active inference, FFmpeg work, or any task already executing. Use the existing per-plan cancellation command for eligible queued/approval-waiting tasks, or the Hub control plane for its separately authorized worker stop.
 
+## Dispatch burst budget
+
+Each normal advancement cycle may attempt at most **3 Hub task-creation requests across all owners and plans**. The counter is global to that invocation, not reset for each owner or plan. A failed, rejected, or timed-out creation attempt consumes one slot; this prevents transient failures from producing an unbounded request burst. Remaining eligible steps are left unsubmitted for a later normal cycle.
+
+This is a per-cycle burst guard only. It is **not** a daily/monthly usage budget, billing cap, global concurrency limit, or guarantee that only three tasks can be active. Hub authorization, approval, idempotency, rate limits, provider budgets, and its own execution controls remain authoritative.
+
 ## Safety
 
 - State changes are restricted to plans owned by the authenticated Telegram user.
