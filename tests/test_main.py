@@ -1990,3 +1990,140 @@ def test_task_plan_evidence_command_rejects_missing_or_foreign_plan(tmp_path):
 
 
 
+
+
+def _agent_plan_contract_v1():
+    return {
+        "contract_version": "telegram_agent_plan.v1",
+        "planning_status": "ready_for_review",
+        "evaluation_scope": "planning_only",
+        "goal_satisfaction": "not_evaluated",
+        "goal": "Create a bounded review proposal",
+        "intent": "Plan only",
+        "scope": "Prepare a reviewable proposal",
+        "assumptions": [],
+        "constraints": ["No execution"],
+        "dependencies": [],
+        "required_capabilities": ["file.read"],
+        "capability_availability": "not_assessed",
+        "authorization_checked": False,
+        "estimated_complexity": "low",
+        "missing_information": [],
+        "clarification_questions": [],
+        "research_required": False,
+        "research_questions": [],
+        "risk_class": "low",
+        "risk_class_is_authoritative": False,
+        "acceptance_criteria": [
+            {"criterion_id": "ac_001", "statement": "Inputs are bounded"},
+            {"criterion_id": "ac_002", "statement": "Steps have verification"},
+        ],
+        "verification_steps": ["Check input bounds", "Review verification coverage"],
+        "steps": [
+            {
+                "step_id": "prepare",
+                "description": "Prepare bounded inputs",
+                "depends_on": [],
+                "required_capabilities": ["file.read"],
+                "verifies_criteria": ["ac_001"],
+                "verification": "Check input bounds",
+            },
+            {
+                "step_id": "review",
+                "description": "Review step coverage",
+                "depends_on": ["prepare"],
+                "required_capabilities": [],
+                "verifies_criteria": ["ac_002"],
+                "verification": "Review verification coverage",
+            },
+        ],
+        "execution_ready": False,
+        "execution_started": False,
+        "tools_executed": False,
+        "tasks_created": 0,
+    }
+
+
+def test_ai_agent_plan_consumes_versioned_contract_without_executing_or_claiming_success(tmp_path):
+    from el_ai.telegram.task_plan import TaskPlanStore
+
+    store = TaskPlanStore(tmp_path / "agent-contract-plans.json")
+    contract = _agent_plan_contract_v1()
+
+    class FakeHub:
+        async def preview_agent_plan(self, telegram_user_id, goal, *, provider_mode):
+            assert telegram_user_id == 123
+            assert goal == "Create a bounded review proposal"
+            assert provider_mode == "local"
+            return {
+                "provider_mode": "local",
+                "provider": "local-test",
+                "steps": [
+                    {"description": item["description"][:400]}
+                    for item in contract["steps"]
+                ],
+                "plan_contract": contract,
+                "execution_started": False,
+                "tasks_created": 0,
+            }
+
+        async def create_task(self, *_args, **_kwargs):
+            raise AssertionError("Plan preview must never create Hub tasks")
+
+    response = asyncio.run(_owner_hub_command(
+        "/agentplan demo.build | Create a bounded review proposal",
+        telegram_user_id=123,
+        update_id=133,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+        task_plans=store,
+    ))
+
+    plan_id = response.split("شناسه طرح: ", 1)[1].splitlines()[0]
+    plan = store.get_for_user(plan_id, 123)
+    assert plan is not None
+    assert plan.contract_version == "telegram_agent_plan.v1"
+    assert plan.evaluation_scope == "planning_only"
+    assert plan.goal_satisfaction == "not_evaluated"
+    assert plan.authorization_checked is False
+    assert [item.criterion_id for item in plan.acceptance_criteria] == ["ac_001", "ac_002"]
+    assert [step.verifies_criteria for step in plan.steps] == [("ac_001",), ("ac_002",)]
+    assert plan.submitted_count == 0
+    assert "telegram_agent_plan.v1" in response
+    assert "هنوز ارزیابی نشده‌اند" in response
+    assert "هیچ وظیفه‌ای ایجاد یا اجرا نشده است" in response
+    assert "/taskplanrun " + plan_id in response
+    assert "Create a bounded review proposal" not in (tmp_path / "agent-contract-plans.json").read_text(encoding="utf-8")
+
+
+def test_ai_agent_plan_rejects_mismatched_legacy_steps_and_contract_without_saving(tmp_path):
+    from el_ai.telegram.task_plan import TaskPlanStore
+
+    store = TaskPlanStore(tmp_path / "agent-contract-mismatch.json")
+    contract = _agent_plan_contract_v1()
+
+    class FakeHub:
+        async def preview_agent_plan(self, *_args, **_kwargs):
+            return {
+                "provider_mode": "local",
+                "provider": "local-test",
+                "steps": [
+                    {"description": "A different first step"},
+                    {"description": contract["steps"][1]["description"]},
+                ],
+                "plan_contract": contract,
+                "execution_started": False,
+                "tasks_created": 0,
+            }
+
+    response = asyncio.run(_owner_hub_command(
+        "/agentplan demo.build | Create a bounded review proposal",
+        telegram_user_id=123,
+        update_id=134,
+        hub=FakeHub(),
+        settings=_settings(enabled=True),
+        task_plans=store,
+    ))
+
+    assert "مطابقت ندارند" in response
+    assert store.list_for_user(123) == ()
