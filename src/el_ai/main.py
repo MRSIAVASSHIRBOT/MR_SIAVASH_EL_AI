@@ -588,6 +588,7 @@ async def _owner_hub_command(
                 return "پاسخ Hub با قرارداد پیش‌نمایش امن سازگار نبود؛ هیچ طرحی ذخیره نشد."
             plan_contract = result.get("plan_contract")
             contract_note = ""
+            run_instruction = f"\nبرای ثبت صریح مراحل: /taskplanrun {plan.plan_id}"
             if plan_contract is not None:
                 if (
                     not isinstance(plan_contract, dict)
