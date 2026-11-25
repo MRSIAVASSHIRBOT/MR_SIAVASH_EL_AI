@@ -2091,6 +2091,10 @@ def test_ai_agent_plan_consumes_versioned_contract_without_executing_or_claiming
     assert plan.submitted_count == 0
     assert "telegram_agent_plan.v1" in response
     assert "هنوز ارزیابی نشده‌اند" in response
+    assert "Inputs are bounded" in response
+    assert "Every step has verification" in response
+    assert "Review verification coverage" in response
+    assert "به‌معنای موفقیت آن نیست" in response
     assert "هیچ وظیفه‌ای ایجاد یا اجرا نشده است" in response
     assert "/taskplanrun " + plan_id in response
     assert "Create a bounded review proposal" not in (tmp_path / "agent-contract-plans.json").read_text(encoding="utf-8")
