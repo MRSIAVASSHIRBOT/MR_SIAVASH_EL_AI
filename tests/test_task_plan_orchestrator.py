@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 
 from el_ai.integrations.hub import HubClientError
@@ -16,10 +17,12 @@ class FakeHub:
     def __init__(self):
         self.tasks = {}
         self.created = []
+        self.get_calls = []
         self.fail_create = None
         self.on_create = None
 
     async def get_task(self, _owner_id, task_id):
+        self.get_calls.append(task_id)
         try:
             return self.tasks[task_id]
         except KeyError:
@@ -298,3 +301,33 @@ async def test_unresolved_versioned_plan_never_advances_in_background_scheduler(
         assert stored is not None
         assert stored.submitted_count == 1
         assert stored.planning_status == status
+
+
+async def test_non_ready_contract_never_advances_even_with_legacy_submitted_checkpoint(tmp_path):
+    path = tmp_path / "plan-needs-clarification.json"
+    plans = TaskPlanStore(path)
+    contract = _needs_clarification_contract("ready_for_review")
+    plan = plans.create_from_contract(
+        123, "demo.echo", contract, now=int(time.time())
+    )
+    assert plans.mark_submitted(plan.plan_id, 123, 0, TASK_A) is True
+
+    # Simulate a persisted plan becoming unresolved after an old/legacy dispatch.
+    # The scheduler must re-check readiness before reading status or dispatching.
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["plans"][0]["planning_status"] = "needs_clarification"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    restored = TaskPlanStore(path)
+    hub = FakeHub()
+    hub.tasks[TASK_A] = {"status": "succeeded"}
+
+    events = await advance_ready_plan_steps(hub, restored, None, {123})
+
+    assert events == ()
+    assert hub.get_calls == []
+    assert hub.created == []
+    current = restored.get_for_user(plan.plan_id, 123, now=int(time.time()) + 1)
+    assert current is not None
+    assert current.planning_status == "needs_clarification"
+    assert current.submitted_count == 1
