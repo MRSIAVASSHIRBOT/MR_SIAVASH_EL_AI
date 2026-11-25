@@ -2131,3 +2131,76 @@ def test_ai_agent_plan_rejects_mismatched_legacy_steps_and_contract_without_savi
 
     assert "مطابقت ندارند" in response
     assert store.list_for_user(123) == ()
+
+
+@pytest.mark.parametrize("planning_status", ["needs_clarification", "needs_research"])
+def test_agent_plan_requires_clarification_or_research_before_any_task_dispatch(
+    tmp_path, planning_status
+):
+    store = TaskPlanStore(tmp_path / f"plan-{planning_status}.json")
+    contract = _agent_plan_contract_v1()
+    contract["planning_status"] = planning_status
+    contract["missing_information"] = ["The target environment is unknown"]
+    contract["clarification_questions"] = ["Which target environment should be used?"]
+    contract["research_required"] = planning_status == "needs_research"
+    contract["research_questions"] = (
+        ["Review the target environment requirements"]
+        if planning_status == "needs_research" else []
+    )
+
+    class FakeHub:
+        def __init__(self):
+            self.created = []
+
+        async def preview_agent_plan(self, telegram_user_id, goal, *, provider_mode):
+            assert telegram_user_id == 123
+            return {
+                "provider_mode": "local",
+                "provider": "local-test",
+                "steps": [
+                    {"description": item["description"]}
+                    for item in contract["steps"]
+                ],
+                "plan_contract": contract,
+                "execution_started": False,
+                "tasks_created": 0,
+            }
+
+        async def create_task(self, *args, **kwargs):
+            self.created.append((args, kwargs))
+            return {"task_id": "12345678-1234-4234-8234-123456789abc", "status": "queued"}
+
+    hub = FakeHub()
+    preview = asyncio.run(_owner_hub_command(
+        "/agentplan demo.build | Prepare a review proposal",
+        telegram_user_id=123,
+        update_id=135 if planning_status == "needs_clarification" else 136,
+        hub=hub,
+        settings=_settings(enabled=True),
+        task_plans=store,
+    ))
+    plan_id = preview.split("شناسه طرح: ", 1)[1].splitlines()[0]
+    assert planning_status in preview
+    assert "Which target environment should be used?" in preview
+    assert "برای بررسی و شروع صریح مراحل: /taskplanrun" not in preview
+    assert "قابل اجرا نیست" in preview
+
+    if planning_status == "needs_research":
+        assert "Review the target environment requirements" in preview
+    else:
+        assert "The target environment is unknown" in preview
+
+    blocked = asyncio.run(_owner_hub_command(
+        f"/taskplanrun {plan_id}",
+        telegram_user_id=123,
+        update_id=137 if planning_status == "needs_clarification" else 138,
+        hub=hub,
+        settings=_settings(enabled=True),
+        task_plans=store,
+    ))
+    assert "این طرح هنوز آمادهٔ اجرا نیست" in blocked
+    assert hub.created == []
+    persisted = store.get_for_user(plan_id, 123)
+    assert persisted is not None
+    assert persisted.planning_status == planning_status
+    assert persisted.submitted_count == 0
