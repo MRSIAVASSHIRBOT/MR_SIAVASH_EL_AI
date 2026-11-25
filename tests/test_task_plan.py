@@ -692,3 +692,15 @@ def test_task_plan_store_downgrade_to_v4_preserves_plan_state_for_rollback(tmp_p
     # Existing v4 planning metadata and dependency checkpoints remain intact.
     assert restored_plan["steps"][1]["depends_on"] == [0]
     assert restored_plan["contract_version"] is None
+
+
+
+def test_task_plan_store_rejects_retry_deadlines_beyond_the_bounded_window(tmp_path):
+    store = TaskPlanStore(tmp_path / "plans.json")
+    plan = store.create(123, "demo.echo", ["root", "follow-up"], now=100)
+    store.mark_submitted(plan.plan_id, 123, 0, TASK_A)
+
+    with pytest.raises(ValueError, match="maximum delay"):
+        store.reserve_dispatch_attempt(
+            plan.plan_id, 123, 1, now=100, retry_at=161
+        )
