@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from el_ai.integrations.hub import HubClient, HubClientError
 from el_ai.telegram.task_plan import (
+    MAX_TASK_PLAN_DISPATCH_RETRY_SECONDS,
     MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS,
     TaskPlanDispatchBudgetExceeded,
     TaskPlanDispatchDeferred,
@@ -24,12 +25,12 @@ from el_ai.telegram.task_watch import (
 LOGGER = logging.getLogger("el_ai.task_plan_orchestrator")
 MAX_PLAN_CREATE_ATTEMPTS_PER_CYCLE = 3
 DISPATCH_RETRY_BASE_SECONDS = 5
-DISPATCH_RETRY_MAX_SECONDS = 60
+DISPATCH_RETRY_MAX_SECONDS = MAX_TASK_PLAN_DISPATCH_RETRY_SECONDS
 _SUCCESS_STATUS = "succeeded"
 
 
 def _dispatch_retry_delay_seconds(attempt_number: int) -> int:
-    """Return full-jitter exponential backoff for a transient idempotent dispatch."""
+    """Return bounded jittered exponential delay for a transient idempotent dispatch."""
     ceiling = min(
         DISPATCH_RETRY_BASE_SECONDS * (2 ** max(0, attempt_number - 1)),
         DISPATCH_RETRY_MAX_SECONDS,
