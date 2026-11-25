@@ -19,6 +19,7 @@ MAX_TASK_PLAN_STEPS = 8
 MAX_TASK_PLAN_BYTES = 256 * 1024
 MAX_TASK_PLAN_AGE_SECONDS = 7 * 24 * 60 * 60
 MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS = 5
+MAX_TASK_PLAN_DISPATCH_RETRY_SECONDS = 60
 MAX_TASK_TYPE_LENGTH = 80
 MAX_TASK_STEP_LENGTH = 400
 _TASK_TYPE_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
@@ -420,6 +421,8 @@ class TaskPlanStore:
         self._validate_timestamp(retry_at)
         if retry_at <= current_time:
             raise ValueError("Dispatch reconciliation deadline must be in the future")
+        if retry_at - current_time > MAX_TASK_PLAN_DISPATCH_RETRY_SECONDS:
+            raise ValueError("Dispatch reconciliation deadline exceeds its maximum delay")
 
         plans = self._ensure_loaded()
         updated: list[TaskPlan] = []
@@ -476,6 +479,8 @@ class TaskPlanStore:
         ):
             raise ValueError("Expected dispatch attempt count is invalid")
         self._validate_timestamp(retry_at)
+        if retry_at - int(time.time()) > MAX_TASK_PLAN_DISPATCH_RETRY_SECONDS:
+            raise ValueError("Dispatch retry deadline exceeds its maximum delay")
 
         plans = self._ensure_loaded()
         updated: list[TaskPlan] = []
