@@ -14,6 +14,7 @@ from el_ai.telegram.task_watch import (
 )
 
 LOGGER = logging.getLogger("el_ai.task_plan_orchestrator")
+MAX_PLAN_CREATE_ATTEMPTS_PER_CYCLE = 3
 _SUCCESS_STATUS = "succeeded"
 _ACTIVE_WATCH_STATUSES = frozenset({"queued", "running", "waiting_approval"})
 
@@ -41,6 +42,7 @@ async def advance_ready_plan_steps(
     Failed dependencies block descendants; unavailable status never unlocks them.
     """
     events: list[PlanAdvanceEvent] = []
+    dispatch_attempts = 0
     for owner_id in sorted(owner_ids):
         try:
             owner_plans = plans.list_for_user(owner_id)
@@ -151,7 +153,17 @@ async def advance_ready_plan_steps(
                     continue
                 step = current_step
 
+                if dispatch_attempts >= MAX_PLAN_CREATE_ATTEMPTS_PER_CYCLE:
+                    LOGGER.warning(
+                        "Task-plan dispatch burst cap reached max_create_attempts=%s",
+                        MAX_PLAN_CREATE_ATTEMPTS_PER_CYCLE,
+                    )
+                    return tuple(events)
+
                 idempotency_key = f"telegram-plan-{plan.plan_id}-{index + 1}"
+                # Count attempts, including timeouts and explicit Hub rejections, so
+                # failures cannot turn one scheduler cycle into an unbounded burst.
+                dispatch_attempts += 1
                 try:
                     result = await hub.create_task(
                         owner_id,
