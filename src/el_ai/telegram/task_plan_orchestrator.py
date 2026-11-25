@@ -307,6 +307,7 @@ async def advance_ready_plan_steps(
                                     plan.plan_id, owner_id, index,
                                     expected_attempts=attempt_number,
                                     retry_at=current_time + retry_after,
+                                    now=current_time,
                                 )
                             except (TaskPlanError, ValueError):
                                 LOGGER.error(
@@ -354,6 +355,7 @@ async def advance_ready_plan_steps(
                                 plan.plan_id, owner_id, index,
                                 expected_attempts=attempt_number,
                                 retry_at=current_time + retry_after,
+                                now=current_time,
                             )
                         except (TaskPlanError, ValueError):
                             LOGGER.error(
@@ -394,6 +396,7 @@ async def advance_ready_plan_steps(
                                 plan.plan_id, owner_id, index,
                                 expected_attempts=attempt_number,
                                 retry_at=current_time + retry_after,
+                                now=current_time,
                             )
                         except (TaskPlanError, ValueError):
                             LOGGER.error(
