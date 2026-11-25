@@ -169,7 +169,7 @@ def test_task_plan_store_defaults_to_sequential_dependencies_and_persists_dag(tm
     assert loaded.steps[2].blocked_reason == "dependency_failed"
     assert loaded.steps[2].task_id is None
     payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["version"] == 3
+    assert payload["version"] == 4
     assert payload["plans"][1]["steps"][2]["depends_on"] == [0, 1]
 
 
@@ -196,7 +196,7 @@ def test_task_plan_store_rejects_invalid_dependency_graphs(tmp_path, dependencie
         )
 
 
-def test_task_plan_store_migrates_v1_plans_to_v3_without_losing_checkpoints(tmp_path):
+def test_task_plan_store_migrates_v1_plans_to_v4_without_losing_checkpoints(tmp_path):
     path = tmp_path / "task-plans.json"
     path.write_text(json.dumps({
         "version": 1,
@@ -219,7 +219,7 @@ def test_task_plan_store_migrates_v1_plans_to_v3_without_losing_checkpoints(tmp_
     assert loaded.steps[0].depends_on == ()
     assert loaded.steps[1].depends_on == (0,)
     migrated = json.loads(path.read_text(encoding="utf-8"))
-    assert migrated["version"] == 3
+    assert migrated["version"] == 4
     assert migrated["plans"][0]["steps"][1]["depends_on"] == [0]
 
 
@@ -254,7 +254,7 @@ def test_task_plan_pause_state_is_persisted_owner_scoped_and_idempotent(tmp_path
         restored.set_paused(plan.plan_id, 123, 1)
 
 
-def test_task_plan_store_migrates_v2_to_v3_with_pause_disabled(tmp_path):
+def test_task_plan_store_migrates_v2_to_v4_with_pause_disabled(tmp_path):
     path = tmp_path / "task-plans-v2.json"
     path.write_text(json.dumps({
         "version": 2,
