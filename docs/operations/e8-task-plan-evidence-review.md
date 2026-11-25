@@ -36,3 +36,25 @@ Plan summaries are `evidence_complete`, `needs_attention`, `insufficient_evidenc
 Regression tests cover valid results, missing results, malformed envelopes, failed/blocked steps, pending steps, unavailable Hub status, owner isolation, Bridge command parity, and the guarantee that the evaluation path performs no external mutations.
 
 Live Telegram/Hub runtime acceptance remains a separate release gate.
+
+
+## Versioned planning criteria — `telegram_agent_plan.v1`
+
+The owner-scoped `/agentplan` preview can now consume the Hub's typed `telegram_agent_plan.v1` response. EL_AI validates the contract version, planning-only flags, bounded acceptance-criterion IDs/statements, step IDs, earlier-step dependency references, criterion coverage, and the legacy description projection before persisting it.
+
+Local task-plan storage schema v4 adds:
+- the source contract version and planning status;
+- bounded acceptance criteria and verification steps;
+- each step's stable step ID, criterion references and verification text;
+- explicit defaults `goal_satisfaction: not_evaluated`, `capability_availability: not_assessed`, and `authorization_checked: false`.
+
+The owner-authored goal and full Hub contract are not copied into the local plan file; only the fields needed to review the plan's criteria/step mapping are persisted. Existing v1, v2 and v3 stores migrate to v4 with task IDs, dependencies, blocked checkpoints and pause state preserved. Legacy Hub responses without a versioned contract remain accepted as description-only drafts and do not gain invented criteria.
+
+This is still planning evidence only. The presence of criteria and verification descriptions does not mean they passed. `/taskplanevaluate` remains structural execution-evidence review and always reports `acceptance_criteria_evaluation: not_implemented`. Capability availability and owner/tool authorization remain explicitly unchecked, and no task/tool is executed by `/agentplan`.
+
+
+### Dispatch readiness gate
+
+A versioned preview with `planning_status=needs_clarification` or `needs_research` is stored for owner review but is **not dispatchable**. The owner-facing preview shows the missing information or research questions and does not offer the run command. The explicit `/taskplanrun` handler rejects unresolved contract states; `TaskPlanStore.mark_submitted` independently rejects new task checkpoints for those states; and the background dependency scheduler re-checks readiness before querying task status or dispatching another step. Pausing/resuming cannot override this gate.
+
+Only a versioned plan marked `ready_for_review` may be started through the owner's separate explicit `/taskplanrun PLAN_ID` command. This label means ready for owner review/start, not that any acceptance criterion has passed. Every result remains `goal_satisfaction=not_evaluated` until a separately designed, evidence-backed evaluator exists. Legacy description-only plans retain their historical manual-start behavior for backward compatibility.

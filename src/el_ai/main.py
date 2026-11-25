@@ -581,40 +581,114 @@ async def _owner_hub_command(
             if (
                 result.get("provider_mode") != provider_mode
                 or result.get("execution_started") is not False
+                or type(result.get("tasks_created")) is not int
                 or result.get("tasks_created") != 0
                 or not isinstance(steps, list)
             ):
                 return "پاسخ Hub با قرارداد پیش‌نمایش امن سازگار نبود؛ هیچ طرحی ذخیره نشد."
-            descriptions: list[str] = []
-            dependencies: list[list[int]] | None = None
-            has_dependency_metadata = any(
-                isinstance(item, dict) and "depends_on" in item for item in steps
-            )
-            parsed_dependencies: list[list[int]] = []
-            for index, item in enumerate(steps):
-                if not isinstance(item, dict) or not isinstance(item.get("description"), str):
-                    return "پاسخ مدل شامل مراحل نامعتبر بود؛ هیچ طرحی ذخیره نشد."
-                descriptions.append(item["description"])
-                if has_dependency_metadata:
-                    raw_dependencies = item.get("depends_on", [] if index == 0 else [index])
-                    if not isinstance(raw_dependencies, list):
-                        return "گراف وابستگی مدل نامعتبر بود؛ هیچ طرحی ذخیره نشد."
-                    converted: list[int] = []
-                    for dependency in raw_dependencies:
-                        if isinstance(dependency, bool) or not isinstance(dependency, int):
-                            return "شماره پیش‌نیاز مدل نامعتبر بود؛ هیچ طرحی ذخیره نشد."
-                        converted.append(dependency - 1)
-                    parsed_dependencies.append(converted)
-            if has_dependency_metadata:
-                dependencies = parsed_dependencies
-            try:
-                plan = task_plans.create(
-                    telegram_user_id, task_type, descriptions, dependencies=dependencies
+            plan_contract = result.get("plan_contract")
+            contract_note = ""
+            if plan_contract is not None:
+                if (
+                    not isinstance(plan_contract, dict)
+                    or not isinstance(plan_contract.get("steps"), list)
+                    or len(plan_contract["steps"]) != len(steps)
+                ):
+                    return "قرارداد نسخه‌دار Hub با فهرست مراحل قدیمی سازگار نیست؛ هیچ طرحی ذخیره نشد."
+                for legacy_step, contract_step in zip(steps, plan_contract["steps"]):
+                    if (
+                        not isinstance(legacy_step, dict)
+                        or not isinstance(legacy_step.get("description"), str)
+                        or not isinstance(contract_step, dict)
+                        or not isinstance(contract_step.get("description"), str)
+                        or legacy_step["description"] != contract_step["description"][:400]
+                    ):
+                        return "مراحل قرارداد Hub با پاسخ سازگاری مطابقت ندارند؛ هیچ طرحی ذخیره نشد."
+                try:
+                    plan = task_plans.create_from_contract(
+                        telegram_user_id,
+                        task_type,
+                        plan_contract,
+                    )
+                except (TaskPlanError, ValueError):
+                    return "قرارداد معیارهای پذیرش یا گراف مراحل نامعتبر است؛ هیچ طرحی ذخیره نشد."
+                criteria_preview = "\n".join(
+                    f"- {item.criterion_id}: {item.statement}"
+                    for item in plan.acceptance_criteria
                 )
-            except (TaskPlanError, ValueError):
-                return "طرح تولیدشده یا گراف وابستگی آن معتبر نیست؛ هیچ طرحی ذخیره نشد."
+                verification_preview = "\n".join(
+                    f"- {item}" for item in plan.verification_steps
+                )
+                missing_preview = "\n".join(
+                    f"- {item}" for item in plan_contract["missing_information"]
+                )
+                clarification_preview = "\n".join(
+                    f"- {item}" for item in plan_contract["clarification_questions"]
+                )
+                research_preview = "\n".join(
+                    f"- {item}" for item in plan_contract["research_questions"]
+                )
+                contract_note = (
+                    f"\nقرارداد: {plan.contract_version} · وضعیت برنامه‌ریزی: {plan.planning_status}"
+                    f"\nمعیارهای پذیرش (هنوز ارزیابی نشده‌اند):\n{criteria_preview}"
+                    f"\nروش‌های راستی‌آزمایی پیشنهادی:\n{verification_preview}"
+                    f"\nتوجه: وجود معیار و روش بررسی به‌معنای موفقیت آن نیست."
+                )
+                if plan.planning_status == "needs_clarification":
+                    contract_note += (
+                        f"\nاطلاعات ناقص:\n{missing_preview}"
+                        f"\nپرسش‌های لازم برای شفاف‌سازی:\n{clarification_preview}"
+                    )
+                    run_instruction = (
+                        "\nاین طرح تا زمان رفع ابهام و ساخت پیش‌نمایش جدید قابل اجرا نیست."
+                    )
+                elif plan.planning_status == "needs_research":
+                    contract_note += f"\nپرسش‌های پژوهشی لازم:\n{research_preview}"
+                    run_instruction = (
+                        "\nاین طرح تا زمان تکمیل پژوهش و ساخت پیش‌نمایش جدید قابل اجرا نیست."
+                    )
+                else:
+                    run_instruction = (
+                        f"\nبرای بررسی و شروع صریح مراحل: /taskplanrun {plan.plan_id}"
+                    )
+            else:
+                # Backward compatibility with older Hub instances that expose only descriptions.
+                descriptions: list[str] = []
+                dependencies: list[list[int]] | None = None
+                has_dependency_metadata = any(
+                    isinstance(item, dict) and "depends_on" in item for item in steps
+                )
+                parsed_dependencies: list[list[int]] = []
+                for index, item in enumerate(steps):
+                    if not isinstance(item, dict) or not isinstance(item.get("description"), str):
+                        return "پاسخ مدل شامل مراحل نامعتبر بود؛ هیچ طرحی ذخیره نشد."
+                    descriptions.append(item["description"])
+                    if has_dependency_metadata:
+                        raw_dependencies = item.get("depends_on", [] if index == 0 else [index])
+                        if not isinstance(raw_dependencies, list):
+                            return "گراف وابستگی مدل نامعتبر بود؛ هیچ طرحی ذخیره نشد."
+                        converted: list[int] = []
+                        for dependency in raw_dependencies:
+                            if isinstance(dependency, bool) or not isinstance(dependency, int):
+                                return "شماره پیش‌نیاز مدل نامعتبر بود؛ هیچ طرحی ذخیره نشد."
+                            converted.append(dependency - 1)
+                        parsed_dependencies.append(converted)
+                if has_dependency_metadata:
+                    dependencies = parsed_dependencies
+                try:
+                    plan = task_plans.create(
+                        telegram_user_id, task_type, descriptions, dependencies=dependencies
+                    )
+                except (TaskPlanError, ValueError):
+                    return "طرح تولیدشده یا گراف وابستگی آن معتبر نیست؛ هیچ طرحی ذخیره نشد."
+                run_instruction = f"\nبرای ثبت صریح مراحل: /taskplanrun {plan.plan_id}"
             preview = "\n".join(
                 f"{index + 1}. {step.description}"
+                + (
+                    " · معیارهای مرتبط: " + ", ".join(step.verifies_criteria)
+                    if step.verifies_criteria else ""
+                )
+                + (f" · راستی‌آزمایی: {step.verification}" if step.verification else "")
                 for index, step in enumerate(plan.steps)
             )
             provider = _safe_progress_value(result.get("provider"), limit=40) or "unknown"
@@ -628,7 +702,8 @@ async def _owner_hub_command(
                 f"\nProvider: {provider}"
                 f"\nشناسه طرح: {plan.plan_id}"
                 f"\nنوع: {plan.task_type}\n{preview}"
-                f"\nبرای ثبت صریح مراحل: /taskplanrun {plan.plan_id}"
+                f"{contract_note}"
+                f"{run_instruction}"
                 f"{remote_note}"
             )
         if command == "/taskplan":
@@ -677,6 +752,11 @@ async def _owner_hub_command(
                 return "شناسه طرح نامعتبر است."
             if plan is None:
                 return "طرح پیدا نشد، منقضی شده یا متعلق به این اتصال ربات نیست."
+            if plan.contract_version and plan.planning_status != "ready_for_review":
+                return (
+                    "این طرح هنوز آمادهٔ اجرا نیست. ابتدا ابهام‌ها یا پژوهش‌های لازم را "
+                    "برطرف کن و یک پیش‌نمایش جدید بساز."
+                )
             if plan.submitted_count == 0:
                 return "این طرح هنوز شروع نشده است؛ ابتدا /taskplanrun را اجرا کن."
             try:
@@ -942,6 +1022,11 @@ async def _owner_hub_command(
                 return "شناسه طرح نامعتبر است."
             if plan is None:
                 return "طرح پیدا نشد، منقضی شده یا متعلق به این اتصال ربات نیست."
+            if plan.contract_version and plan.planning_status != "ready_for_review":
+                return (
+                    "این طرح هنوز آمادهٔ اجرا نیست. ابتدا ابهام‌ها یا پژوهش‌های لازم را "
+                    "برطرف کن و یک پیش‌نمایش جدید بساز."
+                )
             if plan.paused:
                 return f"این طرح در حالت مکث است؛ برای ادامهٔ صریح /taskplanresume {plan.plan_id} CONFIRM را بفرست."
             submitted_ids = [step.task_id for step in plan.steps]

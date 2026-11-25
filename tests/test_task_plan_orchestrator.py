@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 
 from el_ai.integrations.hub import HubClientError
@@ -16,10 +17,12 @@ class FakeHub:
     def __init__(self):
         self.tasks = {}
         self.created = []
+        self.get_calls = []
         self.fail_create = None
         self.on_create = None
 
     async def get_task(self, _owner_id, task_id):
+        self.get_calls.append(task_id)
         try:
             return self.tasks[task_id]
         except KeyError:
@@ -221,3 +224,114 @@ async def test_plan_advances_without_telegram_watch_store(tmp_path):
     assert loaded.steps[1].task_id == TASK_B
     assert len(hub.created) == 1
 
+
+
+def _needs_clarification_contract(status: str) -> dict[str, object]:
+    return {
+        "contract_version": "telegram_agent_plan.v1",
+        "planning_status": status,
+        "evaluation_scope": "planning_only",
+        "goal_satisfaction": "not_evaluated",
+        "goal": "Prepare a reviewable proposal",
+        "intent": "Plan only",
+        "scope": "Review proposal",
+        "assumptions": [],
+        "constraints": ["No execution"],
+        "dependencies": [],
+        "required_capabilities": [],
+        "capability_availability": "not_assessed",
+        "authorization_checked": False,
+        "estimated_complexity": "low",
+        "missing_information": ["Target environment is unknown"] if status == "needs_clarification" else [],
+        "clarification_questions": ["Which target environment should be used?"] if status == "needs_clarification" else [],
+        "research_required": status == "needs_research",
+        "research_questions": ["Review the target environment requirements"] if status == "needs_research" else [],
+        "risk_class": "low",
+        "risk_class_is_authoritative": False,
+        "acceptance_criteria": [
+            {"criterion_id": "ac_001", "statement": "The proposal is bounded"},
+            {"criterion_id": "ac_002", "statement": "The proposal can be reviewed"},
+        ],
+        "verification_steps": ["Inspect the proposal", "Review the criteria mapping"],
+        "steps": [
+            {
+                "step_id": "prepare",
+                "description": "Prepare bounded inputs",
+                "depends_on": [],
+                "required_capabilities": [],
+                "verifies_criteria": ["ac_001"],
+                "verification": "Inspect the proposal",
+            },
+            {
+                "step_id": "review",
+                "description": "Review proposal coverage",
+                "depends_on": ["prepare"],
+                "required_capabilities": [],
+                "verifies_criteria": ["ac_002"],
+                "verification": "Review the criteria mapping",
+            },
+        ],
+        "execution_ready": False,
+        "execution_started": False,
+        "tools_executed": False,
+        "tasks_created": 0,
+    }
+
+
+async def test_unresolved_versioned_plan_never_advances_in_background_scheduler(tmp_path):
+    for status in ("needs_clarification", "needs_research"):
+        path = tmp_path / f"{status}.json"
+        plans = TaskPlanStore(path)
+        hub = FakeHub()
+        # Start from a ready contract to create a legitimate prior checkpoint,
+        # then emulate a durable state transition to an unresolved plan.
+        contract = _needs_clarification_contract("ready_for_review")
+        plan = plans.create_from_contract(
+            123, "demo.echo", contract, now=int(time.time())
+        )
+        assert plans.mark_submitted(plan.plan_id, 123, 0, TASK_A) is True
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["plans"][0]["planning_status"] = status
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+        restored = TaskPlanStore(path)
+        hub.tasks[TASK_A] = {"status": "succeeded"}
+        events = await advance_ready_plan_steps(hub, restored, None, {123})
+
+        assert events == ()
+        assert hub.get_calls == []
+        assert hub.created == []
+        stored = restored.get_for_user(plan.plan_id, 123, now=int(time.time()) + 1)
+        assert stored is not None
+        assert stored.submitted_count == 1
+        assert stored.planning_status == status
+
+
+async def test_non_ready_contract_never_advances_even_with_legacy_submitted_checkpoint(tmp_path):
+    path = tmp_path / "plan-needs-clarification.json"
+    plans = TaskPlanStore(path)
+    contract = _needs_clarification_contract("ready_for_review")
+    plan = plans.create_from_contract(
+        123, "demo.echo", contract, now=int(time.time())
+    )
+    assert plans.mark_submitted(plan.plan_id, 123, 0, TASK_A) is True
+
+    # Simulate a persisted plan becoming unresolved after an old/legacy dispatch.
+    # The scheduler must re-check readiness before reading status or dispatching.
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["plans"][0]["planning_status"] = "needs_clarification"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    restored = TaskPlanStore(path)
+    hub = FakeHub()
+    hub.tasks[TASK_A] = {"status": "succeeded"}
+
+    events = await advance_ready_plan_steps(hub, restored, None, {123})
+
+    assert events == ()
+    assert hub.get_calls == []
+    assert hub.created == []
+    current = restored.get_for_user(plan.plan_id, 123, now=int(time.time()) + 1)
+    assert current is not None
+    assert current.planning_status == "needs_clarification"
+    assert current.submitted_count == 1
