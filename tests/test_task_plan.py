@@ -555,6 +555,14 @@ def test_task_plan_store_rejects_submission_before_clarification_or_research(tmp
         store = TaskPlanStore(tmp_path / f"{status}.json")
         contract = _telegram_agent_plan_contract()
         contract["planning_status"] = status
+        if status == "needs_research":
+            contract["missing_information"] = []
+            contract["clarification_questions"] = []
+            contract["research_required"] = True
+            contract["research_questions"] = ["Review the target environment requirements"]
+        else:
+            contract["missing_information"] = ["The target environment is unknown"]
+            contract["clarification_questions"] = ["Which target environment should be used?"]
         plan = store.create_from_contract(123, "demo.echo", contract, now=100)
 
         with pytest.raises(TaskPlanError, match="planning is ready"):
