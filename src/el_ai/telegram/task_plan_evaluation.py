@@ -39,6 +39,23 @@ class StepEvidence:
 
 
 @dataclass(frozen=True, slots=True)
+class AcceptanceCriterionEvidence:
+    """Execution-evidence coverage for a criterion, not semantic acceptance."""
+
+    criterion_id: str
+    evidence_status: str
+    step_indexes: tuple[int, ...]
+
+    def as_dict(self) -> dict[str, object]:
+        """Expose criterion IDs and step indexes without returning private statements."""
+        return {
+            "criterion_id": self.criterion_id,
+            "evidence_status": self.evidence_status,
+            "steps": [index + 1 for index in self.step_indexes],
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class PlanEvidenceReport:
     """Read-only aggregate evidence status; it never changes or retries a plan."""
 
@@ -52,13 +69,51 @@ class PlanEvidenceReport:
     unknown_steps: int
     blocked_steps: int
     steps: tuple[StepEvidence, ...]
+    acceptance_criteria: tuple[AcceptanceCriterionEvidence, ...] = ()
 
     def as_dict(self) -> dict[str, object]:
+        """Serialize a bounded report without including task results or criterion text."""
+        criteria_statuses = tuple(
+            item.evidence_status for item in self.acceptance_criteria
+        )
+        if not criteria_statuses:
+            criteria_coverage_status = "not_applicable"
+        elif "needs_attention" in criteria_statuses:
+            criteria_coverage_status = "needs_attention"
+        elif any(
+            status in {"insufficient_evidence", "not_mapped"}
+            for status in criteria_statuses
+        ):
+            criteria_coverage_status = "insufficient_evidence"
+        elif "unknown" in criteria_statuses:
+            criteria_coverage_status = "unknown"
+        elif "in_progress" in criteria_statuses:
+            criteria_coverage_status = "in_progress"
+        elif all(
+            status == "execution_evidence_available"
+            for status in criteria_statuses
+        ):
+            criteria_coverage_status = "execution_coverage_complete"
+        else:
+            criteria_coverage_status = "insufficient_evidence"
+
         return {
             "engine": "deterministic_task_plan_evidence_v1",
             "evaluation_scope": "tool_execution_only",
             "goal_satisfaction": "not_evaluated",
-            "acceptance_criteria_evaluation": "not_implemented",
+            "acceptance_criteria_evaluation": (
+                "execution_coverage_only"
+                if self.acceptance_criteria else "not_implemented"
+            ),
+            "acceptance_criteria_coverage_status": criteria_coverage_status,
+            "acceptance_criteria_count": len(self.acceptance_criteria),
+            "acceptance_criteria_with_execution_evidence": sum(
+                status == "execution_evidence_available"
+                for status in criteria_statuses
+            ),
+            "acceptance_criteria": [
+                item.as_dict() for item in self.acceptance_criteria
+            ],
             "status": self.status,
             "read_only": True,
             "automatic_retry": False,
@@ -118,7 +173,7 @@ async def _read_step_evidence(
     status = task.get("status") if isinstance(task, dict) else None
     if not isinstance(status, str) or status not in _TASK_STATUSES:
         return StepEvidence(step_index, "unknown", "unknown")
-    if status == "succeeded":
+    if status == _SUCCESS_STATUS:
         try:
             result = await hub.get_task_result(telegram_user_id, task_id)
         except HubClientError as exc:
@@ -128,9 +183,43 @@ async def _read_step_evidence(
         return StepEvidence(
             step_index, status, "available" if valid else "missing", attempts, finished_at
         )
-    if status in {"failed", "cancelled", "rejected"}:
+    if status in _TERMINAL_STATUSES:
         return StepEvidence(step_index, status, "failed")
     return StepEvidence(step_index, status, "pending")
+
+
+def _evaluate_acceptance_criteria(
+    plan: TaskPlan, steps: tuple[StepEvidence, ...]
+) -> tuple[AcceptanceCriterionEvidence, ...]:
+    """Map criterion coverage to step evidence without judging result meaning."""
+    evaluations: list[AcceptanceCriterionEvidence] = []
+    for criterion in plan.acceptance_criteria:
+        step_indexes = tuple(
+            index
+            for index, step in enumerate(plan.steps)
+            if criterion.criterion_id in step.verifies_criteria
+        )
+        mapped = tuple(steps[index].evidence_status for index in step_indexes)
+        if not mapped:
+            evidence_status = "not_mapped"
+        elif any(status in {"failed", "blocked"} for status in mapped):
+            evidence_status = "needs_attention"
+        elif "missing" in mapped:
+            evidence_status = "insufficient_evidence"
+        elif "unknown" in mapped:
+            evidence_status = "unknown"
+        elif any(status in {"pending", "not_submitted"} for status in mapped):
+            evidence_status = "in_progress"
+        elif all(status == "available" for status in mapped):
+            evidence_status = "execution_evidence_available"
+        else:
+            evidence_status = "insufficient_evidence"
+        evaluations.append(AcceptanceCriterionEvidence(
+            criterion_id=criterion.criterion_id,
+            evidence_status=evidence_status,
+            step_indexes=step_indexes,
+        ))
+    return tuple(evaluations)
 
 
 async def evaluate_task_plan_evidence(
@@ -182,4 +271,5 @@ async def evaluate_task_plan_evidence(
         unknown_steps=unknown,
         blocked_steps=blocked,
         steps=steps,
+        acceptance_criteria=_evaluate_acceptance_criteria(plan, steps),
     )
