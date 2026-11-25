@@ -49,6 +49,10 @@ async def advance_ready_plan_steps(
             continue
 
         for plan in owner_plans:
+            # A versioned GPI/AWI preview is dispatchable only after its
+            # clarification/research requirements are cleared and status is ready_for_review.
+            if plan.contract_version and plan.planning_status != "ready_for_review":
+                continue
             if plan.submitted_count == 0 or plan.paused:
                 continue
 
@@ -131,7 +135,14 @@ async def advance_ready_plan_steps(
                         plan.plan_id,
                     )
                     break
-                if current_plan is None or current_plan.paused:
+                if (
+                    current_plan is None
+                    or current_plan.paused
+                    or (
+                        current_plan.contract_version
+                        and current_plan.planning_status != "ready_for_review"
+                    )
+                ):
                     break
                 if index >= len(current_plan.steps):
                     break
