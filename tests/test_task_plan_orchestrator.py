@@ -5,7 +5,10 @@ import time
 
 from el_ai.integrations.hub import HubClientError
 from el_ai.telegram.task_plan import TaskPlanStore
-from el_ai.telegram.task_plan_orchestrator import advance_ready_plan_steps
+from el_ai.telegram.task_plan_orchestrator import (
+    MAX_PLAN_CREATE_ATTEMPTS_PER_CYCLE,
+    advance_ready_plan_steps,
+)
 from el_ai.telegram.task_watch import TaskWatchStore
 
 TASK_A = "12345678-1234-4234-8234-123456789abc"
@@ -17,6 +20,7 @@ class FakeHub:
     def __init__(self):
         self.tasks = {}
         self.created = []
+        self.create_attempts = 0
         self.get_calls = []
         self.fail_create = None
         self.on_create = None
@@ -29,6 +33,7 @@ class FakeHub:
             raise HubClientError("task status is temporarily unavailable") from None
 
     async def create_task(self, _owner_id, task_type, description, *, idempotency_key):
+        self.create_attempts += 1
         if self.fail_create is not None:
             raise self.fail_create
         existing = next(
@@ -37,7 +42,9 @@ class FakeHub:
         )
         if existing is not None:
             return {"task_id": existing["task_id"], "status": self.tasks[existing["task_id"]]["status"]}
-        task_id = (TASK_B, TASK_C)[len(self.created)]
+        task_id = (TASK_B, TASK_C)[len(self.created)] if len(self.created) < 2 else (
+            f"cccccccc-cccc-4ccc-8ccc-{len(self.created) + 1:012x}"
+        )
         self.created.append({
             "task_id": task_id,
             "task_type": task_type,
@@ -48,6 +55,58 @@ class FakeHub:
         if self.on_create is not None:
             self.on_create(task_id)
         return {"task_id": task_id, "status": "queued"}
+
+
+async def test_dispatch_attempt_burst_cap_is_global_across_plans_and_owners(tmp_path):
+    plans = TaskPlanStore(tmp_path / "plans.json")
+    hub = FakeHub()
+    hub.tasks[TASK_A] = {"status": "succeeded"}
+    plan_ids = []
+    for index in range(4):
+        owner_id = 123 if index < 2 else 456
+        plan = plans.create(
+            owner_id,
+            "demo.echo",
+            [f"root-{index}", f"follow-up-{index}"],
+            dependencies=[[], []],
+            now=int(time.time()) + index,
+        )
+        assert plans.mark_submitted(plan.plan_id, owner_id, 0, TASK_A) is True
+        plan_ids.append((owner_id, plan.plan_id))
+
+    events = await advance_ready_plan_steps(hub, plans, None, {123, 456})
+
+    assert MAX_PLAN_CREATE_ATTEMPTS_PER_CYCLE == 3
+    assert hub.create_attempts == 3
+    assert len(hub.created) == 3
+    assert len([event for event in events if event.kind == "submitted"]) == 3
+    remaining = [
+        plans.get_for_user(plan_id, owner_id, now=int(time.time()) + 10)
+        for owner_id, plan_id in plan_ids
+    ]
+    assert sorted(plan.submitted_count for plan in remaining) == [1, 2, 2, 2]
+
+
+async def test_failed_create_attempts_consume_the_per_cycle_burst_budget(tmp_path):
+    plans = TaskPlanStore(tmp_path / "plans.json")
+    hub = FakeHub()
+    hub.tasks[TASK_A] = {"status": "succeeded"}
+    for index in range(4):
+        plan = plans.create(
+            123,
+            "demo.echo",
+            [f"root-{index}", f"follow-up-{index}"],
+            dependencies=[[], []],
+            now=int(time.time()) + index,
+        )
+        assert plans.mark_submitted(plan.plan_id, 123, 0, TASK_A) is True
+    hub.fail_create = HubClientError("temporarily unavailable", status_code=503)
+
+    events = await advance_ready_plan_steps(hub, plans, None, {123})
+
+    assert events == ()
+    assert hub.create_attempts == MAX_PLAN_CREATE_ATTEMPTS_PER_CYCLE
+    assert hub.created == []
 
 
 async def test_plan_advances_only_after_all_dependencies_succeed(tmp_path):
