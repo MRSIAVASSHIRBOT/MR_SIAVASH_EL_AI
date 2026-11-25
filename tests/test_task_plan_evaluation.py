@@ -67,6 +67,9 @@ async def test_plan_evidence_is_complete_only_when_every_success_has_a_valid_res
     rendered = report.as_dict()
 
     assert rendered["status"] == "evidence_complete"
+    assert rendered["evaluation_scope"] == "tool_execution_only"
+    assert rendered["goal_satisfaction"] == "not_evaluated"
+    assert rendered["acceptance_criteria_evaluation"] == "not_implemented"
     assert rendered["read_only"] is True
     assert rendered["automatic_retry"] is False
     assert rendered["automatic_correction"] is False
