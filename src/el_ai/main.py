@@ -581,6 +581,7 @@ async def _owner_hub_command(
             if (
                 result.get("provider_mode") != provider_mode
                 or result.get("execution_started") is not False
+                or type(result.get("tasks_created")) is not int
                 or result.get("tasks_created") != 0
                 or not isinstance(steps, list)
             ):
