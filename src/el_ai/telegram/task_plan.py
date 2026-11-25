@@ -231,6 +231,7 @@ class TaskPlanStore:
         *,
         dependencies: list[list[int]] | tuple[tuple[int, ...], ...] | None = None,
         now: int | None = None,
+        plan_contract: dict[str, object] | None = None,
     ) -> TaskPlan:
         self._validate_user_id(telegram_user_id)
         self._validate_task_type(task_type)
@@ -240,13 +241,35 @@ class TaskPlanStore:
             raise TaskPlanError(
                 f"A task plan must contain {MIN_TASK_PLAN_STEPS}–{MAX_TASK_PLAN_STEPS} steps"
             )
-        normalized_dependencies = self._normalize_dependencies(dependencies, len(descriptions))
+        normalized_descriptions = tuple(
+            self._validate_description(item) for item in descriptions
+        )
+        if plan_contract is None:
+            normalized_dependencies = self._normalize_dependencies(
+                dependencies, len(normalized_descriptions)
+            )
+            step_contract = tuple((None, (), None) for _ in normalized_descriptions)
+            contract_metadata: dict[str, object] = {}
+        else:
+            contract_dependencies, step_contract, contract_metadata = self._validate_plan_contract(
+                plan_contract, normalized_descriptions
+            )
+            if dependencies is not None:
+                supplied_dependencies = self._normalize_dependencies(
+                    dependencies, len(normalized_descriptions)
+                )
+                if supplied_dependencies != contract_dependencies:
+                    raise TaskPlanError("Supplied dependencies do not match the Hub plan contract")
+            normalized_dependencies = contract_dependencies
         steps = tuple(
             TaskPlanStep(
-                self._validate_description(description),
+                normalized_descriptions[index],
                 depends_on=normalized_dependencies[index],
+                step_id=step_contract[index][0],
+                verifies_criteria=step_contract[index][1],
+                verification=step_contract[index][2],
             )
-            for index, description in enumerate(descriptions)
+            for index in range(len(normalized_descriptions))
         )
         current_time = int(time.time()) if now is None else now
         self._validate_timestamp(current_time)
@@ -260,9 +283,34 @@ class TaskPlanStore:
             task_type=task_type,
             created_at=current_time,
             steps=steps,
+            **contract_metadata,
         )
         self._replace(plans + [plan])
         return plan
+
+    def create_from_contract(
+        self,
+        telegram_user_id: int,
+        task_type: str,
+        plan_contract: object,
+        *,
+        now: int | None = None,
+    ) -> TaskPlan:
+        """Persist only a validated telegram_agent_plan.v1 preview; never executes it."""
+        if not isinstance(plan_contract, dict) or not isinstance(plan_contract.get("steps"), list):
+            raise TaskPlanError("Hub plan contract is missing its step list")
+        descriptions: list[str] = []
+        for item in plan_contract["steps"]:
+            if not isinstance(item, dict):
+                raise TaskPlanError("Hub plan contract step is invalid")
+            descriptions.append(self._validate_description(item.get("description")))
+        return self.create(
+            telegram_user_id,
+            task_type,
+            descriptions,
+            now=now,
+            plan_contract=plan_contract,
+        )
 
     def get_for_user(
         self,
@@ -510,7 +558,7 @@ class TaskPlanStore:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             payload = {
-                "version": 3,
+                "version": 4,
                 "plans": [
                     {
                         "plan_id": plan.plan_id,
@@ -518,6 +566,17 @@ class TaskPlanStore:
                         "task_type": plan.task_type,
                         "created_at": plan.created_at,
                         "paused": plan.paused,
+                        "contract_version": plan.contract_version,
+                        "evaluation_scope": plan.evaluation_scope,
+                        "planning_status": plan.planning_status,
+                        "acceptance_criteria": [
+                            {"criterion_id": item.criterion_id, "statement": item.statement}
+                            for item in plan.acceptance_criteria
+                        ],
+                        "verification_steps": list(plan.verification_steps),
+                        "goal_satisfaction": plan.goal_satisfaction,
+                        "capability_availability": plan.capability_availability,
+                        "authorization_checked": plan.authorization_checked,
                         "steps": [
                             {
                                 "description": step.description,
@@ -525,6 +584,9 @@ class TaskPlanStore:
                                 "depends_on": list(step.depends_on),
                                 "blocked_by": list(step.blocked_by),
                                 "blocked_reason": step.blocked_reason,
+                                "step_id": step.step_id,
+                                "verifies_criteria": list(step.verifies_criteria),
+                                "verification": step.verification,
                             }
                             for step in plan.steps
                         ],
