@@ -595,9 +595,9 @@ def test_task_plan_store_persists_a_bounded_dispatch_attempt_budget(tmp_path):
     assert loaded.steps[1].dispatch_attempts == MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS
     assert loaded.steps[1].next_dispatch_at == 106
     with pytest.raises(TaskPlanDispatchBudgetExceeded):
-        restored.reserve_dispatch_attempt(plan.plan_id, 123, 1, now=111)
+        restored.reserve_dispatch_attempt(plan.plan_id, 123, 1, now=111, retry_at=112)
     with pytest.raises(TaskPlanError, match="unavailable"):
-        restored.reserve_dispatch_attempt(plan.plan_id, 456, 1, now=111)
+        restored.reserve_dispatch_attempt(plan.plan_id, 456, 1, now=111, retry_at=112)
 
 
 def test_task_plan_store_persists_retry_not_before_and_blocks_early_attempts(tmp_path):
@@ -619,7 +619,7 @@ def test_task_plan_store_persists_retry_not_before_and_blocks_early_attempts(tmp
     assert loaded.steps[1].dispatch_attempts == 1
     assert loaded.steps[1].next_dispatch_at == 115
     with pytest.raises(TaskPlanDispatchDeferred):
-        restored.reserve_dispatch_attempt(plan.plan_id, 123, 1, now=114)
+        restored.reserve_dispatch_attempt(plan.plan_id, 123, 1, now=114, retry_at=115)
     assert restored.reserve_dispatch_attempt(
         plan.plan_id, 123, 1, now=115, retry_at=120
     ) == 2
