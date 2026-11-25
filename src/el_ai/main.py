@@ -612,9 +612,18 @@ async def _owner_hub_command(
                     )
                 except (TaskPlanError, ValueError):
                     return "قرارداد معیارهای پذیرش یا گراف مراحل نامعتبر است؛ هیچ طرحی ذخیره نشد."
+                criteria_preview = "\n".join(
+                    f"- {item.criterion_id}: {item.statement}"
+                    for item in plan.acceptance_criteria
+                )
+                verification_preview = "\n".join(
+                    f"- {item}" for item in plan.verification_steps
+                )
                 contract_note = (
                     f"\nقرارداد: {plan.contract_version} · وضعیت برنامه‌ریزی: {plan.planning_status}"
-                    f"\nمعیارهای پذیرش: {len(plan.acceptance_criteria)} مورد؛ هنوز ارزیابی نشده‌اند."
+                    f"\nمعیارهای پذیرش (هنوز ارزیابی نشده‌اند):\n{criteria_preview}"
+                    f"\nروش‌های راستی‌آزمایی پیشنهادی:\n{verification_preview}"
+                    f"\nتوجه: وجود معیار و روش بررسی به‌معنای موفقیت آن نیست."
                 )
             else:
                 # Backward compatibility with older Hub instances that expose only descriptions.
@@ -652,6 +661,7 @@ async def _owner_hub_command(
                     " · معیارهای مرتبط: " + ", ".join(step.verifies_criteria)
                     if step.verifies_criteria else ""
                 )
+                + (f" · راستی‌آزمایی: {step.verification}" if step.verification else "")
                 for index, step in enumerate(plan.steps)
             )
             provider = _safe_progress_value(result.get("provider"), limit=40) or "unknown"
