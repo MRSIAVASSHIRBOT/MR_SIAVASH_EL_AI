@@ -107,3 +107,40 @@ def test_bridge_job_correlation_contract_is_bounded_and_diagnostic_only():
     assert correlation["ownership_effect"] is False
 
 
+
+
+
+def test_x8_security_contract_keeps_identity_authority_and_policy_in_hub() -> None:
+    security = _contract()["security_model"]
+
+    assert security["status"] == "standardized"
+    identity = security["identity"]
+    assert identity["authority"] == "hub_authenticated_pairing"
+    assert identity["owner_header"] == "X-Telegram-User-Id"
+    assert identity["caller_supplied_owner_identity_is_authoritative"] is False
+    assert identity["default_scopes"] == ["status:read"]
+    assert identity["scope_enforcement"] == "hub_require_telegram_scope"
+
+    authorization = security["authorization"]
+    assert authorization["decision_authority"] == "hub_policy_engine"
+    assert authorization["prohibited_risk_decision"] == "deny"
+    assert authorization["missing_required_permission_decision"] == "deny"
+    assert authorization["high_risk_or_external_side_effect_without_explicit_approval"] == "require_approval"
+
+    diagnostic = security["diagnostic_metadata"]
+    assert all(value is False for value in diagnostic.values())
+
+    public_gateway = security["public_gateway"]
+    assert public_gateway["data_classification"] == "public_only"
+    assert public_gateway["may_call_private_hub"] is False
+    assert public_gateway["may_receive_hub_credentials"] is False
+    assert public_gateway["may_receive_private_owner_context"] is False
+    assert public_gateway["browser_may_hold_hub_credentials"] is False
+
+    secret_handling = security["secret_handling"]
+    assert secret_handling["plaintext_fallback"] is False
+    assert secret_handling["hub_credentials_in_urls"] is False
+    assert secret_handling["secrets_in_logs_or_urls"] is False
+    assert secret_handling["el_ai_credential_storage"] == (
+        "trusted_os_keyring_or_aes256_gcm_encrypted_file"
+    )
