@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from el_ai.telegram.bridge import BridgeJob, TelegramBridgeClient, TelegramBridgeError
+from el_ai.integrations.request_context import request_correlation_scope
 
 LOGGER = logging.getLogger("el_ai.telegram.bridge_worker")
 
@@ -173,7 +174,13 @@ class TelegramBridgeWorker:
 
     async def _handle_or_stop(self, stop: asyncio.Event, job: BridgeJob) -> str | object:
         """Cancel application work on shutdown and leave the edge lease unacknowledged."""
-        handler_task = asyncio.create_task(self._handler(job))
+        async def invoke_handler() -> str:
+            # The Bridge job UUID is stable across lease retries. ContextVars flow
+            # into HubClient calls made by this handler task and are reset on exit.
+            with request_correlation_scope(job.job_id):
+                return await self._handler(job)
+
+        handler_task = asyncio.create_task(invoke_handler())
         stop_task = asyncio.create_task(stop.wait())
         try:
             done, _pending = await asyncio.wait(
