@@ -619,12 +619,38 @@ async def _owner_hub_command(
                 verification_preview = "\n".join(
                     f"- {item}" for item in plan.verification_steps
                 )
+                missing_preview = "\n".join(
+                    f"- {item}" for item in plan_contract["missing_information"]
+                )
+                clarification_preview = "\n".join(
+                    f"- {item}" for item in plan_contract["clarification_questions"]
+                )
+                research_preview = "\n".join(
+                    f"- {item}" for item in plan_contract["research_questions"]
+                )
                 contract_note = (
                     f"\nقرارداد: {plan.contract_version} · وضعیت برنامه‌ریزی: {plan.planning_status}"
                     f"\nمعیارهای پذیرش (هنوز ارزیابی نشده‌اند):\n{criteria_preview}"
                     f"\nروش‌های راستی‌آزمایی پیشنهادی:\n{verification_preview}"
                     f"\nتوجه: وجود معیار و روش بررسی به‌معنای موفقیت آن نیست."
                 )
+                if plan.planning_status == "needs_clarification":
+                    contract_note += (
+                        f"\nاطلاعات ناقص:\n{missing_preview}"
+                        f"\nپرسش‌های لازم برای شفاف‌سازی:\n{clarification_preview}"
+                    )
+                    run_instruction = (
+                        "\nاین طرح تا زمان رفع ابهام و ساخت پیش‌نمایش جدید قابل اجرا نیست."
+                    )
+                elif plan.planning_status == "needs_research":
+                    contract_note += f"\nپرسش‌های پژوهشی لازم:\n{research_preview}"
+                    run_instruction = (
+                        "\nاین طرح تا زمان تکمیل پژوهش و ساخت پیش‌نمایش جدید قابل اجرا نیست."
+                    )
+                else:
+                    run_instruction = (
+                        f"\nبرای بررسی و شروع صریح مراحل: /taskplanrun {plan.plan_id}"
+                    )
             else:
                 # Backward compatibility with older Hub instances that expose only descriptions.
                 descriptions: list[str] = []
@@ -676,7 +702,7 @@ async def _owner_hub_command(
                 f"\nشناسه طرح: {plan.plan_id}"
                 f"\nنوع: {plan.task_type}\n{preview}"
                 f"{contract_note}"
-                f"\nبرای ثبت صریح مراحل: /taskplanrun {plan.plan_id}"
+                f"{run_instruction}"
                 f"{remote_note}"
             )
         if command == "/taskplan":
@@ -725,6 +751,11 @@ async def _owner_hub_command(
                 return "شناسه طرح نامعتبر است."
             if plan is None:
                 return "طرح پیدا نشد، منقضی شده یا متعلق به این اتصال ربات نیست."
+            if plan.contract_version and plan.planning_status != "ready_for_review":
+                return (
+                    "این طرح هنوز آمادهٔ اجرا نیست. ابتدا ابهام‌ها یا پژوهش‌های لازم را "
+                    "برطرف کن و یک پیش‌نمایش جدید بساز."
+                )
             if plan.submitted_count == 0:
                 return "این طرح هنوز شروع نشده است؛ ابتدا /taskplanrun را اجرا کن."
             try:
