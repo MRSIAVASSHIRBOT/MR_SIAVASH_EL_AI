@@ -585,14 +585,15 @@ def test_task_plan_store_persists_a_bounded_dispatch_attempt_budget(tmp_path):
 
     for expected in range(1, MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS + 1):
         assert store.reserve_dispatch_attempt(
-            plan.plan_id, 123, 1, now=100 + expected
+            plan.plan_id, 123, 1, now=100 + expected,
+            retry_at=101 + expected,
         ) == expected
 
     restored = TaskPlanStore(path)
     loaded = restored.get_for_user(plan.plan_id, 123, now=110)
     assert loaded is not None
     assert loaded.steps[1].dispatch_attempts == MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS
-    assert loaded.steps[1].next_dispatch_at is None
+    assert loaded.steps[1].next_dispatch_at == 106
     with pytest.raises(TaskPlanDispatchBudgetExceeded):
         restored.reserve_dispatch_attempt(plan.plan_id, 123, 1, now=111)
     with pytest.raises(TaskPlanError, match="unavailable"):
@@ -605,7 +606,9 @@ def test_task_plan_store_persists_retry_not_before_and_blocks_early_attempts(tmp
     plan = store.create(123, "demo.echo", ["root", "follow-up"], now=100)
     store.mark_submitted(plan.plan_id, 123, 0, TASK_A)
 
-    assert store.reserve_dispatch_attempt(plan.plan_id, 123, 1, now=100) == 1
+    assert store.reserve_dispatch_attempt(
+        plan.plan_id, 123, 1, now=100, retry_at=105
+    ) == 1
     assert store.defer_dispatch_attempt(
         plan.plan_id, 123, 1, expected_attempts=1, retry_at=115
     ) is True
@@ -617,7 +620,9 @@ def test_task_plan_store_persists_retry_not_before_and_blocks_early_attempts(tmp
     assert loaded.steps[1].next_dispatch_at == 115
     with pytest.raises(TaskPlanDispatchDeferred):
         restored.reserve_dispatch_attempt(plan.plan_id, 123, 1, now=114)
-    assert restored.reserve_dispatch_attempt(plan.plan_id, 123, 1, now=115) == 2
+    assert restored.reserve_dispatch_attempt(
+        plan.plan_id, 123, 1, now=115, retry_at=120
+    ) == 2
 
 
 def test_task_plan_store_migrates_v4_steps_to_dispatch_budget_defaults(tmp_path):
