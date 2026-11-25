@@ -400,6 +400,10 @@ class TaskPlanStore:
             if existing == canonical_task_id:
                 updated.append(plan)
                 continue
+            if plan.contract_version and plan.planning_status != "ready_for_review":
+                raise TaskPlanError(
+                    "A versioned task plan cannot submit until planning is ready for review"
+                )
             if existing is not None:
                 raise TaskPlanError("A different task is already recorded for this plan step")
             if current_step.blocked_reason or current_step.blocked_by:
