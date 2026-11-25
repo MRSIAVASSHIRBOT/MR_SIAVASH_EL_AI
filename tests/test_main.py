@@ -2000,7 +2000,7 @@ def _agent_plan_contract_v1():
         "goal_satisfaction": "not_evaluated",
         "goal": "Create a bounded review proposal",
         "intent": "Plan only",
-        "scope": "Prepare a reviewable proposal",
+        "scope": "",
         "assumptions": [],
         "constraints": ["No execution"],
         "dependencies": [],
