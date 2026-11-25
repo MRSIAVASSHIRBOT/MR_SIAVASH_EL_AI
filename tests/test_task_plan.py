@@ -359,7 +359,7 @@ def _telegram_agent_plan_contract():
         "goal_satisfaction": "not_evaluated",
         "goal": "Prepare a reviewable proposal",
         "intent": "Plan only",
-        "scope": "Create a bounded review proposal",
+        "scope": "",
         "assumptions": [],
         "constraints": ["No tools or execution in preview"],
         "dependencies": [],
