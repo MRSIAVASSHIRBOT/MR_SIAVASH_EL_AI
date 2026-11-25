@@ -41,3 +41,6 @@ In addition to the three-request global per-cycle burst guard, each unsubmitted 
 The local plan-store schema is version 5. Existing v1-v4 plans migrate forward with zero dispatch attempts and no retry deadline; their task IDs, dependency graph, blocked checkpoints, pause state and versioned planning metadata are preserved. An attempt reservation is saved before the Hub call; a crash between reservation and request conservatively consumes one attempt. The plan's existing 7-day retention is its maximum local lifetime.
 
 This is a bounded dispatch-retry budget, not a daily/monthly provider billing cap, global active-task concurrency cap, or remote cancellation/kill operation. Already-submitted Hub tasks remain controlled by Hub policy and Worker controls.
+
+
+A dispatch attempt also stores a short in-flight reconciliation deadline before the outbound Hub call. If EL_AI restarts or loses the response, the next cycle waits until that persisted deadline and then repeats only with the same deterministic idempotency key. A successful submission or terminal block clears the retry checkpoint. This does not cancel an already-created Hub task; Hub remains authoritative for any task that was accepted before the response was lost.
