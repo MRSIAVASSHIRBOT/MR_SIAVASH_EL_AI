@@ -213,6 +213,8 @@ class TaskPlanStore:
                         )
                     if blocked_by and not blocked_reason:
                         raise TaskPlanError("Stored blocked task-plan step has no reason")
+                    if next_dispatch_at is not None and (blocked_reason or blocked_by):
+                        raise TaskPlanError("A blocked step cannot retain a dispatch retry checkpoint")
                     if blocked_reason and task_id is not None:
                         raise TaskPlanError("A submitted task-plan step cannot be blocked")
                     normalized_step_id, normalized_coverage, normalized_verification = (
@@ -406,14 +408,18 @@ class TaskPlanStore:
         step_index: int,
         *,
         now: int | None = None,
+        retry_at: int,
     ) -> int:
-        """Persist an attempt reservation before making an external Hub request."""
+        """Persist an attempt reservation and in-flight reconciliation deadline."""
         canonical_plan_id = self._canonical_uuid(plan_id, "plan ID")
         self._validate_user_id(telegram_user_id)
         if isinstance(step_index, bool) or not isinstance(step_index, int):
             raise ValueError("Task-plan step index is invalid")
         current_time = int(time.time()) if now is None else now
         self._validate_timestamp(current_time)
+        self._validate_timestamp(retry_at)
+        if retry_at <= current_time:
+            raise ValueError("Dispatch reconciliation deadline must be in the future")
 
         plans = self._ensure_loaded()
         updated: list[TaskPlan] = []
@@ -440,7 +446,7 @@ class TaskPlanStore:
                 raise TaskPlanDispatchBudgetExceeded("Task-plan step dispatch budget is exhausted")
             attempt_number = step.dispatch_attempts + 1
             steps[step_index] = replace(
-                step, dispatch_attempts=attempt_number, next_dispatch_at=None
+                step, dispatch_attempts=attempt_number, next_dispatch_at=retry_at
             )
             updated.append(replace(plan, steps=tuple(steps)))
 
@@ -543,7 +549,9 @@ class TaskPlanStore:
                 raise TaskPlanError("A blocked task-plan step cannot be submitted")
             if any(steps[dependency].task_id is None for dependency in current_step.depends_on):
                 raise TaskPlanError("Task-plan dependencies must be submitted before this step")
-            steps[step_index] = replace(current_step, task_id=canonical_task_id)
+            steps[step_index] = replace(
+                current_step, task_id=canonical_task_id, next_dispatch_at=None
+            )
             updated.append(replace(plan, steps=tuple(steps)))
             changed = True
         if not found:
@@ -593,6 +601,7 @@ class TaskPlanStore:
                 step,
                 blocked_by=normalized_blockers,
                 blocked_reason=normalized_reason,
+                next_dispatch_at=None,
             )
             updated.append(replace(plan, steps=tuple(steps)))
             changed = True
