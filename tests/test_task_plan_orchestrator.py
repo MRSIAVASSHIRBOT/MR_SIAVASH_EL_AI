@@ -280,24 +280,28 @@ def _needs_clarification_contract(status: str) -> dict[str, object]:
 
 async def test_unresolved_versioned_plan_never_advances_in_background_scheduler(tmp_path):
     for status in ("needs_clarification", "needs_research"):
-        plans = TaskPlanStore(tmp_path / f"{status}.json")
+        path = tmp_path / f"{status}.json"
+        plans = TaskPlanStore(path)
         hub = FakeHub()
+        # Start from a ready contract to create a legitimate prior checkpoint,
+        # then emulate a durable state transition to an unresolved plan.
+        contract = _needs_clarification_contract("ready_for_review")
         plan = plans.create_from_contract(
-            123,
-            "demo.echo",
-            _needs_clarification_contract(status),
-            now=int(time.time()),
+            123, "demo.echo", contract, now=int(time.time())
         )
-        # Simulate a persisted checkpoint created before the new readiness gate.
-        # The scheduler must still refuse to dispatch any additional step.
         assert plans.mark_submitted(plan.plan_id, 123, 0, TASK_A) is True
-        hub.tasks[TASK_A] = {"status": "succeeded"}
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["plans"][0]["planning_status"] = status
+        path.write_text(json.dumps(payload), encoding="utf-8")
 
-        events = await advance_ready_plan_steps(hub, plans, None, {123})
+        restored = TaskPlanStore(path)
+        hub.tasks[TASK_A] = {"status": "succeeded"}
+        events = await advance_ready_plan_steps(hub, restored, None, {123})
 
         assert events == ()
+        assert hub.get_calls == []
         assert hub.created == []
-        stored = plans.get_for_user(plan.plan_id, 123, now=int(time.time()) + 1)
+        stored = restored.get_for_user(plan.plan_id, 123, now=int(time.time()) + 1)
         assert stored is not None
         assert stored.submitted_count == 1
         assert stored.planning_status == status
