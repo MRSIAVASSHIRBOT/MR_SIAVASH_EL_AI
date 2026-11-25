@@ -140,6 +140,7 @@ async def test_versioned_plan_reports_execution_coverage_without_claiming_goal_s
     ).as_dict()
 
     assert rendered["acceptance_criteria_evaluation"] == "execution_coverage_only"
+    assert rendered["evaluation_scope"] == "tool_execution_only"
     assert rendered["acceptance_criteria_coverage_status"] == "execution_coverage_complete"
     assert rendered["acceptance_criteria_count"] == 2
     assert rendered["acceptance_criteria_with_execution_evidence"] == 2
