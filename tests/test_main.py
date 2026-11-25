@@ -2092,7 +2092,7 @@ def test_ai_agent_plan_consumes_versioned_contract_without_executing_or_claiming
     assert "telegram_agent_plan.v1" in response
     assert "هنوز ارزیابی نشده‌اند" in response
     assert "Inputs are bounded" in response
-    assert "Every step has verification" in response
+    assert "Steps have verification" in response
     assert "Review verification coverage" in response
     assert "به‌معنای موفقیت آن نیست" in response
     assert "هیچ وظیفه‌ای ایجاد یا اجرا نشده است" in response
