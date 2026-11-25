@@ -740,6 +740,26 @@ class TaskPlanStore:
             ):
                 raise TaskPlanError("Hub plan contract list field is invalid")
 
+        missing_information = contract["missing_information"]
+        clarification_questions = contract["clarification_questions"]
+        research_required = contract["research_required"]
+        research_questions = contract["research_questions"]
+        if missing_information and not clarification_questions:
+            raise TaskPlanError("Missing information must include clarification questions")
+        if research_required and not research_questions:
+            raise TaskPlanError("Research-required plans must include research questions")
+        if not research_required and research_questions:
+            raise TaskPlanError("Research questions require research_required=true")
+        expected_planning_status = (
+            "needs_clarification"
+            if missing_information or clarification_questions
+            else "needs_research"
+            if research_required
+            else "ready_for_review"
+        )
+        if contract["planning_status"] != expected_planning_status:
+            raise TaskPlanError("Planning status does not match missing-information and research state")
+
         criteria = cls._validate_acceptance_criteria(contract.get("acceptance_criteria"), allow_empty=False)
         criterion_ids = {item.criterion_id for item in criteria}
         verification_steps = cls._validate_verification_steps(contract.get("verification_steps"))
