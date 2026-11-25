@@ -610,7 +610,7 @@ def test_task_plan_store_persists_retry_not_before_and_blocks_early_attempts(tmp
         plan.plan_id, 123, 1, now=100, retry_at=105
     ) == 1
     assert store.defer_dispatch_attempt(
-        plan.plan_id, 123, 1, expected_attempts=1, retry_at=115
+        plan.plan_id, 123, 1, expected_attempts=1, retry_at=115, now=100
     ) is True
 
     restored = TaskPlanStore(path)
@@ -672,7 +672,7 @@ def test_task_plan_store_downgrade_to_v4_preserves_plan_state_for_rollback(tmp_p
         plan.plan_id, 123, 1, now=100, retry_at=110
     )
     store.defer_dispatch_attempt(
-        plan.plan_id, 123, 1, expected_attempts=1, retry_at=115
+        plan.plan_id, 123, 1, expected_attempts=1, retry_at=115, now=100
     )
     store.set_paused(plan.plan_id, 123, True)
 
