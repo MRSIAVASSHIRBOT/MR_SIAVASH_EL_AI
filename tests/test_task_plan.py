@@ -660,3 +660,35 @@ def test_task_plan_store_rejects_invalid_v5_dispatch_attempt_counts(tmp_path, in
 
     with pytest.raises(TaskPlanError, match="dispatch attempt count"):
         TaskPlanStore(path).load()
+
+
+
+def test_task_plan_store_downgrade_to_v4_preserves_plan_state_for_rollback(tmp_path):
+    path = tmp_path / "task-plans.json"
+    store = TaskPlanStore(path)
+    plan = store.create(123, "demo.echo", ["root", "follow-up"], now=100)
+    store.mark_submitted(plan.plan_id, 123, 0, TASK_A)
+    store.reserve_dispatch_attempt(
+        plan.plan_id, 123, 1, now=100, retry_at=110
+    )
+    store.defer_dispatch_attempt(
+        plan.plan_id, 123, 1, expected_attempts=1, retry_at=115
+    )
+    store.set_paused(plan.plan_id, 123, True)
+
+    store.downgrade_to_v4()
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["version"] == 4
+    restored_plan = payload["plans"][0]
+    assert restored_plan["plan_id"] == plan.plan_id
+    assert restored_plan["paused"] is True
+    assert restored_plan["steps"][0]["task_id"] == TASK_A
+    assert restored_plan["steps"][1]["task_id"] is None
+    assert all(
+        "dispatch_attempts" not in step and "next_dispatch_at" not in step
+        for step in restored_plan["steps"]
+    )
+    # Existing v4 planning metadata and dependency checkpoints remain intact.
+    assert restored_plan["steps"][1]["depends_on"] == [0]
+    assert restored_plan["contract_version"] is None
