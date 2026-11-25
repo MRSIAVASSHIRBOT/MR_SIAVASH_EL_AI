@@ -594,7 +594,7 @@ async def _owner_hub_command(
                     or len(plan_contract["steps"]) != len(steps)
                 ):
                     return "قرارداد نسخه‌دار Hub با فهرست مراحل قدیمی سازگار نیست؛ هیچ طرحی ذخیره نشد."
-                for index, (legacy_step, contract_step) in enumerate(zip(steps, plan_contract["steps"])):
+                for legacy_step, contract_step in zip(steps, plan_contract["steps"]):
                     if (
                         not isinstance(legacy_step, dict)
                         or not isinstance(legacy_step.get("description"), str)
@@ -612,8 +612,8 @@ async def _owner_hub_command(
                 except (TaskPlanError, ValueError):
                     return "قرارداد معیارهای پذیرش یا گراف مراحل نامعتبر است؛ هیچ طرحی ذخیره نشد."
                 contract_note = (
-                    f"\\nقرارداد: {plan.contract_version} · وضعیت برنامه‌ریزی: {plan.planning_status}"
-                    f"\\nمعیارهای پذیرش: {len(plan.acceptance_criteria)} مورد؛ هنوز ارزیابی نشده‌اند."
+                    f"\nقرارداد: {plan.contract_version} · وضعیت برنامه‌ریزی: {plan.planning_status}"
+                    f"\nمعیارهای پذیرش: {len(plan.acceptance_criteria)} مورد؛ هنوز ارزیابی نشده‌اند."
                 )
             else:
                 # Backward compatibility with older Hub instances that expose only descriptions.
@@ -645,6 +645,14 @@ async def _owner_hub_command(
                     )
                 except (TaskPlanError, ValueError):
                     return "طرح تولیدشده یا گراف وابستگی آن معتبر نیست؛ هیچ طرحی ذخیره نشد."
+            preview = "\n".join(
+                f"{index + 1}. {step.description}"
+                + (
+                    " · معیارهای مرتبط: " + ", ".join(step.verifies_criteria)
+                    if step.verifies_criteria else ""
+                )
+                for index, step in enumerate(plan.steps)
+            )
             provider = _safe_progress_value(result.get("provider"), limit=40) or "unknown"
             remote_note = (
                 "\nحالت remote استفاده شد؛ ممکن است هزینهٔ ارائه‌دهنده اعمال شود."
