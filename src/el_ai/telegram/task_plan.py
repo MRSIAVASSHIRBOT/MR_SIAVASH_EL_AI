@@ -8,7 +8,7 @@ import re
 import stat
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -28,12 +28,21 @@ class TaskPlanError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class TaskPlanAcceptanceCriterion:
+    criterion_id: str
+    statement: str
+
+
+@dataclass(frozen=True)
 class TaskPlanStep:
     description: str
     task_id: str | None = None
     depends_on: tuple[int, ...] = ()
     blocked_by: tuple[int, ...] = ()
     blocked_reason: str | None = None
+    step_id: str | None = None
+    verifies_criteria: tuple[str, ...] = ()
+    verification: str | None = None
 
 
 @dataclass(frozen=True)
@@ -44,6 +53,13 @@ class TaskPlan:
     created_at: int
     steps: tuple[TaskPlanStep, ...]
     paused: bool = False
+    contract_version: str | None = None
+    planning_status: str | None = None
+    acceptance_criteria: tuple[TaskPlanAcceptanceCriterion, ...] = ()
+    verification_steps: tuple[str, ...] = ()
+    goal_satisfaction: str = "not_evaluated"
+    capability_availability: str = "not_assessed"
+    authorization_checked: bool = False
 
     @property
     def submitted_count(self) -> int:
