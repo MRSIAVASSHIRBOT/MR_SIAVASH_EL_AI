@@ -2140,9 +2140,16 @@ def test_agent_plan_requires_clarification_or_research_before_any_task_dispatch(
     store = TaskPlanStore(tmp_path / f"plan-{planning_status}.json")
     contract = _agent_plan_contract_v1()
     contract["planning_status"] = planning_status
-    contract["missing_information"] = ["The target environment is unknown"]
-    contract["clarification_questions"] = ["Which target environment should be used?"]
-    contract["research_required"] = planning_status == "needs_research"
+    if planning_status == "needs_research":
+        contract["missing_information"] = []
+        contract["clarification_questions"] = []
+        contract["research_required"] = True
+        contract["research_questions"] = ["Review the target environment requirements"]
+    else:
+        contract["missing_information"] = ["The target environment is unknown"]
+        contract["clarification_questions"] = ["Which target environment should be used?"]
+        contract["research_required"] = False
+        contract["research_questions"] = []
     contract["research_questions"] = (
         ["Review the target environment requirements"]
         if planning_status == "needs_research" else []
