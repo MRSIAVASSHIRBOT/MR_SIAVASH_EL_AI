@@ -664,6 +664,7 @@ async def _owner_hub_command(
                 f"\nProvider: {provider}"
                 f"\nشناسه طرح: {plan.plan_id}"
                 f"\nنوع: {plan.task_type}\n{preview}"
+                f"{contract_note}"
                 f"\nبرای ثبت صریح مراحل: /taskplanrun {plan.plan_id}"
                 f"{remote_note}"
             )
