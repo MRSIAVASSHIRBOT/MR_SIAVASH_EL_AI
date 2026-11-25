@@ -538,3 +538,18 @@ def test_task_plan_store_rejects_tampered_v4_contract_state(tmp_path):
 
     with pytest.raises(TaskPlanError, match="unknown|mapping|cover"):
         TaskPlanStore(path).load()
+
+
+def test_task_plan_store_rejects_submission_before_clarification_or_research(tmp_path):
+    for status in ("needs_clarification", "needs_research"):
+        store = TaskPlanStore(tmp_path / f"{status}.json")
+        contract = _telegram_agent_plan_contract()
+        contract["planning_status"] = status
+        plan = store.create_from_contract(123, "demo.echo", contract, now=100)
+
+        with pytest.raises(TaskPlanError, match="planning is ready"):
+            store.mark_submitted(plan.plan_id, 123, 0, TASK_A)
+
+        unchanged = store.get_for_user(plan.plan_id, 123, now=101)
+        assert unchanged is not None
+        assert unchanged.submitted_count == 0
