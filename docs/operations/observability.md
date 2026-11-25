@@ -37,11 +37,14 @@ second local retry queue or claim that the interrupted job completed.
 
 The scoped Hub client emits one `hub_request_completed` structured log event for each outbound attempt. Each event contains only:
 
-- canonical `request_id`;
+- canonical `request_id`, unique to the HTTP operation;
+- canonical `correlation_id`, taken from the current Bridge job context when present, otherwise equal to `request_id`;
 - HTTP `method`;
 - allowlisted `route_template` (task UUIDs are replaced with `{task_id}`);
 - `status_code` (null when no HTTP response was received);
 - monotonic `duration_ms` (bounded to a non-negative millisecond value);
 - coarse `outcome` (`success`, `http_error`, `request_failed`, or `invalid_response`).
 
-The same request ID is reused for the single permitted 401 refresh/retry of one authorized operation; the refresh request has its own ID. Pairing and refresh operations each receive fresh IDs. Query strings, raw URLs, request/response bodies, Telegram identities, task IDs, client IDs, and credentials are excluded. Request IDs are diagnostic metadata only and are not authorization or idempotency values.
+The Bridge worker binds the canonical Bridge job UUID in an asynchronous task-local context for the duration of one job handler. Hub calls made within that handler share the same `correlation_id`; separate HTTP operations retain distinct `request_id` values. The context is reset after success, exception, or cancellation. Local polling and non-Bridge work do not invent a Bridge correlation value.
+
+The same request ID is reused for the single permitted 401 refresh/retry of one authorized operation; the refresh request has its own ID. Pairing and refresh operations each receive fresh IDs. Query strings, raw URLs, request/response bodies, Telegram identities, task IDs, client IDs, and credentials are excluded. Correlation IDs are diagnostic metadata only and are not authentication, ownership, authorization, or idempotency values.
