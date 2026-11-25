@@ -32,3 +32,12 @@ This is a per-cycle burst guard only. It is **not** a daily/monthly usage budget
 ## Verification
 
 Regression tests cover owner isolation, atomic update semantics, idempotent repeated operations, confirmation requirements, Bridge command allowlist parity and operation while the Hub client is unavailable.
+
+
+## Durable per-step dispatch budget
+
+In addition to the three-request global per-cycle burst guard, each unsubmitted plan step has a persistent maximum of **5 Hub task-creation attempts**. The counter is written before each external request, so process restarts do not reset the budget. If the Hub returns an unknown/transient failure, retries use the same deterministic idempotency key and a persisted exponential full-jitter delay (base 5 seconds, capped at 60 seconds). Policy/validation denials continue to block immediately. After the fifth unsuccessful attempt, the step is durably blocked with `dispatch_attempts_exhausted` and requires a new owner-reviewed plan rather than retrying forever.
+
+The local plan-store schema is version 5. Existing v1-v4 plans migrate forward with zero dispatch attempts and no retry deadline; their task IDs, dependency graph, blocked checkpoints, pause state and versioned planning metadata are preserved. An attempt reservation is saved before the Hub call; a crash between reservation and request conservatively consumes one attempt. The plan's existing 7-day retention is its maximum local lifetime.
+
+This is a bounded dispatch-retry budget, not a daily/monthly provider billing cap, global active-task concurrency cap, or remote cancellation/kill operation. Already-submitted Hub tasks remain controlled by Hub policy and Worker controls.
