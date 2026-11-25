@@ -1237,7 +1237,7 @@ async def test_bridge_correlation_id_is_propagated_without_reusing_request_id():
 
 @pytest.mark.asyncio
 async def test_pairing_request_carries_a_canonical_request_id():
-    from uuid import UUID
+    from uuid import UUID, uuid4
 
     requests = []
 
@@ -1258,10 +1258,14 @@ async def test_pairing_request_carries_a_canonical_request_id():
         MemoryStore(),
         transport=httpx.MockTransport(handler),
     )
-    await client.pair("one-time-code", 123456)
+    correlation_id = str(uuid4())
+    with request_correlation_scope(correlation_id):
+        await client.pair("one-time-code", 123456)
 
     request_id = requests[0].headers["X-Request-ID"]
     assert str(UUID(request_id)) == request_id
+    assert request_id != correlation_id
+    assert requests[0].headers["X-Correlation-ID"] == correlation_id
     await client.close()
 
 
