@@ -466,6 +466,7 @@ class TaskPlanStore:
         *,
         expected_attempts: int,
         retry_at: int,
+        now: int | None = None,
     ) -> bool:
         """Persist a bounded retry time after a transient, idempotent Hub failure."""
         canonical_plan_id = self._canonical_uuid(plan_id, "plan ID")
@@ -478,8 +479,12 @@ class TaskPlanStore:
             or not 1 <= expected_attempts < MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS
         ):
             raise ValueError("Expected dispatch attempt count is invalid")
+        current_time = int(time.time()) if now is None else now
+        self._validate_timestamp(current_time)
         self._validate_timestamp(retry_at)
-        if retry_at - int(time.time()) > MAX_TASK_PLAN_DISPATCH_RETRY_SECONDS:
+        if retry_at <= current_time:
+            raise ValueError("Dispatch retry deadline must be in the future")
+        if retry_at - current_time > MAX_TASK_PLAN_DISPATCH_RETRY_SECONDS:
             raise ValueError("Dispatch retry deadline exceeds its maximum delay")
 
         plans = self._ensure_loaded()
