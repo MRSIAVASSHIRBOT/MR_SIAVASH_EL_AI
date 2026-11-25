@@ -453,6 +453,16 @@ def test_task_plan_store_persists_and_reloads_versioned_acceptance_contract(tmp_
         lambda item: item.update(tasks_created=1),
         lambda item: item.update(authorization_checked=True),
         lambda item: item.update(capability_availability="available"),
+        lambda item: item.update(
+            planning_status="ready_for_review",
+            missing_information=["Target environment is unknown"],
+            clarification_questions=["Which target environment should be used?"],
+        ),
+        lambda item: item.update(planning_status="needs_research"),
+        lambda item: item.update(missing_information=["Target environment is unknown"]),
+        lambda item: item.update(research_required=True),
+        lambda item: item.update(research_questions=["Review target requirements"]),
+
         lambda item: item["acceptance_criteria"].append(item["acceptance_criteria"][0]),
         lambda item: item["steps"][1].update(step_id="prepare"),
         lambda item: item["steps"][1].update(depends_on=["future-step"]),
