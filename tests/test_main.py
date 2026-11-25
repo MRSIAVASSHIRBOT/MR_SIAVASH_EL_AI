@@ -2181,13 +2181,14 @@ def test_agent_plan_requires_clarification_or_research_before_any_task_dispatch(
     ))
     plan_id = preview.split("شناسه طرح: ", 1)[1].splitlines()[0]
     assert planning_status in preview
-    assert "Which target environment should be used?" in preview
     assert "برای بررسی و شروع صریح مراحل: /taskplanrun" not in preview
     assert "قابل اجرا نیست" in preview
 
     if planning_status == "needs_research":
         assert "Review the target environment requirements" in preview
+        assert "Which target environment should be used?" not in preview
     else:
+        assert "Which target environment should be used?" in preview
         assert "The target environment is unknown" in preview
 
     blocked = asyncio.run(_owner_hub_command(
