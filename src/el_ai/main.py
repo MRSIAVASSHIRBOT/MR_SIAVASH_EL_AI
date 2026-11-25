@@ -585,38 +585,66 @@ async def _owner_hub_command(
                 or not isinstance(steps, list)
             ):
                 return "پاسخ Hub با قرارداد پیش‌نمایش امن سازگار نبود؛ هیچ طرحی ذخیره نشد."
-            descriptions: list[str] = []
-            dependencies: list[list[int]] | None = None
-            has_dependency_metadata = any(
-                isinstance(item, dict) and "depends_on" in item for item in steps
-            )
-            parsed_dependencies: list[list[int]] = []
-            for index, item in enumerate(steps):
-                if not isinstance(item, dict) or not isinstance(item.get("description"), str):
-                    return "پاسخ مدل شامل مراحل نامعتبر بود؛ هیچ طرحی ذخیره نشد."
-                descriptions.append(item["description"])
-                if has_dependency_metadata:
-                    raw_dependencies = item.get("depends_on", [] if index == 0 else [index])
-                    if not isinstance(raw_dependencies, list):
-                        return "گراف وابستگی مدل نامعتبر بود؛ هیچ طرحی ذخیره نشد."
-                    converted: list[int] = []
-                    for dependency in raw_dependencies:
-                        if isinstance(dependency, bool) or not isinstance(dependency, int):
-                            return "شماره پیش‌نیاز مدل نامعتبر بود؛ هیچ طرحی ذخیره نشد."
-                        converted.append(dependency - 1)
-                    parsed_dependencies.append(converted)
-            if has_dependency_metadata:
-                dependencies = parsed_dependencies
-            try:
-                plan = task_plans.create(
-                    telegram_user_id, task_type, descriptions, dependencies=dependencies
+            plan_contract = result.get("plan_contract")
+            contract_note = ""
+            if plan_contract is not None:
+                if (
+                    not isinstance(plan_contract, dict)
+                    or not isinstance(plan_contract.get("steps"), list)
+                    or len(plan_contract["steps"]) != len(steps)
+                ):
+                    return "قرارداد نسخه‌دار Hub با فهرست مراحل قدیمی سازگار نیست؛ هیچ طرحی ذخیره نشد."
+                for index, (legacy_step, contract_step) in enumerate(zip(steps, plan_contract["steps"])):
+                    if (
+                        not isinstance(legacy_step, dict)
+                        or not isinstance(legacy_step.get("description"), str)
+                        or not isinstance(contract_step, dict)
+                        or not isinstance(contract_step.get("description"), str)
+                        or legacy_step["description"] != contract_step["description"][:400]
+                    ):
+                        return "مراحل قرارداد Hub با پاسخ سازگاری مطابقت ندارند؛ هیچ طرحی ذخیره نشد."
+                try:
+                    plan = task_plans.create_from_contract(
+                        telegram_user_id,
+                        task_type,
+                        plan_contract,
+                    )
+                except (TaskPlanError, ValueError):
+                    return "قرارداد معیارهای پذیرش یا گراف مراحل نامعتبر است؛ هیچ طرحی ذخیره نشد."
+                contract_note = (
+                    f"\\nقرارداد: {plan.contract_version} · وضعیت برنامه‌ریزی: {plan.planning_status}"
+                    f"\\nمعیارهای پذیرش: {len(plan.acceptance_criteria)} مورد؛ هنوز ارزیابی نشده‌اند."
                 )
-            except (TaskPlanError, ValueError):
-                return "طرح تولیدشده یا گراف وابستگی آن معتبر نیست؛ هیچ طرحی ذخیره نشد."
-            preview = "\n".join(
-                f"{index + 1}. {step.description}"
-                for index, step in enumerate(plan.steps)
-            )
+            else:
+                # Backward compatibility with older Hub instances that expose only descriptions.
+                descriptions: list[str] = []
+                dependencies: list[list[int]] | None = None
+                has_dependency_metadata = any(
+                    isinstance(item, dict) and "depends_on" in item for item in steps
+                )
+                parsed_dependencies: list[list[int]] = []
+                for index, item in enumerate(steps):
+                    if not isinstance(item, dict) or not isinstance(item.get("description"), str):
+                        return "پاسخ مدل شامل مراحل نامعتبر بود؛ هیچ طرحی ذخیره نشد."
+                    descriptions.append(item["description"])
+                    if has_dependency_metadata:
+                        raw_dependencies = item.get("depends_on", [] if index == 0 else [index])
+                        if not isinstance(raw_dependencies, list):
+                            return "گراف وابستگی مدل نامعتبر بود؛ هیچ طرحی ذخیره نشد."
+                        converted: list[int] = []
+                        for dependency in raw_dependencies:
+                            if isinstance(dependency, bool) or not isinstance(dependency, int):
+                                return "شماره پیش‌نیاز مدل نامعتبر بود؛ هیچ طرحی ذخیره نشد."
+                            converted.append(dependency - 1)
+                        parsed_dependencies.append(converted)
+                if has_dependency_metadata:
+                    dependencies = parsed_dependencies
+                try:
+                    plan = task_plans.create(
+                        telegram_user_id, task_type, descriptions, dependencies=dependencies
+                    )
+                except (TaskPlanError, ValueError):
+                    return "طرح تولیدشده یا گراف وابستگی آن معتبر نیست؛ هیچ طرحی ذخیره نشد."
             provider = _safe_progress_value(result.get("provider"), limit=40) or "unknown"
             remote_note = (
                 "\nحالت remote استفاده شد؛ ممکن است هزینهٔ ارائه‌دهنده اعمال شود."
