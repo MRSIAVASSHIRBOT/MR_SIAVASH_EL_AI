@@ -7,6 +7,7 @@ import pytest
 
 from el_ai.telegram.bridge import BridgeJob, TelegramBridgeError
 from el_ai.telegram.bridge_worker import BridgeWorkerMetrics, TelegramBridgeWorker
+from el_ai.integrations.request_context import current_correlation_id
 
 
 def _job():
@@ -50,6 +51,7 @@ async def test_worker_completes_job_only_after_handler_returns():
 
     async def handler(received):
         assert received is job
+        assert current_correlation_id() == job.job_id
         stop.set()
         return "وضعیت آماده است"
 
@@ -57,6 +59,7 @@ async def test_worker_completes_job_only_after_handler_returns():
     await worker.run(stop)
 
     assert client.completed == [(job, "وضعیت آماده است")]
+    assert current_correlation_id() is None
     assert client.closed
 
 
