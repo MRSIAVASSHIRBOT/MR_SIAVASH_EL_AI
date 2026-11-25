@@ -3,10 +3,19 @@
 from __future__ import annotations
 
 import logging
+import secrets
+import time
 from dataclasses import dataclass
 
 from el_ai.integrations.hub import HubClient, HubClientError
-from el_ai.telegram.task_plan import TaskPlanError, TaskPlanStore
+from el_ai.telegram.task_plan import (
+    MAX_TASK_PLAN_DISPATCH_RETRY_SECONDS,
+    MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS,
+    TaskPlanDispatchBudgetExceeded,
+    TaskPlanDispatchDeferred,
+    TaskPlanError,
+    TaskPlanStore,
+)
 from el_ai.telegram.task_watch import (
     TERMINAL_TASK_STATUSES,
     TaskWatchError,
@@ -15,7 +24,20 @@ from el_ai.telegram.task_watch import (
 
 LOGGER = logging.getLogger("el_ai.task_plan_orchestrator")
 MAX_PLAN_CREATE_ATTEMPTS_PER_CYCLE = 3
+DISPATCH_RETRY_BASE_SECONDS = 5
+DISPATCH_RETRY_MAX_SECONDS = MAX_TASK_PLAN_DISPATCH_RETRY_SECONDS
 _SUCCESS_STATUS = "succeeded"
+
+
+def _dispatch_retry_delay_seconds(attempt_number: int) -> int:
+    """Return bounded jittered exponential delay for a transient idempotent dispatch."""
+    ceiling = min(
+        DISPATCH_RETRY_BASE_SECONDS * (2 ** max(0, attempt_number - 1)),
+        DISPATCH_RETRY_MAX_SECONDS,
+    )
+    return 1 + secrets.randbelow(ceiling)
+
+
 _ACTIVE_WATCH_STATUSES = frozenset({"queued", "running", "waiting_approval"})
 
 
@@ -34,6 +56,8 @@ async def advance_ready_plan_steps(
     plans: TaskPlanStore,
     watches: TaskWatchStore | None,
     owner_ids: frozenset[int] | set[int] | tuple[int, ...],
+    *,
+    now: int | None = None,
 ) -> tuple[PlanAdvanceEvent, ...]:
     """Submit only steps whose dependencies succeeded, after explicit plan start.
 
@@ -43,9 +67,12 @@ async def advance_ready_plan_steps(
     """
     events: list[PlanAdvanceEvent] = []
     dispatch_attempts = 0
+    current_time = int(time.time()) if now is None else now
+    if isinstance(current_time, bool) or not isinstance(current_time, int) or current_time < 0:
+        raise ValueError("Task-plan orchestration time is invalid")
     for owner_id in sorted(owner_ids):
         try:
-            owner_plans = plans.list_for_user(owner_id)
+            owner_plans = plans.list_for_user(owner_id, now=current_time)
         except (TaskPlanError, ValueError):
             LOGGER.warning("Task-plan list could not be read for owner %s", owner_id)
             continue
@@ -130,7 +157,7 @@ async def advance_ready_plan_steps(
                 # stop after that request completes. An already in-flight Hub
                 # request cannot be recalled; its stable key keeps retries safe.
                 try:
-                    current_plan = plans.get_for_user(plan.plan_id, owner_id)
+                    current_plan = plans.get_for_user(plan.plan_id, owner_id, now=current_time)
                 except (TaskPlanError, ValueError):
                     LOGGER.warning(
                         "Task-plan state could not be revalidated before dispatch for %s",
@@ -151,6 +178,27 @@ async def advance_ready_plan_steps(
                 current_step = current_plan.steps[index]
                 if current_step.task_id is not None or current_step.blocked_reason:
                     continue
+                if current_step.next_dispatch_at is not None and current_step.next_dispatch_at > current_time:
+                    continue
+                if current_step.dispatch_attempts >= MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS:
+                    try:
+                        changed = plans.mark_blocked(
+                            plan.plan_id, owner_id, index,
+                            reason="dispatch_attempts_exhausted",
+                        )
+                    except (TaskPlanError, ValueError):
+                        LOGGER.error(
+                            "Could not checkpoint exhausted dispatch budget for plan %s step %s",
+                            plan.plan_id, index + 1,
+                        )
+                        continue
+                    statuses[index] = "blocked"
+                    if changed:
+                        events.append(PlanAdvanceEvent(
+                            owner_id, plan.plan_id, index, "blocked",
+                            reason="dispatch_attempts_exhausted",
+                        ))
+                    continue
                 step = current_step
 
                 if dispatch_attempts >= MAX_PLAN_CREATE_ATTEMPTS_PER_CYCLE:
@@ -161,8 +209,45 @@ async def advance_ready_plan_steps(
                     return tuple(events)
 
                 idempotency_key = f"telegram-plan-{plan.plan_id}-{index + 1}"
-                # Count attempts, including timeouts and explicit Hub rejections, so
-                # failures cannot turn one scheduler cycle into an unbounded burst.
+                try:
+                    next_attempt = current_step.dispatch_attempts + 1
+                    reservation_delay = _dispatch_retry_delay_seconds(next_attempt)
+                    attempt_number = plans.reserve_dispatch_attempt(
+                        plan.plan_id,
+                        owner_id,
+                        index,
+                        now=current_time,
+                        retry_at=current_time + reservation_delay,
+                    )
+                except TaskPlanDispatchDeferred:
+                    continue
+                except TaskPlanDispatchBudgetExceeded:
+                    try:
+                        changed = plans.mark_blocked(
+                            plan.plan_id, owner_id, index,
+                            reason="dispatch_attempts_exhausted",
+                        )
+                    except (TaskPlanError, ValueError):
+                        LOGGER.error(
+                            "Could not checkpoint exhausted dispatch budget for plan %s step %s",
+                            plan.plan_id, index + 1,
+                        )
+                        continue
+                    statuses[index] = "blocked"
+                    if changed:
+                        events.append(PlanAdvanceEvent(
+                            owner_id, plan.plan_id, index, "blocked",
+                            reason="dispatch_attempts_exhausted",
+                        ))
+                    continue
+                except (TaskPlanError, ValueError):
+                    LOGGER.error(
+                        "Could not reserve a durable dispatch attempt for plan %s step %s",
+                        plan.plan_id, index + 1,
+                    )
+                    break
+                # Persist the attempt before the external call so a restart cannot
+                # reset a failing step's retry budget.
                 dispatch_attempts += 1
                 try:
                     result = await hub.create_task(
@@ -197,11 +282,42 @@ async def advance_ready_plan_steps(
                                 reason="hub_policy_denied",
                             ))
                     else:
-                        LOGGER.warning(
-                            "Hub task creation deferred for plan %s step %s",
-                            plan.plan_id,
-                            index + 1,
-                        )
+                        if attempt_number >= MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS:
+                            try:
+                                changed = plans.mark_blocked(
+                                    plan.plan_id, owner_id, index,
+                                    reason="dispatch_attempts_exhausted",
+                                )
+                            except (TaskPlanError, ValueError):
+                                LOGGER.error(
+                                    "Could not checkpoint exhausted dispatch budget for plan %s step %s",
+                                    plan.plan_id, index + 1,
+                                )
+                                continue
+                            statuses[index] = "blocked"
+                            if changed:
+                                events.append(PlanAdvanceEvent(
+                                    owner_id, plan.plan_id, index, "blocked",
+                                    reason="dispatch_attempts_exhausted",
+                                ))
+                        else:
+                            retry_after = _dispatch_retry_delay_seconds(attempt_number)
+                            try:
+                                plans.defer_dispatch_attempt(
+                                    plan.plan_id, owner_id, index,
+                                    expected_attempts=attempt_number,
+                                    retry_at=current_time + retry_after,
+                                    now=current_time,
+                                )
+                            except (TaskPlanError, ValueError):
+                                LOGGER.error(
+                                    "Could not persist dispatch backoff for plan %s step %s",
+                                    plan.plan_id, index + 1,
+                                )
+                            LOGGER.warning(
+                                "Hub task creation deferred for plan %s step %s attempt=%s retry_after_seconds=%s",
+                                plan.plan_id, index + 1, attempt_number, retry_after,
+                            )
                     continue
 
                 raw_task_id = result.get("task_id") if isinstance(result, dict) else None
@@ -211,10 +327,41 @@ async def advance_ready_plan_steps(
                     task_id = str(UUID(str(raw_task_id)))
                 except (ValueError, TypeError, AttributeError):
                     LOGGER.warning(
-                        "Hub returned no valid task ID for plan %s step %s; idempotent retry remains safe",
-                        plan.plan_id,
-                        index + 1,
+                        "Hub returned no valid task ID for plan %s step %s attempt=%s",
+                        plan.plan_id, index + 1, attempt_number,
                     )
+                    if attempt_number >= MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS:
+                        try:
+                            changed = plans.mark_blocked(
+                                plan.plan_id, owner_id, index,
+                                reason="dispatch_attempts_exhausted",
+                            )
+                        except (TaskPlanError, ValueError):
+                            LOGGER.error(
+                                "Could not checkpoint exhausted dispatch budget for plan %s step %s",
+                                plan.plan_id, index + 1,
+                            )
+                            continue
+                        statuses[index] = "blocked"
+                        if changed:
+                            events.append(PlanAdvanceEvent(
+                                owner_id, plan.plan_id, index, "blocked",
+                                reason="dispatch_attempts_exhausted",
+                            ))
+                    else:
+                        retry_after = _dispatch_retry_delay_seconds(attempt_number)
+                        try:
+                            plans.defer_dispatch_attempt(
+                                plan.plan_id, owner_id, index,
+                                expected_attempts=attempt_number,
+                                retry_at=current_time + retry_after,
+                                now=current_time,
+                            )
+                        except (TaskPlanError, ValueError):
+                            LOGGER.error(
+                                "Could not persist dispatch backoff for plan %s step %s",
+                                plan.plan_id, index + 1,
+                            )
                     continue
 
                 try:
@@ -224,6 +371,38 @@ async def advance_ready_plan_steps(
                         "Hub task %s exists but plan checkpoint failed; retry uses the same idempotency key",
                         task_id,
                     )
+                    if attempt_number >= MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS:
+                        try:
+                            changed = plans.mark_blocked(
+                                plan.plan_id, owner_id, index,
+                                reason="dispatch_attempts_exhausted",
+                            )
+                        except (TaskPlanError, ValueError):
+                            LOGGER.error(
+                                "Could not checkpoint exhausted dispatch budget for plan %s step %s",
+                                plan.plan_id, index + 1,
+                            )
+                            continue
+                        statuses[index] = "blocked"
+                        if changed:
+                            events.append(PlanAdvanceEvent(
+                                owner_id, plan.plan_id, index, "blocked",
+                                reason="dispatch_attempts_exhausted",
+                            ))
+                    else:
+                        retry_after = _dispatch_retry_delay_seconds(attempt_number)
+                        try:
+                            plans.defer_dispatch_attempt(
+                                plan.plan_id, owner_id, index,
+                                expected_attempts=attempt_number,
+                                retry_at=current_time + retry_after,
+                                now=current_time,
+                            )
+                        except (TaskPlanError, ValueError):
+                            LOGGER.error(
+                                "Could not persist dispatch backoff for plan %s step %s",
+                                plan.plan_id, index + 1,
+                            )
                     continue
 
                 status = result.get("status") if isinstance(result, dict) else None

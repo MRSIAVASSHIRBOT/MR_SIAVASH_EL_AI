@@ -7,7 +7,10 @@ import pytest
 
 from el_ai.telegram.task_plan import (
     MAX_TASK_PLAN_AGE_SECONDS,
+    MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS,
     MAX_TASK_PLANS,
+    TaskPlanDispatchBudgetExceeded,
+    TaskPlanDispatchDeferred,
     TaskPlanError,
     TaskPlanStore,
 )
@@ -170,7 +173,7 @@ def test_task_plan_store_defaults_to_sequential_dependencies_and_persists_dag(tm
     assert loaded.steps[2].blocked_reason == "dependency_failed"
     assert loaded.steps[2].task_id is None
     payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["version"] == 4
+    assert payload["version"] == 5
     assert payload["plans"][1]["steps"][2]["depends_on"] == [0, 1]
 
 
@@ -197,7 +200,7 @@ def test_task_plan_store_rejects_invalid_dependency_graphs(tmp_path, dependencie
         )
 
 
-def test_task_plan_store_migrates_v1_plans_to_v4_without_losing_checkpoints(tmp_path):
+def test_task_plan_store_migrates_v1_plans_to_v5_without_losing_checkpoints(tmp_path):
     path = tmp_path / "task-plans.json"
     path.write_text(json.dumps({
         "version": 1,
@@ -220,7 +223,7 @@ def test_task_plan_store_migrates_v1_plans_to_v4_without_losing_checkpoints(tmp_
     assert loaded.steps[0].depends_on == ()
     assert loaded.steps[1].depends_on == (0,)
     migrated = json.loads(path.read_text(encoding="utf-8"))
-    assert migrated["version"] == 4
+    assert migrated["version"] == 5
     assert migrated["plans"][0]["steps"][1]["depends_on"] == [0]
 
 
@@ -255,7 +258,7 @@ def test_task_plan_pause_state_is_persisted_owner_scoped_and_idempotent(tmp_path
         restored.set_paused(plan.plan_id, 123, 1)
 
 
-def test_task_plan_store_migrates_v2_to_v4_with_pause_disabled(tmp_path):
+def test_task_plan_store_migrates_v2_to_v5_with_pause_disabled(tmp_path):
     path = tmp_path / "task-plans-v2.json"
     path.write_text(json.dumps({
         "version": 2,
@@ -288,7 +291,7 @@ def test_task_plan_store_migrates_v2_to_v4_with_pause_disabled(tmp_path):
     assert loaded is not None
     assert loaded.paused is False
     migrated = json.loads(path.read_text(encoding="utf-8"))
-    assert migrated["version"] == 4
+    assert migrated["version"] == 5
     assert migrated["plans"][0]["paused"] is False
 
 
@@ -439,7 +442,7 @@ def test_task_plan_store_persists_and_reloads_versioned_acceptance_contract(tmp_
     assert restored.goal_satisfaction == "not_evaluated"
     assert "Prepare a reviewable proposal" not in path.read_text(encoding="utf-8")
     payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["version"] == 4
+    assert payload["version"] == 5
     assert payload["plans"][0]["contract_version"] == "telegram_agent_plan.v1"
 
 
@@ -495,7 +498,7 @@ def test_task_plan_store_rejects_contract_when_legacy_steps_do_not_match(tmp_pat
     assert store.list_for_user(123, now=100) == ()
 
 
-def test_task_plan_store_migrates_v3_to_v4_without_losing_pause_or_checkpoint(tmp_path):
+def test_task_plan_store_migrates_v3_to_v5_without_losing_pause_or_checkpoint(tmp_path):
     path = tmp_path / "task-plans-v3.json"
     path.write_text(json.dumps({
         "version": 3,
@@ -530,13 +533,13 @@ def test_task_plan_store_migrates_v3_to_v4_without_losing_pause_or_checkpoint(tm
     assert plan.steps[0].task_id == TASK_B
     assert plan.steps[0].depends_on == ()
     migrated = json.loads(path.read_text(encoding="utf-8"))
-    assert migrated["version"] == 4
+    assert migrated["version"] == 5
     assert migrated["plans"][0]["contract_version"] is None
     assert migrated["plans"][0]["goal_satisfaction"] == "not_evaluated"
     assert migrated["plans"][0]["authorization_checked"] is False
 
 
-def test_task_plan_store_rejects_tampered_v4_contract_state(tmp_path):
+def test_task_plan_store_rejects_tampered_v5_contract_state(tmp_path):
     path = tmp_path / "task-plans-tampered.json"
     store = TaskPlanStore(path)
     store.create_from_contract(
@@ -571,3 +574,133 @@ def test_task_plan_store_rejects_submission_before_clarification_or_research(tmp
         unchanged = store.get_for_user(plan.plan_id, 123, now=101)
         assert unchanged is not None
         assert unchanged.submitted_count == 0
+
+
+
+def test_task_plan_store_persists_a_bounded_dispatch_attempt_budget(tmp_path):
+    path = tmp_path / "task-plans.json"
+    store = TaskPlanStore(path)
+    plan = store.create(123, "demo.echo", ["root", "follow-up"], now=100)
+    store.mark_submitted(plan.plan_id, 123, 0, TASK_A)
+
+    for expected in range(1, MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS + 1):
+        assert store.reserve_dispatch_attempt(
+            plan.plan_id, 123, 1, now=100 + expected,
+            retry_at=101 + expected,
+        ) == expected
+
+    restored = TaskPlanStore(path)
+    loaded = restored.get_for_user(plan.plan_id, 123, now=110)
+    assert loaded is not None
+    assert loaded.steps[1].dispatch_attempts == MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS
+    assert loaded.steps[1].next_dispatch_at == 106
+    with pytest.raises(TaskPlanDispatchBudgetExceeded):
+        restored.reserve_dispatch_attempt(plan.plan_id, 123, 1, now=111, retry_at=112)
+    with pytest.raises(TaskPlanError, match="unavailable"):
+        restored.reserve_dispatch_attempt(plan.plan_id, 456, 1, now=111, retry_at=112)
+
+
+def test_task_plan_store_persists_retry_not_before_and_blocks_early_attempts(tmp_path):
+    path = tmp_path / "task-plans.json"
+    store = TaskPlanStore(path)
+    plan = store.create(123, "demo.echo", ["root", "follow-up"], now=100)
+    store.mark_submitted(plan.plan_id, 123, 0, TASK_A)
+
+    assert store.reserve_dispatch_attempt(
+        plan.plan_id, 123, 1, now=100, retry_at=105
+    ) == 1
+    assert store.defer_dispatch_attempt(
+        plan.plan_id, 123, 1, expected_attempts=1, retry_at=115, now=100
+    ) is True
+
+    restored = TaskPlanStore(path)
+    loaded = restored.get_for_user(plan.plan_id, 123, now=101)
+    assert loaded is not None
+    assert loaded.steps[1].dispatch_attempts == 1
+    assert loaded.steps[1].next_dispatch_at == 115
+    with pytest.raises(TaskPlanDispatchDeferred):
+        restored.reserve_dispatch_attempt(plan.plan_id, 123, 1, now=114, retry_at=115)
+    assert restored.reserve_dispatch_attempt(
+        plan.plan_id, 123, 1, now=115, retry_at=120
+    ) == 2
+
+
+def test_task_plan_store_migrates_v4_steps_to_dispatch_budget_defaults(tmp_path):
+    path = tmp_path / "task-plans-v4.json"
+    store = TaskPlanStore(path)
+    plan = store.create(123, "demo.echo", ["root", "follow-up"], now=100)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["version"] = 4
+    for step in payload["plans"][0]["steps"]:
+        step.pop("dispatch_attempts")
+        step.pop("next_dispatch_at")
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    restored = TaskPlanStore(path)
+    loaded = restored.get_for_user(plan.plan_id, 123, now=101)
+    assert loaded is not None
+    assert all(step.dispatch_attempts == 0 for step in loaded.steps)
+    assert all(step.next_dispatch_at is None for step in loaded.steps)
+    migrated = json.loads(path.read_text(encoding="utf-8"))
+    assert migrated["version"] == 5
+    assert all(
+        step["dispatch_attempts"] == 0 and step["next_dispatch_at"] is None
+        for step in migrated["plans"][0]["steps"]
+    )
+
+
+@pytest.mark.parametrize("invalid", [True, -1, MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS + 1, "2"])
+def test_task_plan_store_rejects_invalid_v5_dispatch_attempt_counts(tmp_path, invalid):
+    path = tmp_path / "task-plans-invalid-dispatch.json"
+    store = TaskPlanStore(path)
+    store.create(123, "demo.echo", ["root", "follow-up"], now=100)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["plans"][0]["steps"][0]["dispatch_attempts"] = invalid
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(TaskPlanError, match="dispatch attempt count"):
+        TaskPlanStore(path).load()
+
+
+
+def test_task_plan_store_downgrade_to_v4_preserves_plan_state_for_rollback(tmp_path):
+    path = tmp_path / "task-plans.json"
+    store = TaskPlanStore(path)
+    plan = store.create(123, "demo.echo", ["root", "follow-up"], now=100)
+    store.mark_submitted(plan.plan_id, 123, 0, TASK_A)
+    store.reserve_dispatch_attempt(
+        plan.plan_id, 123, 1, now=100, retry_at=110
+    )
+    store.defer_dispatch_attempt(
+        plan.plan_id, 123, 1, expected_attempts=1, retry_at=115, now=100
+    )
+    store.set_paused(plan.plan_id, 123, True)
+
+    store.downgrade_to_v4()
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["version"] == 4
+    restored_plan = payload["plans"][0]
+    assert restored_plan["plan_id"] == plan.plan_id
+    assert restored_plan["paused"] is True
+    assert restored_plan["steps"][0]["task_id"] == TASK_A
+    assert restored_plan["steps"][1]["task_id"] is None
+    assert all(
+        "dispatch_attempts" not in step and "next_dispatch_at" not in step
+        for step in restored_plan["steps"]
+    )
+    # Existing v4 planning metadata and dependency checkpoints remain intact.
+    assert restored_plan["steps"][1]["depends_on"] == [0]
+    assert restored_plan["contract_version"] is None
+
+
+
+def test_task_plan_store_rejects_retry_deadlines_beyond_the_bounded_window(tmp_path):
+    store = TaskPlanStore(tmp_path / "plans.json")
+    plan = store.create(123, "demo.echo", ["root", "follow-up"], now=100)
+    store.mark_submitted(plan.plan_id, 123, 0, TASK_A)
+
+    with pytest.raises(ValueError, match="maximum delay"):
+        store.reserve_dispatch_attempt(
+            plan.plan_id, 123, 1, now=100, retry_at=161
+        )

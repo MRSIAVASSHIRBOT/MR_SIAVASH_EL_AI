@@ -4,7 +4,10 @@ import json
 import time
 
 from el_ai.integrations.hub import HubClientError
-from el_ai.telegram.task_plan import TaskPlanStore
+from el_ai.telegram.task_plan import (
+    MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS,
+    TaskPlanStore,
+)
 from el_ai.telegram.task_plan_orchestrator import (
     MAX_PLAN_CREATE_ATTEMPTS_PER_CYCLE,
     advance_ready_plan_steps,
@@ -394,3 +397,89 @@ async def test_non_ready_contract_never_advances_even_with_legacy_submitted_chec
     assert current is not None
     assert current.planning_status == "needs_clarification"
     assert current.submitted_count == 1
+
+
+
+async def test_transient_dispatch_failures_use_persisted_jitter_and_exhaust_budget(
+    tmp_path, monkeypatch
+):
+    from el_ai.telegram import task_plan_orchestrator
+
+    monkeypatch.setattr(
+        task_plan_orchestrator.secrets, "randbelow",
+        lambda upper_bound: upper_bound - 1,
+    )
+    plans = TaskPlanStore(tmp_path / "plans.json")
+    hub = FakeHub()
+    plan = plans.create(123, "demo.echo", ["root", "follow-up"], now=100)
+    plans.mark_submitted(plan.plan_id, 123, 0, TASK_A)
+    hub.tasks[TASK_A] = {"status": "succeeded"}
+    hub.fail_create = HubClientError("temporarily unavailable", status_code=503)
+
+    expected_retry_at = 100
+    for attempt in range(1, MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS + 1):
+        events = await advance_ready_plan_steps(
+            hub, plans, None, {123}, now=expected_retry_at
+        )
+        loaded = plans.get_for_user(plan.plan_id, 123, now=expected_retry_at)
+        assert loaded is not None
+        step = loaded.steps[1]
+        assert step.dispatch_attempts == attempt
+        if attempt < MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS:
+            ceiling = min(5 * (2 ** (attempt - 1)), 60)
+            expected_retry_at += ceiling
+            assert step.next_dispatch_at == expected_retry_at
+            assert events == ()
+            before = hub.create_attempts
+            skipped = await advance_ready_plan_steps(
+                hub, plans, None, {123}, now=expected_retry_at - 1
+            )
+            assert skipped == ()
+            assert hub.create_attempts == before
+        else:
+            assert step.blocked_reason == "dispatch_attempts_exhausted"
+            assert step.next_dispatch_at is None
+            assert [(event.kind, event.reason) for event in events] == [
+                ("blocked", "dispatch_attempts_exhausted")
+            ]
+
+    assert hub.create_attempts == MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS
+    assert await advance_ready_plan_steps(
+        hub, plans, None, {123}, now=expected_retry_at + 1
+    ) == ()
+    assert hub.create_attempts == MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS
+
+
+
+async def test_restarted_dispatch_waits_for_reserved_deadline_then_reconciles_idempotently(
+    tmp_path,
+):
+    plans = TaskPlanStore(tmp_path / "plans.json")
+    hub = FakeHub()
+    plan = plans.create(123, "demo.echo", ["root", "follow-up"], now=100)
+    plans.mark_submitted(plan.plan_id, 123, 0, TASK_A)
+    hub.tasks[TASK_A] = {"status": "succeeded"}
+
+    # Simulate a crash after the attempt was reserved but before its response
+    # could be checkpointed locally.
+    assert plans.reserve_dispatch_attempt(
+        plan.plan_id, 123, 1, now=100, retry_at=110
+    ) == 1
+
+    before_deadline = await advance_ready_plan_steps(
+        hub, plans, None, {123}, now=109
+    )
+    assert before_deadline == ()
+    assert hub.create_attempts == 0
+
+    after_deadline = await advance_ready_plan_steps(
+        hub, plans, None, {123}, now=110
+    )
+    assert [(event.kind, event.step_index, event.task_id) for event in after_deadline] == [
+        ("submitted", 1, TASK_B)
+    ]
+    restored = plans.get_for_user(plan.plan_id, 123, now=110)
+    assert restored is not None
+    assert restored.steps[1].task_id == TASK_B
+    assert restored.steps[1].next_dispatch_at is None
+    assert restored.steps[1].dispatch_attempts == 2

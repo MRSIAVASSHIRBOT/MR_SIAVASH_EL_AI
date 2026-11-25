@@ -18,6 +18,8 @@ MIN_TASK_PLAN_STEPS = 2
 MAX_TASK_PLAN_STEPS = 8
 MAX_TASK_PLAN_BYTES = 256 * 1024
 MAX_TASK_PLAN_AGE_SECONDS = 7 * 24 * 60 * 60
+MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS = 5
+MAX_TASK_PLAN_DISPATCH_RETRY_SECONDS = 60
 MAX_TASK_TYPE_LENGTH = 80
 MAX_TASK_STEP_LENGTH = 400
 _TASK_TYPE_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
@@ -25,6 +27,14 @@ _TASK_TYPE_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
 
 class TaskPlanError(RuntimeError):
     """Raised when a local task-plan draft is invalid or cannot be persisted."""
+
+
+class TaskPlanDispatchBudgetExceeded(TaskPlanError):
+    """Raised when a step has exhausted its durable dispatch-attempt budget."""
+
+
+class TaskPlanDispatchDeferred(TaskPlanError):
+    """Raised while a step is inside its persisted retry backoff window."""
 
 
 @dataclass(frozen=True)
@@ -43,6 +53,8 @@ class TaskPlanStep:
     step_id: str | None = None
     verifies_criteria: tuple[str, ...] = ()
     verification: str | None = None
+    dispatch_attempts: int = 0
+    next_dispatch_at: int | None = None
 
 
 @dataclass(frozen=True)
@@ -107,7 +119,7 @@ class TaskPlanStore:
             or set(payload) != {"version", "plans"}
             or isinstance(payload.get("version"), bool)
             or not isinstance(payload.get("version"), int)
-            or payload.get("version") not in {1, 2, 3, 4}
+            or payload.get("version") not in {1, 2, 3, 4, 5}
             or not isinstance(payload.get("plans"), list)
         ):
             raise TaskPlanError("Stored Telegram task-plan state is unsupported")
@@ -120,7 +132,7 @@ class TaskPlanStore:
             }
             if payload["version"] >= 3:
                 expected_plan_keys.add("paused")
-            if payload["version"] == 4:
+            if payload["version"] >= 4:
                 expected_plan_keys.update({
                     "contract_version", "evaluation_scope", "planning_status",
                     "acceptance_criteria", "verification_steps", "goal_satisfaction",
@@ -159,17 +171,33 @@ class TaskPlanStore:
                         if payload["version"] == 1
                         else {"description", "task_id", "depends_on", "blocked_by", "blocked_reason"}
                     )
-                    if payload["version"] == 4:
+                    if payload["version"] >= 4:
                         expected_keys.update({"step_id", "verifies_criteria", "verification"})
+                    if payload["version"] == 5:
+                        expected_keys.update({"dispatch_attempts", "next_dispatch_at"})
                     if not isinstance(raw_step, dict) or set(raw_step) != expected_keys:
                         raise TaskPlanError("Stored Telegram task-plan step is invalid")
                     description = self._validate_description(raw_step.get("description"))
                     task_id = raw_step.get("task_id")
                     if task_id is not None:
                         task_id = self._canonical_uuid(task_id, "task ID")
-                    step_id = raw_step.get("step_id") if payload["version"] == 4 else None
-                    verifies_criteria = raw_step.get("verifies_criteria", []) if payload["version"] == 4 else []
-                    verification = raw_step.get("verification") if payload["version"] == 4 else None
+                    step_id = raw_step.get("step_id") if payload["version"] >= 4 else None
+                    verifies_criteria = raw_step.get("verifies_criteria", []) if payload["version"] >= 4 else []
+                    verification = raw_step.get("verification") if payload["version"] >= 4 else None
+                    dispatch_attempts = raw_step.get("dispatch_attempts", 0) if payload["version"] == 5 else 0
+                    next_dispatch_at = raw_step.get("next_dispatch_at") if payload["version"] == 5 else None
+                    if (
+                        type(dispatch_attempts) is not int
+                        or not 0 <= dispatch_attempts <= MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS
+                    ):
+                        raise TaskPlanError("Stored task-plan dispatch attempt count is invalid")
+                    if next_dispatch_at is not None:
+                        self._validate_timestamp(next_dispatch_at)
+                        if (
+                            dispatch_attempts < 1
+                            or task_id is not None
+                        ):
+                            raise TaskPlanError("Stored task-plan retry checkpoint is invalid")
                     if payload["version"] == 1:
                         dependencies = () if step_index == 0 else (step_index - 1,)
                         blocked_by = ()
@@ -186,6 +214,8 @@ class TaskPlanStore:
                         )
                     if blocked_by and not blocked_reason:
                         raise TaskPlanError("Stored blocked task-plan step has no reason")
+                    if next_dispatch_at is not None and (blocked_reason or blocked_by):
+                        raise TaskPlanError("A blocked step cannot retain a dispatch retry checkpoint")
                     if blocked_reason and task_id is not None:
                         raise TaskPlanError("A submitted task-plan step cannot be blocked")
                     normalized_step_id, normalized_coverage, normalized_verification = (
@@ -196,6 +226,7 @@ class TaskPlanStore:
                     steps.append(TaskPlanStep(
                         description, task_id, dependencies, blocked_by, blocked_reason,
                         normalized_step_id, normalized_coverage, normalized_verification,
+                        dispatch_attempts, next_dispatch_at,
                     ))
             except ValueError as exc:
                 raise TaskPlanError("Stored Telegram task-plan entry is invalid") from exc
@@ -237,8 +268,8 @@ class TaskPlanStore:
         if len(plans) > MAX_TASK_PLANS:
             raise TaskPlanError("Stored Telegram task-plan collection exceeds its limit")
         self._plans = plans
-        if payload["version"] < 4:
-            # One-way migration: v1-v3 plans gain explicit non-evaluation defaults.
+        if payload["version"] < 5:
+            # One-way migration: older stores gain explicit bounded-dispatch defaults.
             self._replace(plans)
         return tuple(plans)
 
@@ -371,6 +402,124 @@ class TaskPlanStore:
             reverse=True,
         ))
 
+    def reserve_dispatch_attempt(
+        self,
+        plan_id: str,
+        telegram_user_id: int,
+        step_index: int,
+        *,
+        now: int | None = None,
+        retry_at: int,
+    ) -> int:
+        """Persist an attempt reservation and in-flight reconciliation deadline."""
+        canonical_plan_id = self._canonical_uuid(plan_id, "plan ID")
+        self._validate_user_id(telegram_user_id)
+        if isinstance(step_index, bool) or not isinstance(step_index, int):
+            raise ValueError("Task-plan step index is invalid")
+        current_time = int(time.time()) if now is None else now
+        self._validate_timestamp(current_time)
+        self._validate_timestamp(retry_at)
+        if retry_at <= current_time:
+            raise ValueError("Dispatch reconciliation deadline must be in the future")
+        if retry_at - current_time > MAX_TASK_PLAN_DISPATCH_RETRY_SECONDS:
+            raise ValueError("Dispatch reconciliation deadline exceeds its maximum delay")
+
+        plans = self._ensure_loaded()
+        updated: list[TaskPlan] = []
+        found = False
+        attempt_number = 0
+        for plan in plans:
+            if plan.plan_id != canonical_plan_id or plan.telegram_user_id != telegram_user_id:
+                updated.append(plan)
+                continue
+            found = True
+            if not 0 <= step_index < len(plan.steps):
+                raise ValueError("Task-plan step index is out of range")
+            if plan.paused:
+                raise TaskPlanError("A paused task plan cannot reserve a dispatch attempt")
+            if plan.contract_version and plan.planning_status != "ready_for_review":
+                raise TaskPlanError("An unresolved task plan cannot reserve a dispatch attempt")
+            steps = list(plan.steps)
+            step = steps[step_index]
+            if step.task_id is not None or step.blocked_reason or step.blocked_by:
+                raise TaskPlanError("A submitted or blocked step cannot reserve a dispatch attempt")
+            if step.next_dispatch_at is not None and step.next_dispatch_at > current_time:
+                raise TaskPlanDispatchDeferred("Task-plan dispatch is still in its retry backoff window")
+            if step.dispatch_attempts >= MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS:
+                raise TaskPlanDispatchBudgetExceeded("Task-plan step dispatch budget is exhausted")
+            attempt_number = step.dispatch_attempts + 1
+            steps[step_index] = replace(
+                step, dispatch_attempts=attempt_number, next_dispatch_at=retry_at
+            )
+            updated.append(replace(plan, steps=tuple(steps)))
+
+        if not found:
+            raise TaskPlanError("Task plan is unavailable")
+        self._replace(updated)
+        return attempt_number
+
+    def defer_dispatch_attempt(
+        self,
+        plan_id: str,
+        telegram_user_id: int,
+        step_index: int,
+        *,
+        expected_attempts: int,
+        retry_at: int,
+        now: int | None = None,
+    ) -> bool:
+        """Persist a bounded retry time after a transient, idempotent Hub failure."""
+        canonical_plan_id = self._canonical_uuid(plan_id, "plan ID")
+        self._validate_user_id(telegram_user_id)
+        if isinstance(step_index, bool) or not isinstance(step_index, int):
+            raise ValueError("Task-plan step index is invalid")
+        if (
+            isinstance(expected_attempts, bool)
+            or not isinstance(expected_attempts, int)
+            or not 1 <= expected_attempts < MAX_TASK_PLAN_STEP_DISPATCH_ATTEMPTS
+        ):
+            raise ValueError("Expected dispatch attempt count is invalid")
+        current_time = int(time.time()) if now is None else now
+        self._validate_timestamp(current_time)
+        self._validate_timestamp(retry_at)
+        if retry_at <= current_time:
+            raise ValueError("Dispatch retry deadline must be in the future")
+        if retry_at - current_time > MAX_TASK_PLAN_DISPATCH_RETRY_SECONDS:
+            raise ValueError("Dispatch retry deadline exceeds its maximum delay")
+
+        plans = self._ensure_loaded()
+        updated: list[TaskPlan] = []
+        found = False
+        changed = False
+        for plan in plans:
+            if plan.plan_id != canonical_plan_id or plan.telegram_user_id != telegram_user_id:
+                updated.append(plan)
+                continue
+            found = True
+            if not 0 <= step_index < len(plan.steps):
+                raise ValueError("Task-plan step index is out of range")
+            steps = list(plan.steps)
+            step = steps[step_index]
+            if (
+                step.dispatch_attempts != expected_attempts
+                or step.task_id is not None
+                or step.blocked_reason
+                or step.blocked_by
+            ):
+                raise TaskPlanError("Task-plan dispatch checkpoint changed before retry scheduling")
+            if step.next_dispatch_at == retry_at:
+                updated.append(plan)
+                continue
+            steps[step_index] = replace(step, next_dispatch_at=retry_at)
+            updated.append(replace(plan, steps=tuple(steps)))
+            changed = True
+
+        if not found:
+            raise TaskPlanError("Task plan is unavailable")
+        if changed:
+            self._replace(updated)
+        return changed
+
     def mark_submitted(
         self,
         plan_id: str,
@@ -410,7 +559,9 @@ class TaskPlanStore:
                 raise TaskPlanError("A blocked task-plan step cannot be submitted")
             if any(steps[dependency].task_id is None for dependency in current_step.depends_on):
                 raise TaskPlanError("Task-plan dependencies must be submitted before this step")
-            steps[step_index] = replace(current_step, task_id=canonical_task_id)
+            steps[step_index] = replace(
+                current_step, task_id=canonical_task_id, next_dispatch_at=None
+            )
             updated.append(replace(plan, steps=tuple(steps)))
             changed = True
         if not found:
@@ -460,6 +611,7 @@ class TaskPlanStore:
                 step,
                 blocked_by=normalized_blockers,
                 blocked_reason=normalized_reason,
+                next_dispatch_at=None,
             )
             updated.append(replace(plan, steps=tuple(steps)))
             changed = True
@@ -540,12 +692,23 @@ class TaskPlanStore:
             self._plans = previous
             raise
 
-    def _save(self) -> None:
+    def downgrade_to_v4(self) -> None:
+        """Write a v4-compatible store for a controlled application rollback.
+
+        Pause plan advancement and create a private backup before calling this
+        method. Dispatch-budget counters are intentionally discarded.
+        """
+        self._ensure_loaded()
+        self._save(schema_version=4)
+
+    def _save(self, *, schema_version: int = 5) -> None:
+        if schema_version not in {4, 5}:
+            raise ValueError("Task-plan schema version is unsupported")
         temporary_path: str | None = None
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             payload = {
-                "version": 4,
+                "version": schema_version,
                 "plans": [
                     {
                         "plan_id": plan.plan_id,
@@ -574,6 +737,13 @@ class TaskPlanStore:
                                 "step_id": step.step_id,
                                 "verifies_criteria": list(step.verifies_criteria),
                                 "verification": step.verification,
+                                **(
+                                    {
+                                        "dispatch_attempts": step.dispatch_attempts,
+                                        "next_dispatch_at": step.next_dispatch_at,
+                                    }
+                                    if schema_version >= 5 else {}
+                                ),
                             }
                             for step in plan.steps
                         ],
@@ -931,6 +1101,7 @@ class TaskPlanStore:
             "dependency_failed",
             "dependency_blocked",
             "hub_policy_denied",
+            "dispatch_attempts_exhausted",
         }:
             raise TaskPlanError("Task-plan blocked reason is invalid")
         return value
