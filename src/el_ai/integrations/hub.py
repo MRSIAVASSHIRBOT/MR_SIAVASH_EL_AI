@@ -14,8 +14,8 @@ from uuid import UUID, uuid4
 import httpx
 
 from el_ai.config import _is_render_private_network_url
-from el_ai.integrations.secrets import CredentialStore
 from el_ai.integrations.request_context import current_correlation_id
+from el_ai.integrations.secrets import CredentialStore
 
 
 logger = logging.getLogger("el_ai.hub")
