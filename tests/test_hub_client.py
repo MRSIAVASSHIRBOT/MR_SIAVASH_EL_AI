@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from el_ai.integrations.hub import HubClient, HubClientError, HubNotPairedError
+from el_ai.integrations.request_context import request_correlation_scope
 
 
 @pytest.mark.parametrize(
@@ -1199,8 +1200,44 @@ async def test_video_render_submit_preflight_uses_video_render_scope_route():
 
 
 @pytest.mark.asyncio
+async def test_bridge_correlation_id_is_propagated_without_reusing_request_id():
+    store = MemoryStore()
+    store.save("client-x7-correlation", {
+        "access_token": "correlation-access",
+        "access_expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "refresh_token": "correlation-refresh",
+        "refresh_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "scopes": ["status:read"],
+    })
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"status": "authenticated"})
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-x7-correlation",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    from uuid import UUID, uuid4
+
+    correlation_id = str(uuid4())
+    with request_correlation_scope(correlation_id):
+        await client.status(123456)
+
+    assert len(requests) == 1
+    assert requests[0].headers["X-Correlation-ID"] == correlation_id
+    request_id = requests[0].headers["X-Request-ID"]
+    assert str(UUID(request_id)) == request_id
+    assert request_id != correlation_id
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_pairing_request_carries_a_canonical_request_id():
-    from uuid import UUID
+    from uuid import UUID, uuid4
 
     requests = []
 
@@ -1221,10 +1258,14 @@ async def test_pairing_request_carries_a_canonical_request_id():
         MemoryStore(),
         transport=httpx.MockTransport(handler),
     )
-    await client.pair("one-time-code", 123456)
+    correlation_id = str(uuid4())
+    with request_correlation_scope(correlation_id):
+        await client.pair("one-time-code", 123456)
 
     request_id = requests[0].headers["X-Request-ID"]
     assert str(UUID(request_id)) == request_id
+    assert request_id != correlation_id
+    assert requests[0].headers["X-Correlation-ID"] == correlation_id
     await client.close()
 
 

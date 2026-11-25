@@ -79,3 +79,31 @@ def test_canonical_request_observability_contract_includes_bounded_duration():
     expected = ["request_id", "method", "route_template", "status_code", "duration_ms", "outcome"]
     assert request_id["log_fields"] == expected
     assert request_id["el_ai_log_fields"] == expected
+
+
+def test_bridge_job_correlation_contract_is_bounded_and_diagnostic_only():
+    correlation = _contract()["observability"]["bridge_job_correlation"]
+    assert correlation["status"] == "standardized"
+    assert correlation["header"] == "X-Correlation-ID"
+    assert correlation["source"] == "el_ai_bridge_job_uuid_context"
+    assert correlation["format"] == "canonical_lowercase_uuid"
+    assert correlation["accepted_uuid_versions"] == [1, 2, 3, 4, 5, 6, 7, 8]
+    assert correlation["input_case"] == "lowercase_only"
+    assert correlation["server_fallback"] == "request_id_when_missing_or_invalid"
+    assert correlation["request_state"] == "request.state.correlation_id"
+    assert correlation["response"] == "not_echoed"
+    assert correlation["log_event"] == "http_request_completed"
+    assert correlation["log_fields"] == [
+        "request_id", "correlation_id", "method", "route_template",
+        "status_code", "duration_ms", "outcome",
+    ]
+    assert correlation["el_ai_log_event"] == "hub_request_completed"
+    assert correlation["el_ai_log_fields"] == [
+        "request_id", "correlation_id", "method", "route_template",
+        "status_code", "duration_ms", "outcome",
+    ]
+    assert correlation["authorization_effect"] is False
+    assert correlation["idempotency_effect"] is False
+    assert correlation["ownership_effect"] is False
+
+
