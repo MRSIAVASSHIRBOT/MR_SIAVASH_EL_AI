@@ -221,3 +221,80 @@ async def test_plan_advances_without_telegram_watch_store(tmp_path):
     assert loaded.steps[1].task_id == TASK_B
     assert len(hub.created) == 1
 
+
+
+def _needs_clarification_contract(status: str) -> dict[str, object]:
+    return {
+        "contract_version": "telegram_agent_plan.v1",
+        "planning_status": status,
+        "evaluation_scope": "planning_only",
+        "goal_satisfaction": "not_evaluated",
+        "goal": "Prepare a reviewable proposal",
+        "intent": "Plan only",
+        "scope": "Review proposal",
+        "assumptions": [],
+        "constraints": ["No execution"],
+        "dependencies": [],
+        "required_capabilities": [],
+        "capability_availability": "not_assessed",
+        "authorization_checked": False,
+        "estimated_complexity": "low",
+        "missing_information": ["Target environment is unknown"],
+        "clarification_questions": ["Which target environment should be used?"],
+        "research_required": status == "needs_research",
+        "research_questions": ["Review the target environment requirements"] if status == "needs_research" else [],
+        "risk_class": "low",
+        "risk_class_is_authoritative": False,
+        "acceptance_criteria": [
+            {"criterion_id": "ac_001", "statement": "The proposal is bounded"},
+            {"criterion_id": "ac_002", "statement": "The proposal can be reviewed"},
+        ],
+        "verification_steps": ["Inspect the proposal", "Review the criteria mapping"],
+        "steps": [
+            {
+                "step_id": "prepare",
+                "description": "Prepare bounded inputs",
+                "depends_on": [],
+                "required_capabilities": [],
+                "verifies_criteria": ["ac_001"],
+                "verification": "Inspect the proposal",
+            },
+            {
+                "step_id": "review",
+                "description": "Review proposal coverage",
+                "depends_on": ["prepare"],
+                "required_capabilities": [],
+                "verifies_criteria": ["ac_002"],
+                "verification": "Review the criteria mapping",
+            },
+        ],
+        "execution_ready": False,
+        "execution_started": False,
+        "tools_executed": False,
+        "tasks_created": 0,
+    }
+
+
+async def test_unresolved_versioned_plan_never_advances_in_background_scheduler(tmp_path):
+    for status in ("needs_clarification", "needs_research"):
+        plans = TaskPlanStore(tmp_path / f"{status}.json")
+        hub = FakeHub()
+        plan = plans.create_from_contract(
+            123,
+            "demo.echo",
+            _needs_clarification_contract(status),
+            now=int(time.time()),
+        )
+        # Simulate a persisted checkpoint created before the new readiness gate.
+        # The scheduler must still refuse to dispatch any additional step.
+        assert plans.mark_submitted(plan.plan_id, 123, 0, TASK_A) is True
+        hub.tasks[TASK_A] = {"status": "succeeded"}
+
+        events = await advance_ready_plan_steps(hub, plans, None, {123})
+
+        assert events == ()
+        assert hub.created == []
+        stored = plans.get_for_user(plan.plan_id, 123, now=int(time.time()) + 1)
+        assert stored is not None
+        assert stored.submitted_count == 1
+        assert stored.planning_status == status
