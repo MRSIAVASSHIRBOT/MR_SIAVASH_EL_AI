@@ -51,3 +51,10 @@ Local task-plan storage schema v4 adds:
 The owner-authored goal and full Hub contract are not copied into the local plan file; only the fields needed to review the plan's criteria/step mapping are persisted. Existing v1, v2 and v3 stores migrate to v4 with task IDs, dependencies, blocked checkpoints and pause state preserved. Legacy Hub responses without a versioned contract remain accepted as description-only drafts and do not gain invented criteria.
 
 This is still planning evidence only. The presence of criteria and verification descriptions does not mean they passed. `/taskplanevaluate` remains structural execution-evidence review and always reports `acceptance_criteria_evaluation: not_implemented`. Capability availability and owner/tool authorization remain explicitly unchecked, and no task/tool is executed by `/agentplan`.
+
+
+### Dispatch readiness gate
+
+A versioned preview with `planning_status=needs_clarification` or `needs_research` is stored for owner review but is **not dispatchable**. The owner-facing preview shows the missing information or research questions and does not offer the run command. The explicit `/taskplanrun` handler rejects unresolved contract states; `TaskPlanStore.mark_submitted` independently rejects new task checkpoints for those states; and the background dependency scheduler re-checks readiness before querying task status or dispatching another step. Pausing/resuming cannot override this gate.
+
+Only a versioned plan marked `ready_for_review` may be started through the owner's separate explicit `/taskplanrun PLAN_ID` command. This label means ready for owner review/start, not that any acceptance criterion has passed. Every result remains `goal_satisfaction=not_evaluated` until a separately designed, evidence-backed evaluator exists. Legacy description-only plans retain their historical manual-start behavior for backward compatibility.
