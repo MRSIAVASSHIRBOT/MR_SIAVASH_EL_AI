@@ -94,7 +94,8 @@ async def test_failed_handler_does_not_acknowledge_job_or_log_exception_text(cap
     job = _job()
     client = FakeBridgeClient([job])
 
-    async def handler(_received):
+    async def handler(received):
+        assert current_correlation_id() == received.job_id
         stop.set()
         raise RuntimeError("sensitive owner message must not be logged")
 
@@ -103,6 +104,7 @@ async def test_failed_handler_does_not_acknowledge_job_or_log_exception_text(cap
         await worker.run(stop)
 
     assert client.completed == []
+    assert current_correlation_id() is None
     assert "sensitive owner message" not in caplog.text
     assert "handler failed" in caplog.text
     assert client.closed
@@ -117,7 +119,8 @@ async def test_shutdown_cancels_in_flight_handler_without_acknowledging_lease():
     client = FakeBridgeClient([job])
     metrics = BridgeWorkerMetrics()
 
-    async def handler(_received):
+    async def handler(received):
+        assert current_correlation_id() == received.job_id
         started.set()
         try:
             await asyncio.Event().wait()
@@ -137,6 +140,7 @@ async def test_shutdown_cancels_in_flight_handler_without_acknowledging_lease():
     await asyncio.wait_for(task, timeout=1)
 
     assert cancelled.is_set()
+    assert current_correlation_id() is None
     assert client.completed == []
     assert client.closed
     assert metrics.jobs_claimed == 1
