@@ -1022,6 +1022,11 @@ async def _owner_hub_command(
                 return "شناسه طرح نامعتبر است."
             if plan is None:
                 return "طرح پیدا نشد، منقضی شده یا متعلق به این اتصال ربات نیست."
+            if plan.contract_version and plan.planning_status != "ready_for_review":
+                return (
+                    "این طرح هنوز آمادهٔ اجرا نیست. ابتدا ابهام‌ها یا پژوهش‌های لازم را "
+                    "برطرف کن و یک پیش‌نمایش جدید بساز."
+                )
             if plan.paused:
                 return f"این طرح در حالت مکث است؛ برای ادامهٔ صریح /taskplanresume {plan.plan_id} CONFIRM را بفرست."
             submitted_ids = [step.task_id for step in plan.steps]
