@@ -1,6 +1,6 @@
 # E8 — Task-plan evidence review
 
-Status: implemented as a read-only deterministic evidence check; semantic quality evaluation and automatic correction remain out of scope.
+Status: E8 is partial. Read-only task-result and criterion-to-step execution-coverage evidence are implemented; semantic goal evaluation and automatic correction are not implemented.
 
 ## Command
 
@@ -20,7 +20,7 @@ Task outcomes are classified as:
 - `not_submitted`: the owner has not submitted this plan step.
 - `unknown`: task/result retrieval failed or returned an unsupported status.
 
-Plan summaries are `evidence_complete`, `needs_attention`, `insufficient_evidence`, `unknown`, or `in_progress`. Every report explicitly identifies its scope as `tool_execution_only`, returns `goal_satisfaction: not_evaluated`, and marks `acceptance_criteria_evaluation: not_implemented`. A successful task status alone is never treated as result evidence.
+Plan summaries are `evidence_complete`, `needs_attention`, `insufficient_evidence`, `unknown`, or `in_progress`. Every report identifies its scope as `tool_execution_only` and returns `goal_satisfaction: not_evaluated`. Legacy plans without versioned acceptance criteria report `acceptance_criteria_evaluation: not_implemented`; `telegram_agent_plan.v1` plans report `execution_coverage_only` and a criterion-to-step execution-coverage status. Neither value is a semantic judgement that the goal or criterion was satisfied. A successful task status alone is never treated as result evidence.
 
 ## Safety and limits
 
@@ -42,15 +42,15 @@ Live Telegram/Hub runtime acceptance remains a separate release gate.
 
 The owner-scoped `/agentplan` preview can now consume the Hub's typed `telegram_agent_plan.v1` response. EL_AI validates the contract version, planning-only flags, bounded acceptance-criterion IDs/statements, step IDs, earlier-step dependency references, criterion coverage, and the legacy description projection before persisting it.
 
-Local task-plan storage schema v4 adds:
+Local task-plan storage schema v4 added:
 - the source contract version and planning status;
 - bounded acceptance criteria and verification steps;
 - each step's stable step ID, criterion references and verification text;
 - explicit defaults `goal_satisfaction: not_evaluated`, `capability_availability: not_assessed`, and `authorization_checked: false`.
 
-The owner-authored goal and full Hub contract are not copied into the local plan file; only the fields needed to review the plan's criteria/step mapping are persisted. Existing v1, v2 and v3 stores migrate to v4 with task IDs, dependencies, blocked checkpoints and pause state preserved. Legacy Hub responses without a versioned contract remain accepted as description-only drafts and do not gain invented criteria.
+Schema v5 adds bounded per-step dispatch retry checkpoints: `dispatch_attempts` and timezone-aware `next_dispatch_at`. The owner-authored goal and full Hub contract are not copied into the local plan file; only the fields needed to review the plan's criteria/step mapping and dispatch checkpoint are persisted. Existing v1–v4 stores migrate to v5 with task IDs, dependencies, blocked checkpoints, pause state and existing criteria mappings preserved; legacy fields gain safe dispatch defaults. Legacy Hub responses without a versioned contract remain accepted as description-only drafts and do not gain invented criteria.
 
-This is still planning evidence only. The presence of criteria and verification descriptions does not mean they passed. `/taskplanevaluate` remains structural execution-evidence review and always reports `acceptance_criteria_evaluation: not_implemented`. Capability availability and owner/tool authorization remain explicitly unchecked, and no task/tool is executed by `/agentplan`.
+This is still planning evidence only. The presence of criteria and verification descriptions does not mean they passed. For a v1 contract plan, `/taskplanevaluate` reports `acceptance_criteria_evaluation: execution_coverage_only`: it shows whether every mapped step has a valid terminal result envelope, not whether that result semantically satisfies the criterion. For legacy plans without criteria it reports `not_implemented`. Both paths keep `goal_satisfaction: not_evaluated`. Capability availability and owner/tool authorization remain explicitly unchecked, and no task/tool is executed by `/agentplan`.
 
 
 ### Dispatch readiness gate
