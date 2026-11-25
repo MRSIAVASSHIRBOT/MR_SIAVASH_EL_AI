@@ -1,7 +1,12 @@
 import pytest
 
 from el_ai.integrations.hub import HubClientError
-from el_ai.telegram.task_plan import TaskPlanStore
+from el_ai.telegram.task_plan import (
+    TaskPlan,
+    TaskPlanAcceptanceCriterion,
+    TaskPlanStep,
+    TaskPlanStore,
+)
 from el_ai.telegram.task_plan_evaluation import evaluate_task_plan_evidence
 
 
@@ -51,6 +56,47 @@ def _plan(tmp_path, descriptions=("collect", "publish"), dependencies=None):
     )
 
 
+def _contract_plan():
+    """Build a versioned plan with overlapping criterion-to-step mappings."""
+    return TaskPlan(
+        plan_id="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        telegram_user_id=OWNER_ID,
+        task_type="demo.echo",
+        created_at=100,
+        steps=(
+            TaskPlanStep(
+                description="collect",
+                task_id=TASK_A,
+                step_id="collect",
+                verifies_criteria=("ac_001",),
+                verification="Inspect the collected input",
+            ),
+            TaskPlanStep(
+                description="review",
+                task_id=TASK_B,
+                step_id="review",
+                verifies_criteria=("ac_001", "ac_002"),
+                verification="Check the review record",
+            ),
+        ),
+        contract_version="telegram_agent_plan.v1",
+        evaluation_scope="planning_only",
+        planning_status="ready_for_review",
+        acceptance_criteria=(
+            TaskPlanAcceptanceCriterion(
+                "ac_001", "Private criterion statement must not be returned"
+            ),
+            TaskPlanAcceptanceCriterion(
+                "ac_002", "Another private criterion statement must not be returned"
+            ),
+        ),
+        verification_steps=(
+            "Inspect the collected input",
+            "Check the review record",
+        ),
+    )
+
+
 @pytest.mark.asyncio
 async def test_plan_evidence_is_complete_only_when_every_success_has_a_valid_result(tmp_path):
     plan = _plan(tmp_path)
@@ -70,6 +116,7 @@ async def test_plan_evidence_is_complete_only_when_every_success_has_a_valid_res
     assert rendered["evaluation_scope"] == "tool_execution_only"
     assert rendered["goal_satisfaction"] == "not_evaluated"
     assert rendered["acceptance_criteria_evaluation"] == "not_implemented"
+    assert rendered["acceptance_criteria_coverage_status"] == "not_applicable"
     assert rendered["read_only"] is True
     assert rendered["automatic_retry"] is False
     assert rendered["automatic_correction"] is False
@@ -78,6 +125,111 @@ async def test_plan_evidence_is_complete_only_when_every_success_has_a_valid_res
     assert rendered["steps"][0]["attempt_count"] == 1
     assert "private result text" not in str(rendered)
     assert hub.result_reads == [TASK_A, TASK_B]
+
+
+@pytest.mark.asyncio
+async def test_versioned_plan_reports_execution_coverage_without_claiming_goal_satisfaction():
+    plan = _contract_plan()
+    hub = FakeHub(
+        tasks={TASK_A: {"status": "succeeded"}, TASK_B: {"status": "succeeded"}},
+        results={TASK_A: _result_payload(), TASK_B: _result_payload()},
+    )
+
+    rendered = (
+        await evaluate_task_plan_evidence(hub, OWNER_ID, plan)
+    ).as_dict()
+
+    assert rendered["acceptance_criteria_evaluation"] == "execution_coverage_only"
+    assert rendered["acceptance_criteria_coverage_status"] == "execution_coverage_complete"
+    assert rendered["acceptance_criteria_count"] == 2
+    assert rendered["acceptance_criteria_with_execution_evidence"] == 2
+    assert rendered["acceptance_criteria"] == [
+        {
+            "criterion_id": "ac_001",
+            "evidence_status": "execution_evidence_available",
+            "steps": [1, 2],
+        },
+        {
+            "criterion_id": "ac_002",
+            "evidence_status": "execution_evidence_available",
+            "steps": [2],
+        },
+    ]
+    assert rendered["goal_satisfaction"] == "not_evaluated"
+    assert "Private criterion statement" not in str(rendered)
+    assert "private result text" not in str(rendered)
+    assert rendered["read_only"] is True
+    assert rendered["automatic_retry"] is False
+    assert rendered["automatic_correction"] is False
+
+
+@pytest.mark.asyncio
+async def test_criterion_execution_coverage_requires_every_mapped_result():
+    plan = _contract_plan()
+    malformed = _result_payload() | {"attempt_count": True}
+    hub = FakeHub(
+        tasks={TASK_A: {"status": "succeeded"}, TASK_B: {"status": "succeeded"}},
+        results={TASK_A: _result_payload(), TASK_B: malformed},
+    )
+
+    rendered = (
+        await evaluate_task_plan_evidence(hub, OWNER_ID, plan)
+    ).as_dict()
+
+    assert rendered["acceptance_criteria_coverage_status"] == "insufficient_evidence"
+    assert rendered["acceptance_criteria"][0]["evidence_status"] == "insufficient_evidence"
+    assert rendered["acceptance_criteria"][1]["evidence_status"] == "insufficient_evidence"
+    assert rendered["acceptance_criteria_with_execution_evidence"] == 0
+    assert rendered["goal_satisfaction"] == "not_evaluated"
+
+
+@pytest.mark.asyncio
+async def test_failed_mapped_step_requires_attention_for_each_affected_criterion():
+    plan = _contract_plan()
+    hub = FakeHub(
+        tasks={TASK_A: {"status": "succeeded"}, TASK_B: {"status": "failed"}},
+        results={TASK_A: _result_payload()},
+    )
+
+    rendered = (
+        await evaluate_task_plan_evidence(hub, OWNER_ID, plan)
+    ).as_dict()
+
+    assert rendered["acceptance_criteria_coverage_status"] == "needs_attention"
+    assert [item["evidence_status"] for item in rendered["acceptance_criteria"]] == [
+        "needs_attention", "needs_attention"
+    ]
+    assert rendered["goal_satisfaction"] == "not_evaluated"
+
+
+@pytest.mark.asyncio
+async def test_unknown_or_pending_mapped_step_never_becomes_criterion_success():
+    unknown_plan = _contract_plan()
+    unknown_hub = FakeHub(
+        tasks={TASK_A: {"status": "succeeded"}},
+        results={TASK_A: _result_payload()},
+        errors={TASK_B: HubClientError("temporarily unavailable", status_code=503)},
+    )
+    unknown = (
+        await evaluate_task_plan_evidence(unknown_hub, OWNER_ID, unknown_plan)
+    ).as_dict()
+    assert unknown["acceptance_criteria_coverage_status"] == "unknown"
+    assert [item["evidence_status"] for item in unknown["acceptance_criteria"]] == [
+        "unknown", "unknown"
+    ]
+
+    pending_plan = _contract_plan()
+    pending_hub = FakeHub(
+        tasks={TASK_A: {"status": "succeeded"}, TASK_B: {"status": "running"}},
+        results={TASK_A: _result_payload()},
+    )
+    pending = (
+        await evaluate_task_plan_evidence(pending_hub, OWNER_ID, pending_plan)
+    ).as_dict()
+    assert pending["acceptance_criteria_coverage_status"] == "in_progress"
+    assert [item["evidence_status"] for item in pending["acceptance_criteria"]] == [
+        "in_progress", "in_progress"
+    ]
 
 
 @pytest.mark.asyncio
