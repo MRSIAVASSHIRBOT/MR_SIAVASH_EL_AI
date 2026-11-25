@@ -188,13 +188,32 @@ class TaskPlanStore:
                         raise TaskPlanError("Stored blocked task-plan step has no reason")
                     if blocked_reason and task_id is not None:
                         raise TaskPlanError("A submitted task-plan step cannot be blocked")
+                    normalized_step_id, normalized_coverage, normalized_verification = (
+                        self._validate_step_contract_fields(
+                            step_id, verifies_criteria, verification
+                        )
+                    )
                     steps.append(TaskPlanStep(
                         description, task_id, dependencies, blocked_by, blocked_reason,
-                        step_id, tuple(verifies_criteria) if isinstance(verifies_criteria, list) else (),
-                        verification,
+                        normalized_step_id, normalized_coverage, normalized_verification,
                     ))
             except ValueError as exc:
                 raise TaskPlanError("Stored Telegram task-plan entry is invalid") from exc
+            acceptance_criteria = self._validate_acceptance_criteria(raw_criteria)
+            verification_steps = self._validate_verification_steps(
+                raw_verification_steps, allow_empty=True
+            )
+            self._validate_stored_plan_contract(
+                contract_version=contract_version,
+                evaluation_scope=evaluation_scope,
+                planning_status=planning_status,
+                acceptance_criteria=acceptance_criteria,
+                verification_steps=verification_steps,
+                goal_satisfaction=goal_satisfaction,
+                capability_availability=capability_availability,
+                authorization_checked=authorization_checked,
+                steps=tuple(steps),
+            )
             if plan_id in seen:
                 raise TaskPlanError("Stored Telegram task plans are duplicated")
             seen.add(plan_id)
@@ -208,8 +227,8 @@ class TaskPlanStore:
                 contract_version=contract_version,
                 evaluation_scope=evaluation_scope,
                 planning_status=planning_status,
-                acceptance_criteria=self._validate_acceptance_criteria(raw_criteria),
-                verification_steps=self._validate_verification_steps(raw_verification_steps, allow_empty=True),
+                acceptance_criteria=acceptance_criteria,
+                verification_steps=verification_steps,
                 goal_satisfaction=goal_satisfaction,
                 capability_availability=capability_availability,
                 authorization_checked=authorization_checked,
