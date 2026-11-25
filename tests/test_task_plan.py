@@ -524,7 +524,7 @@ def test_task_plan_store_migrates_v3_to_v4_without_losing_pause_or_checkpoint(tm
 def test_task_plan_store_rejects_tampered_v4_contract_state(tmp_path):
     path = tmp_path / "task-plans-tampered.json"
     store = TaskPlanStore(path)
-    plan = store.create_from_contract(
+    store.create_from_contract(
         123, "demo.echo", _telegram_agent_plan_contract(), now=100
     )
     payload = json.loads(path.read_text(encoding="utf-8"))
