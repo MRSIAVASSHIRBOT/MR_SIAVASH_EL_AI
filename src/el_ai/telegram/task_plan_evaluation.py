@@ -56,6 +56,9 @@ class PlanEvidenceReport:
     def as_dict(self) -> dict[str, object]:
         return {
             "engine": "deterministic_task_plan_evidence_v1",
+            "evaluation_scope": "tool_execution_only",
+            "goal_satisfaction": "not_evaluated",
+            "acceptance_criteria_evaluation": "not_implemented",
             "status": self.status,
             "read_only": True,
             "automatic_retry": False,

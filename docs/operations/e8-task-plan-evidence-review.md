@@ -20,7 +20,7 @@ Task outcomes are classified as:
 - `not_submitted`: the owner has not submitted this plan step.
 - `unknown`: task/result retrieval failed or returned an unsupported status.
 
-Plan summaries are `evidence_complete`, `needs_attention`, `insufficient_evidence`, `unknown`, or `in_progress`. A successful task status alone is never treated as result evidence.
+Plan summaries are `evidence_complete`, `needs_attention`, `insufficient_evidence`, `unknown`, or `in_progress`. Every report explicitly identifies its scope as `tool_execution_only`, returns `goal_satisfaction: not_evaluated`, and marks `acceptance_criteria_evaluation: not_implemented`. A successful task status alone is never treated as result evidence.
 
 ## Safety and limits
 
@@ -28,7 +28,7 @@ Plan summaries are `evidence_complete`, `needs_attention`, `insufficient_evidenc
 - The evaluator does not return result payloads, task descriptions, private context, or credentials.
 - It never creates, retries, cancels, resumes, or modifies a task or plan.
 - Each evaluation is a point-in-time snapshot; it is not persisted as an authoritative verdict.
-- A structurally valid result envelope proves that a result is available, not that its semantic content satisfies a goal. Semantic evaluation against explicit acceptance criteria remains a future E8 capability.
+- A structurally valid result envelope proves that a result is available, not that its semantic content satisfies a goal. The report must never be presented as goal completion or acceptance-criteria success. Semantic evaluation against explicit, versioned acceptance criteria and independently verifiable evidence remains a future E8 capability.
 - Unknown or missing evidence must be reviewed; it must not trigger automatic retries or self-modification.
 
 ## Verification
