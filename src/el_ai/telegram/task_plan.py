@@ -720,11 +720,14 @@ class TaskPlanStore:
         if not isinstance(contract.get("research_required"), bool):
             raise TaskPlanError("Hub research flag is invalid")
         for key, limit in {
-            "goal": 1_000, "intent": 500, "scope": 1_000, "risk_class": 32,
+            "goal": 1_000, "intent": 500, "risk_class": 32,
         }.items():
             value = contract.get(key)
             if not isinstance(value, str) or not value.strip() or len(value) > limit:
                 raise TaskPlanError("Hub plan contract text field is invalid")
+        scope = contract.get("scope")
+        if not isinstance(scope, str) or len(scope) > 1_000:
+            raise TaskPlanError("Hub plan contract scope is invalid")
         for key, limit in {
             "assumptions": 12, "constraints": 20, "dependencies": 20,
             "required_capabilities": 20, "missing_information": 12,
