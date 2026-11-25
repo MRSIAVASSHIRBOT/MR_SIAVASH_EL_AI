@@ -288,7 +288,7 @@ def test_task_plan_store_migrates_v2_to_v4_with_pause_disabled(tmp_path):
     assert loaded is not None
     assert loaded.paused is False
     migrated = json.loads(path.read_text(encoding="utf-8"))
-    assert migrated["version"] == 3
+    assert migrated["version"] == 4
     assert migrated["plans"][0]["paused"] is False
 
 
@@ -471,11 +471,16 @@ def test_task_plan_store_rejects_unsafe_or_inconsistent_contracts(tmp_path, muta
 
 def test_task_plan_store_rejects_contract_when_legacy_steps_do_not_match(tmp_path):
     contract = _telegram_agent_plan_contract()
-    contract["steps"][0]["description"] = "Different step"
     store = TaskPlanStore(tmp_path / "task-plans-mismatch.json")
 
     with pytest.raises(TaskPlanError, match="do not match"):
-        store.create_from_contract(123, "demo.echo", contract, now=100)
+        store.create(
+            123,
+            "demo.echo",
+            ["Different step", "Review plan coverage"],
+            now=100,
+            plan_contract=contract,
+        )
 
     assert store.list_for_user(123, now=100) == ()
 
