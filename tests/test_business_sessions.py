@@ -283,17 +283,52 @@ def test_business_session_store_rejects_same_session_with_different_customer_ide
 def test_business_session_duplicate_message_is_idempotent(tmp_path):
     _registry, actor, store = make_store(tmp_path)
     assert store.append_message(
-        actor, role="customer", message_id=77, content="same", now=100
+        actor, role="customer", message_id=actor.message_id, content="same", now=100
     )
     assert not store.append_message(
-        actor, role="customer", message_id=77, content="different", now=101
+        actor, role="customer", message_id=actor.message_id, content="different", now=101
     )
     assert [item.content for item in store.read_history(actor, now=102)] == ["same"]
 
 
+def test_customer_message_id_must_match_the_resolved_actor(tmp_path):
+    _registry, actor, store = make_store(tmp_path)
+    with pytest.raises(BusinessSessionAuthorizationError):
+        store.append_message(
+            actor,
+            role="customer",
+            message_id=actor.message_id + 1,
+            content="spoofed id",
+            now=100,
+        )
+
+
 def test_business_session_history_is_bounded_by_message_count(tmp_path):
-    _registry, actor, store = make_store(tmp_path, max_messages=2)
-    for message_id in (1, 2, 3):
+    registry = BusinessConnectionStore(tmp_path / "registry" / "connections.json")
+    store = BusinessConversationStore(
+        tmp_path / "business-private" / "sessions.json",
+        b"k" * 32,
+        registry,
+        max_messages_per_session=2,
+    )
+    actors = [
+        make_actor(
+            registry,
+            connection_update_id=1,
+            message_update_id=2,
+        ),
+        make_actor(
+            registry,
+            connection_update_id=3,
+            message_update_id=4,
+        ),
+        make_actor(
+            registry,
+            connection_update_id=5,
+            message_update_id=6,
+        ),
+    ]
+    for actor, message_id in zip(actors, (2, 4, 6), strict=True):
         store.append_message(
             actor,
             role="customer",
@@ -302,9 +337,9 @@ def test_business_session_history_is_bounded_by_message_count(tmp_path):
             now=100 + message_id,
         )
 
-    assert [item.content for item in store.read_history(actor, now=104)] == [
-        "message-2",
-        "message-3",
+    assert [item.content for item in store.read_history(actors[-1], now=107)] == [
+        "message-4",
+        "message-6",
     ]
 
 
