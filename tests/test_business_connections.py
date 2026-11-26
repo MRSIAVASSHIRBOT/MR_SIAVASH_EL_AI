@@ -150,6 +150,19 @@ def test_registry_replaces_the_complete_rights_snapshot_and_ignores_stale_update
     assert dict(updated.rights) == {"can_read_messages": True}
 
 
+def test_registry_accepts_zero_as_a_valid_telegram_update_id(tmp_path):
+    path = tmp_path / "business.json"
+    store = BusinessConnectionStore(path)
+    connection = store.update_from_event(
+        connection_event(),
+        owner_ids=frozenset({123}),
+        update_id=0,
+        now=100,
+    )
+    assert connection.last_update_id == 0
+    assert BusinessConnectionStore(path).get("biz-connection-1") == connection
+
+
 def test_duplicate_update_id_is_idempotent_even_when_payload_differs(tmp_path):
     path = tmp_path / "business.json"
     store = BusinessConnectionStore(path)
