@@ -51,6 +51,53 @@ async def test_send_message_enforces_telegram_utf16_limit():
     await api.close()
 
 
+@pytest.mark.asyncio
+async def test_send_message_rejects_unpaired_surrogates_before_network_io():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(200, json={"ok": True, "result": True})
+
+    api = TelegramBotAPI(
+        "123:abcdefghijklmnop",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(ValueError, match="invalid Unicode"):
+        await api.send_message(900, "bad " + chr(0xD800))
+    assert calls == []
+    await api.close()
+
+
+def test_split_telegram_message_rejects_unpaired_surrogates():
+    with pytest.raises(ValueError, match="invalid Unicode"):
+        split_telegram_message("bad " + chr(0xD800))
+
+
+@pytest.mark.asyncio
+async def test_send_video_rejects_invalid_unicode_caption_before_network_io():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(200, json={"ok": True, "result": True})
+
+    api = TelegramBotAPI(
+        "123:abcdefghijklmnop",
+        transport=httpx.MockTransport(handler),
+    )
+    video = bytes((0, 0, 0, 24)) + b"ftypisom"
+    with pytest.raises(ValueError, match="invalid Unicode"):
+        await api.send_video(
+            900,
+            video,
+            filename="video.mp4",
+            caption=chr(0xD800),
+        )
+    assert calls == []
+    await api.close()
+
+
 def test_split_telegram_message_preserves_text_and_respects_utf16_limit():
     text = "پاسخ ✨ 😀 " * 1200
 
