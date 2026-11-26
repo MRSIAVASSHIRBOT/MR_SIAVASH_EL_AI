@@ -31,6 +31,7 @@ from el_ai.telegram.api import TelegramAPIError, TelegramBotAPI, split_telegram_
 from el_ai.telegram.bridge import BridgeJob, TelegramBridgeClient
 from el_ai.telegram.bridge_worker import TelegramBridgeWorker
 from el_ai.telegram.cursor import UpdateCursor, UpdateCursorError
+from el_ai.telegram.delivery import DeliveryStore, DeliveryStoreError, send_update_response
 from el_ai.telegram.router import MessageRouter
 from el_ai.telegram.task_plan import TaskPlanError, TaskPlanStore
 from el_ai.telegram.task_plan_orchestrator import advance_ready_plan_steps
@@ -1906,6 +1907,12 @@ async def run(settings: Settings) -> None:
     except InstanceIdentityError as exc:
         raise SystemExit(str(exc)) from exc
 
+    delivery_store = DeliveryStore(settings.state_dir / "telegram-delivery.sqlite3")
+    try:
+        delivery_store.initialize()
+    except DeliveryStoreError as exc:
+        raise SystemExit("Stored Telegram delivery state is invalid or inaccessible") from exc
+
     cursor = UpdateCursor(settings.state_dir / "telegram-update-offset.json")
     try:
         offset = cursor.load()
@@ -2083,17 +2090,21 @@ async def run(settings: Settings) -> None:
                             response = "پرسش عمومی باید بین ۱ تا ۱۲۰۰ نویسه باشد."
                         except SiteGatewayError:
                             response = "دستیار عمومی سایت فعلاً در دسترس نیست؛ کمی بعد دوباره تلاش کن."
-                    try:
-                        await _send_response(api, chat_id, response)
-                    except TelegramAPIError:
+                    delivery_outcome = await send_update_response(
+                        api,
+                        delivery_store,
+                        update_id=update_id,
+                        chat_id=chat_id,
+                        response=response,
+                    )
+                    if delivery_outcome == "quarantined":
                         LOGGER.warning(
-                            "Telegram reply failed or has unknown outcome; update=%s",
+                            "Telegram reply delivery was quarantined; no automatic resend; update=%s",
                             update_id,
                         )
-                        raise
                     else:
                         metrics.record_reply()
-                        offset = _advance_update_cursor(cursor, offset, update_id)
+                    offset = _advance_update_cursor(cursor, offset, update_id)
                 if (
                     hub is not None
                     and settings.hub_integration_enabled
