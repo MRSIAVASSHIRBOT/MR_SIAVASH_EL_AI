@@ -4,7 +4,7 @@
 **Contract:** telegram-business-event.v1  
 **Owner:** MR_SIAVASH_EL_AI  
 **Source protocol:** Telegram Bot API 10.5, reviewed 2026-11-26  
-**Implementation status:** Parser, JSON Schema, local connection registry and read-only customer actor resolution are implemented. Business reply execution, automatic model handling and production delivery are not.
+**Implementation status:** Parser, JSON Schema, local connection registry and a tested non-runtime event processor are implemented. Runtime polling/Bridge integration, Business reply execution, automatic model handling and production delivery are not.
 
 ## Scope
 
@@ -19,7 +19,7 @@ The contract files are:
 - contracts/telegram-business/v1/manifest.json
 - contracts/telegram-business/v1/update.schema.json
 
-The Python parser is src/el_ai/telegram/updates.py.
+The Python parser is src/el_ai/telegram/updates.py. The owner-bound registry is src/el_ai/telegram/business_connections.py; the isolated processor is src/el_ai/telegram/business_processor.py.
 
 ## Trust and actor rules
 
@@ -46,9 +46,10 @@ Malformed Business events retain the Telegram update_id and a stable ignored_rea
 
 ## Explicit non-goals for v1
 
-This parser/schema does not:
+This parser, registry and processor do not:
 - reply to a Business customer;
-- activate automatic Business event consumption from Telegram;
+- wire Business event processing into the active polling or Cloudflare Bridge loop;
+- activate Business Update subscriptions from Telegram;
 - call getBusinessConnection;
 - create a customer-facing Agent session;
 - call the public Website Gateway or private Hub;
@@ -58,7 +59,7 @@ This parser/schema does not:
 
 ## Next acceptance gates
 
-1. Integrate the parser and local registry into a separate Business event handler without enabling Telegram Business subscriptions yet.
+1. Wire the tested processor into the local polling update loop for Business event types while keeping the existing allowed_updates list unchanged.
 2. Add per-connection/per-chat isolated customer session state and explicit owner-configured Business capabilities; keep the default capability set empty.
 3. Define bounded attachment references and a reviewed media-processing policy.
 4. Extend the edge queue with a distinct Business event envelope, durable idempotency and revocation-safe delivery.
