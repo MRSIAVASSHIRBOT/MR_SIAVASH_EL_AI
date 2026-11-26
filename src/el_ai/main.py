@@ -22,8 +22,11 @@ from el_ai.integrations.secrets import KeyringCredentialStore, build_credential_
 from el_ai.integrations.site_gateway import SiteGatewayClient, SiteGatewayError
 from el_ai.observability import RuntimeMetrics
 from el_ai.telegram.access import AccessController
-from el_ai.telegram.business_connections import BusinessConnectionError, BusinessConnectionStore
-from el_ai.telegram.business_processor import BusinessEventProcessor
+from el_ai.telegram.business_connections import (
+    BusinessConnectionError,
+    BusinessConnectionStore,
+)
+from el_ai.telegram.business_processor import BusinessEventProcessor, BusinessEventResult
 from el_ai.telegram.api import TelegramAPIError, TelegramBotAPI, split_telegram_message
 from el_ai.telegram.bridge import BridgeJob, TelegramBridgeClient
 from el_ai.telegram.bridge_worker import TelegramBridgeWorker
@@ -94,7 +97,7 @@ def _advance_update_cursor(
 def _process_business_update(
     update: ParsedTelegramUpdate,
     processor: BusinessEventProcessor,
-):
+) -> BusinessEventResult | None:
     """Dispatch only the separately normalized Business event, never a regular message."""
     if update.business_event is None:
         return None
