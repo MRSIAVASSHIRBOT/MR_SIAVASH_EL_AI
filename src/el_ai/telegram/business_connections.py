@@ -91,6 +91,10 @@ def _positive_int(value: object, maximum: int = MAX_TELEGRAM_ID) -> bool:
     return _is_int(value) and 0 < value <= maximum
 
 
+def _non_negative_int(value: object, maximum: int = MAX_TELEGRAM_ID) -> bool:
+    return _is_int(value) and 0 <= value <= maximum
+
+
 def _timestamp(value: object, allow_zero: bool = False) -> bool:
     minimum = 0 if allow_zero else 1
     return _is_int(value) and minimum <= value <= MAX_TELEGRAM_ID
@@ -176,7 +180,7 @@ class BusinessConnectionStore:
     ) -> BusinessConnection:
         """Persist one validated business_connection event owned by a configured user."""
         with self._lock:
-            if not _positive_int(update_id):
+            if not _non_negative_int(update_id):
                 raise BusinessConnectionError("Telegram update ID is invalid")
             current_time = int(time.time()) if now is None else now
             if not _timestamp(current_time):
@@ -318,7 +322,7 @@ class BusinessConnectionStore:
         self._connections = connections
         try:
             self._save()
-        except BusinessConnectionError:
+        except Exception:
             self._connections = previous
             raise
 
@@ -468,7 +472,7 @@ class BusinessConnectionStore:
                 or not _positive_int(item["user_chat_id"], MAX_TELEGRAM_SAFE_INTEGER)
                 or not _timestamp(item["connected_at"])
                 or not _timestamp(item["updated_at"], allow_zero=True)
-                or not _positive_int(item["last_update_id"])
+                or not _non_negative_int(item["last_update_id"])
                 or not isinstance(item["is_enabled"], bool)
                 or not isinstance(rights, dict)
                 or set(rights) - BUSINESS_RIGHTS
