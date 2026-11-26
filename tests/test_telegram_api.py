@@ -88,7 +88,7 @@ async def test_send_video_rejects_invalid_unicode_caption_before_network_io():
     )
     with pytest.raises(ValueError, match="invalid Unicode"):
         await api.send_video(
-            900, b"\\x00\\x00\\x00\\x18ftypisom",
+    video = bytes((0, 0, 0, 24)) + b"ftypisom"
             filename="video.mp4",
             caption=chr(0xD800),
         )
@@ -208,7 +208,7 @@ async def test_send_video_uses_bounded_multipart_upload_and_sanitizes_failures()
         transport=httpx.MockTransport(handler),
     )
     result = await api.send_video(
-        900,
+            900, video,
         mp4,
         filename="render-123.mp4",
         caption="رندر محلی",
