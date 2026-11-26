@@ -115,6 +115,21 @@ def _business_message(**overrides):
     return value
 
 
+def test_business_connection_null_rights_are_treated_as_no_grants():
+    parsed = parse_telegram_update({
+        "update_id": 112,
+        "business_connection": {
+            "id": "connection-123",
+            "user": {"id": 200},
+            "user_chat_id": 200,
+            "date": 1_800_000_000,
+            "is_enabled": True,
+            "rights": None,
+        },
+    })
+    assert parsed.business_event["rights"] == {}
+
+
 def test_business_connection_is_normalized_with_only_known_rights():
     parsed = parse_telegram_update({
         "update_id": 100,
