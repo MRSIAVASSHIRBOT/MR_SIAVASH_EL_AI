@@ -2000,10 +2000,15 @@ async def run(settings: Settings) -> None:
                             raise TelegramAPIError(
                                 "Telegram Business state could not be stored"
                             ) from None
-                        if business_result.status in {"ignored", "rejected"}:
+                        if business_result.status in {
+                            "ignored",
+                            "rejected",
+                            "customer_context_resolved",
+                        }:
                             metrics.record_ignored_update()
                         LOGGER.info(
-                            "Telegram Business update processed: event=%s outcome=%s",
+                            "Telegram Business update processed without customer reply: "
+                            "event=%s outcome=%s",
                             business_result.event_type,
                             business_result.status,
                         )
