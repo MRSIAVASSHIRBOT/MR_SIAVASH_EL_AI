@@ -442,3 +442,73 @@ def test_actor_resolution_rejects_invalid_shapes_and_bot_flag_types(tmp_path):
     assert store.resolve_customer_actor(invalid) is None
     assert store.resolve_customer_actor({"event_type": "business_message"}) is None
     assert store.resolve_customer_actor(None) is None
+
+
+def test_parser_connection_and_message_feed_owner_bound_registry(tmp_path):
+    from el_ai.telegram.updates import parse_telegram_update
+
+    store = BusinessConnectionStore(tmp_path / "business.json")
+    parsed_connection = parse_telegram_update({
+        "update_id": 201,
+        "business_connection": {
+            "id": "biz-connection-1",
+            "user": {"id": 123},
+            "user_chat_id": 123,
+            "date": 1_800_000_000,
+            "is_enabled": True,
+            "rights": {"can_read_messages": True, "can_reply": True},
+        },
+    })
+    assert parsed_connection.business_event is not None
+    store.update_from_event(
+        parsed_connection.business_event,
+        owner_ids=frozenset({123}),
+        update_id=parsed_connection.update_id,
+        now=1_800_000_010,
+    )
+
+    parsed_message = parse_telegram_update({
+        "update_id": 202,
+        "business_message": {
+            "business_connection_id": "biz-connection-1",
+            "message_id": 77,
+            "date": 1_800_000_010,
+            "chat": {"id": 456, "type": "private"},
+            "from": {"id": 456, "is_bot": False},
+            "is_from_business_account": False,
+            "text": "سلام",
+        },
+    })
+    assert parsed_message.business_event is not None
+    actor = store.resolve_customer_actor(parsed_message.business_event)
+
+    assert actor is not None
+    assert actor.customer_user_id == 456
+    assert actor.connection_id == "biz-connection-1"
+    assert actor.capabilities == ()
+
+
+def test_parser_direction_flag_prevents_business_outbound_message_from_becoming_customer_actor(tmp_path):
+    from el_ai.telegram.updates import parse_telegram_update
+
+    store = BusinessConnectionStore(tmp_path / "business.json")
+    store.update_from_event(
+        connection_event(),
+        owner_ids=frozenset({123}),
+        update_id=1,
+        now=100,
+    )
+    parsed = parse_telegram_update({
+        "update_id": 2,
+        "business_message": {
+            "business_connection_id": "biz-connection-1",
+            "message_id": 78,
+            "date": 1_800_000_010,
+            "chat": {"id": 456, "type": "private"},
+            "from": {"id": 456, "is_bot": False},
+            "is_from_business_account": True,
+            "text": "پیام ارسال‌شده توسط حساب تجاری",
+        },
+    })
+    assert parsed.business_event is not None
+    assert store.resolve_customer_actor(parsed.business_event) is None
