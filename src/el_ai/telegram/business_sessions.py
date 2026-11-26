@@ -232,10 +232,8 @@ class BusinessConversationStore:
         self._assert_current_connection(actor, identity)
         if not isinstance(role, str) or role not in _ALLOWED_ROLES:
             raise ValueError("Business session message role is invalid")
-        if role == "assistant" and not actor.can_reply:
-            raise BusinessSessionAuthorizationError(
-                "Business connection does not currently allow replies"
-            )
+        if role == "assistant":
+            self._assert_current_reply_permission(actor, identity)
         if (
             isinstance(message_id, bool)
             or not isinstance(message_id, int)
@@ -595,13 +593,25 @@ class BusinessConversationStore:
     ) -> None:
         self._assert_owner_binding(actor, identity)
         connection = self._connection_store.get(actor.connection_id)
-        if (
-            not connection.is_enabled
-            or not connection.can_read_messages
-            or (actor.can_reply and not connection.can_reply)
-        ):
+        if not connection.is_enabled or not connection.can_read_messages:
             raise BusinessSessionAuthorizationError(
-                "Business connection or customer permissions are no longer valid"
+                "Business connection or read permission is no longer valid"
+            )
+
+    def _assert_current_reply_permission(
+        self,
+        actor: BusinessActorContext,
+        identity: dict[str, object],
+    ) -> None:
+        if not actor.can_reply:
+            raise BusinessSessionAuthorizationError(
+                "Business actor context does not permit replies"
+            )
+        self._assert_current_connection(actor, identity)
+        connection = self._connection_store.get(actor.connection_id)
+        if connection is None or not connection.can_reply:
+            raise BusinessSessionAuthorizationError(
+                "Business connection does not currently allow replies"
             )
 
     @staticmethod
