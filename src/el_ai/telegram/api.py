@@ -17,8 +17,16 @@ class TelegramAPIError(RuntimeError):
 
 
 def _utf16_length(value: str) -> int:
-    """Return the UTF-16 code-unit count used by Telegram message limits."""
-    return len(value.encode("utf-16-le")) // 2
+    """Return the UTF-16 code-unit count used by Telegram message limits.
+
+    Telegram text is Unicode. Reject unpaired surrogate code points before any
+    request is sent so callers get a stable validation error rather than a raw
+    UnicodeEncodeError from the transport layer.
+    """
+    try:
+        return len(value.encode("utf-16-le")) // 2
+    except UnicodeEncodeError as exc:
+        raise ValueError("Telegram text contains invalid Unicode") from exc
 
 
 def split_telegram_message(text: str, *, max_units: int = 4096) -> list[str]:
@@ -29,6 +37,7 @@ def split_telegram_message(text: str, *, max_units: int = 4096) -> list[str]:
         raise ValueError("Telegram message limit must be a positive integer")
     if not text:
         return []
+    _utf16_length(text)  # Validate Unicode before chunking.
 
     chunks: list[str] = []
     start = 0
