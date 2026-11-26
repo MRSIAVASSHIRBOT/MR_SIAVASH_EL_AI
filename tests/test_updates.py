@@ -239,6 +239,23 @@ def test_invalid_business_message_is_not_forwarded(message):
     assert parsed.ignored_reason == "invalid_business_message"
 
 
+def test_business_message_preserves_business_account_direction_flag():
+    parsed = parse_telegram_update({
+        "update_id": 110,
+        "business_message": _business_message(is_from_business_account=True),
+    })
+    assert parsed.business_event["message"]["is_from_business_account"] is True
+
+
+def test_business_message_rejects_non_boolean_business_account_direction_flag():
+    parsed = parse_telegram_update({
+        "update_id": 111,
+        "business_message": _business_message(is_from_business_account="true"),
+    })
+    assert parsed.business_event is None
+    assert parsed.ignored_reason == "invalid_business_message"
+
+
 def test_deleted_business_messages_are_normalized():
     parsed = parse_telegram_update({
         "update_id": 106,
