@@ -575,7 +575,7 @@ class BusinessConversationStore:
         self,
         actor: BusinessActorContext,
         identity: dict[str, object],
-    ) -> None:
+    ):
         connection = self._connection_store.get(actor.connection_id)
         if (
             connection is None
@@ -585,18 +585,19 @@ class BusinessConversationStore:
             raise BusinessSessionAuthorizationError(
                 "Business session is not bound to the stored owner identity"
             )
+        return connection
 
     def _assert_current_connection(
         self,
         actor: BusinessActorContext,
         identity: dict[str, object],
-    ) -> None:
-        self._assert_owner_binding(actor, identity)
-        connection = self._connection_store.get(actor.connection_id)
+    ):
+        connection = self._assert_owner_binding(actor, identity)
         if not connection.is_enabled or not connection.can_read_messages:
             raise BusinessSessionAuthorizationError(
                 "Business connection or read permission is no longer valid"
             )
+        return connection
 
     def _assert_current_reply_permission(
         self,
@@ -607,9 +608,8 @@ class BusinessConversationStore:
             raise BusinessSessionAuthorizationError(
                 "Business actor context does not permit replies"
             )
-        self._assert_current_connection(actor, identity)
-        connection = self._connection_store.get(actor.connection_id)
-        if connection is None or not connection.can_reply:
+        connection = self._assert_current_connection(actor, identity)
+        if not connection.can_reply:
             raise BusinessSessionAuthorizationError(
                 "Business connection does not currently allow replies"
             )
