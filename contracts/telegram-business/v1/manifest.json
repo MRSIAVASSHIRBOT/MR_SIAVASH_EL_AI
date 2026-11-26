@@ -38,7 +38,7 @@
   },
   "runtime_status": {
     "business_reply_execution": "not_implemented",
-    "business_event_processor": "implemented_tested_not_wired",
+    "business_event_processor": "implemented_tested",
     "business_runtime_handler": "wired_local_polling_processor",
     "persistent_connection_registry": "implemented_local_owner_bound_registry",
     "telegram_business_subscription": "disabled_allowed_updates_message_only",
