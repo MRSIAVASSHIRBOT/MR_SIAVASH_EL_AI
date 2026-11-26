@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 
@@ -21,6 +23,9 @@ async def test_get_updates_and_send_message_use_bot_api():
     assert sent["message_id"] == 99
     assert calls[0][0].endswith("getUpdates")
     assert calls[1][0].endswith("sendMessage")
+    get_updates_payload = json.loads(calls[0][1])
+    assert get_updates_payload["allowed_updates"] == ["message"]
+    assert "business_message" not in get_updates_payload["allowed_updates"]
     await api.close()
 
 

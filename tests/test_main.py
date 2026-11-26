@@ -4,6 +4,9 @@ import pytest
 import time
 
 from el_ai.config import Settings
+from el_ai.telegram.business_connections import BusinessConnectionStore
+from el_ai.telegram.business_processor import BusinessEventProcessor
+from el_ai.telegram.updates import parse_telegram_update
 from el_ai.integrations.hub import HubClientError
 from el_ai.integrations.secrets import SecretStoreError
 from el_ai.main import (
@@ -21,6 +24,7 @@ from el_ai.main import (
     OWNER_HUB_COMMANDS,
     OWNER_BOT_COMMANDS,
     _poll_task_watches,
+    _process_business_update,
     _send_response,
 )
 from el_ai.observability import RuntimeMetrics
@@ -2212,3 +2216,50 @@ def test_agent_plan_requires_clarification_or_research_before_any_task_dispatch(
     assert persisted is not None
     assert persisted.planning_status == planning_status
     assert persisted.submitted_count == 0
+
+
+def test_main_business_dispatch_keeps_customer_event_separate_from_regular_messages(tmp_path):
+    store = BusinessConnectionStore(tmp_path / "business-connections.json")
+    processor = BusinessEventProcessor(store, frozenset({123}))
+
+    regular = parse_telegram_update({
+        "update_id": 10,
+        "message": {
+            "chat": {"id": 456, "type": "private"},
+            "from": {"id": 456},
+            "text": "regular message",
+        },
+    })
+    assert _process_business_update(regular, processor) is None
+
+    connection = parse_telegram_update({
+        "update_id": 11,
+        "business_connection": {
+            "id": "business-123",
+            "user": {"id": 123},
+            "user_chat_id": 123,
+            "date": 1_800_000_000,
+            "is_enabled": True,
+            "rights": {"can_read_messages": True, "can_reply": True},
+        },
+    })
+    connection_result = _process_business_update(connection, processor)
+    assert connection_result.status == "connection_enabled"
+
+    customer = parse_telegram_update({
+        "update_id": 12,
+        "business_message": {
+            "business_connection_id": "business-123",
+            "message_id": 77,
+            "date": 1_800_000_010,
+            "chat": {"id": 456, "type": "private"},
+            "from": {"id": 456, "is_bot": False},
+            "is_from_business_account": False,
+            "text": "Business customer message",
+        },
+    })
+    customer_result = _process_business_update(customer, processor)
+
+    assert customer_result.status == "customer_context_resolved"
+    assert customer_result.actor.actor_type == "business_customer"
+    assert customer_result.actor.capabilities == ()

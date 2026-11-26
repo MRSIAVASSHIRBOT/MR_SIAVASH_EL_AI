@@ -4,7 +4,7 @@
 **Contract:** telegram-business-event.v1  
 **Owner:** MR_SIAVASH_EL_AI  
 **Source protocol:** Telegram Bot API 10.5, reviewed 2026-11-26  
-**Implementation status:** Parser, JSON Schema, local connection registry and a tested non-runtime event processor are implemented. Runtime polling/Bridge integration, Business reply execution, automatic model handling and production delivery are not.
+**Implementation status:** Parser, JSON Schema, owner-bound local registry, isolated processor and local Polling dispatch wiring are implemented. Telegram Business Update subscription remains disabled (`allowed_updates` is still `message` only); Cloudflare Bridge integration, Business reply execution, automatic model handling and production delivery are not.
 
 ## Scope
 
@@ -48,8 +48,8 @@ Malformed Business events retain the Telegram update_id and a stable ignored_rea
 
 This parser, registry and processor do not:
 - reply to a Business customer;
-- wire Business event processing into the active polling or Cloudflare Bridge loop;
-- activate Business Update subscriptions from Telegram;
+- enable Business Update subscriptions from Telegram (local Polling continues requesting only `message` updates);
+- wire Business event processing into the Cloudflare Bridge loop;
 - call getBusinessConnection;
 - create a customer-facing Agent session;
 - call the public Website Gateway or private Hub;
@@ -59,13 +59,13 @@ This parser, registry and processor do not:
 
 ## Next acceptance gates
 
-1. Wire the tested processor into the local polling update loop for Business event types while keeping the existing allowed_updates list unchanged.
-2. Add per-connection/per-chat isolated customer session state and explicit owner-configured Business capabilities; keep the default capability set empty.
-3. Define bounded attachment references and a reviewed media-processing policy.
-4. Extend the edge queue with a distinct Business event envelope, durable idempotency and revocation-safe delivery.
-5. Add worker-consumer tests proving Business customers cannot invoke owner commands or Hub scopes.
-6. Add exact-connection reply adapters that re-check enabled state and can_reply immediately before sending.
-7. Verify connection changes, new/edit/delete messages, text, captions and supported media types on a non-production Business account.
+1. Add per-connection/per-chat isolated customer session state and explicit owner-configured Business capabilities; keep the default capability set empty.
+2. Define bounded attachment references and a reviewed media-processing policy.
+3. Extend the Cloudflare edge queue with a distinct Business event envelope, durable idempotency and revocation-safe delivery.
+4. Add worker-consumer tests proving Business customers cannot invoke owner commands or Hub scopes.
+5. Add exact-connection reply adapters that re-check enabled state and can_reply immediately before sending.
+6. Verify connection changes, new/edit/delete messages, text, captions and supported media types on a non-production Business account.
+7. Separately approve activation of Telegram Business Update subscriptions only after a complete offline/negative authorization matrix passes.
 8. Only after the complete acceptance matrix passes, plan a separately approved production rollout.
 
 Telegram references reviewed:
