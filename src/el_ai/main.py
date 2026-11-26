@@ -24,7 +24,6 @@ from el_ai.observability import RuntimeMetrics
 from el_ai.telegram.access import AccessController
 from el_ai.telegram.business_connections import BusinessConnectionError, BusinessConnectionStore
 from el_ai.telegram.business_processor import BusinessEventProcessor
-from el_ai.telegram.updates import ParsedTelegramUpdate
 from el_ai.telegram.api import TelegramAPIError, TelegramBotAPI, split_telegram_message
 from el_ai.telegram.bridge import BridgeJob, TelegramBridgeClient
 from el_ai.telegram.bridge_worker import TelegramBridgeWorker
@@ -39,7 +38,7 @@ from el_ai.telegram.task_watch import (
     TaskWatchError,
     TaskWatchStore,
 )
-from el_ai.telegram.updates import TelegramUpdateError, parse_telegram_update
+from el_ai.telegram.updates import ParsedTelegramUpdate, TelegramUpdateError, parse_telegram_update
 
 LOGGER = logging.getLogger("el_ai")
 
