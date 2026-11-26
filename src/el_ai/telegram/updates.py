@@ -140,7 +140,9 @@ def _normalize_business_connection(value: object) -> dict[str, object] | None:
     ):
         return None
 
-    raw_rights = value.get("rights", {})
+    raw_rights = value.get("rights")
+    if raw_rights is None:
+        raw_rights = {}
     if not isinstance(raw_rights, dict):
         return None
     rights: dict[str, bool] = {}
@@ -197,8 +199,8 @@ def _normalize_business_message(
         normalized_sender["is_bot"] = is_bot
     normalized_message["sender"] = normalized_sender
 
-    is_from_business = value.get("is_from_business_account")
-    if is_from_business is not None:
+    if "is_from_business_account" in value:
+        is_from_business = value.get("is_from_business_account")
         if not isinstance(is_from_business, bool):
             return None
         normalized_message["is_from_business_account"] = is_from_business
