@@ -230,7 +230,7 @@ class BusinessConversationStore:
         """
         identity = self._validate_actor(actor)
         self._assert_current_connection(actor, identity)
-        if role not in _ALLOWED_ROLES:
+        if not isinstance(role, str) or role not in _ALLOWED_ROLES:
             raise ValueError("Business session message role is invalid")
         if role == "assistant" and not actor.can_reply:
             raise BusinessSessionAuthorizationError(
@@ -340,8 +340,11 @@ class BusinessConversationStore:
         with self._lock:
             sessions = self._ensure_loaded()
             session_key = self._session_key(identity["connection_id"], identity["chat_id"])
-            if session_key not in sessions:
+            record = sessions.get(session_key)
+            if record is None:
                 return False
+            payload = self._decrypt_record(session_key, record)
+            self._assert_identity(payload, identity)
             updated = dict(sessions)
             updated.pop(session_key, None)
             self._replace(updated)
