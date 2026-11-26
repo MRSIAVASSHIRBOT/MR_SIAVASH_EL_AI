@@ -74,7 +74,7 @@
     "message": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["message_id", "date", "chat"],
+      "required": ["message_id", "date", "chat", "sender"],
       "properties": {
         "message_id": { "type": "integer", "minimum": 1 },
         "date": { "type": "integer", "minimum": 1 },
@@ -83,6 +83,7 @@
         "text": { "type": "string", "maxLength": 4096 },
         "caption": { "type": "string", "maxLength": 4096 },
         "media_kind": {
+          "type": "string",
           "enum": [
             "animation", "audio", "document", "paid_media", "photo", "sticker",
             "video", "video_note", "voice", "live_photo", "contact",
