@@ -29,6 +29,7 @@ def test_telegram_business_contract_keeps_owner_authority_separate():
     assert manifest["rights_policy"]["message_read_requires"] == "can_read_messages"
     assert manifest["actor_model"]["default_business_capabilities"] == []
     assert manifest["runtime_status"]["persistent_connection_registry"] == "implemented_local_owner_bound_registry"
+    assert manifest["runtime_status"]["business_event_processor"] == "implemented_tested_not_wired"
     assert manifest["runtime_status"]["business_runtime_handler"] == "not_integrated"
     assert manifest["runtime_status"]["business_reply_execution"] == "not_implemented"
 
