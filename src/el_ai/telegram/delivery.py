@@ -375,8 +375,8 @@ async def send_update_response(
 
     for index, chunk in enumerate(chunks):
         if not store.begin_chunk(update_id, index):
-            state = store.batch_state(update_id)
-            if state == "sent":
+            chunk_states = store.chunk_states(update_id)
+            if index < len(chunk_states) and chunk_states[index][0] == "sent":
                 continue
             return "quarantined"
         try:
