@@ -26,8 +26,14 @@ class DeliveryStoreError(RuntimeError):
 def _validate_identity(update_id: int, chat_id: int) -> None:
     if isinstance(update_id, bool) or not isinstance(update_id, int) or update_id < 0:
         raise ValueError("Telegram update ID must be a non-negative integer")
-    if isinstance(chat_id, bool) or not isinstance(chat_id, int) or chat_id == 0:
-        raise ValueError("Telegram chat ID must be a non-zero integer")
+    if (
+        isinstance(chat_id, bool)
+        or not isinstance(chat_id, int)
+        or chat_id == 0
+        or abs(chat_id) > 9_223_372_036_854_775_807
+        or update_id > 9_223_372_036_854_775_807
+    ):
+        raise ValueError("Telegram chat ID or update ID is outside the supported range")
 
 
 def _digest(value: str) -> str:
@@ -102,7 +108,7 @@ class DeliveryStore:
                     """
                     CREATE TABLE IF NOT EXISTS delivery_batches (
                         update_id INTEGER PRIMARY KEY,
-                        chat_id INTEGER NOT NULL,
+                        chat_id_digest TEXT NOT NULL,
                         response_digest TEXT NOT NULL,
                         chunk_count INTEGER NOT NULL,
                         state TEXT NOT NULL CHECK (
@@ -170,10 +176,10 @@ class DeliveryStore:
                 db.execute(
                     """
                     INSERT INTO delivery_batches
-                    (update_id, chat_id, response_digest, chunk_count, state, created_at, updated_at)
+                    (update_id, chat_id_digest, response_digest, chunk_count, state, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (update_id, chat_id, response_digest, len(chunks), state, now, now),
+                    (update_id, _digest(str(chat_id)), response_digest, len(chunks), state, now, now),
                 )
                 db.executemany(
                     """
@@ -186,7 +192,7 @@ class DeliveryStore:
                 return state
 
             if (
-                batch["chat_id"] != chat_id
+                batch["chat_id_digest"] != _digest(str(chat_id))
                 or batch["response_digest"] != response_digest
                 or batch["chunk_count"] != len(chunks)
             ):
@@ -384,13 +390,13 @@ async def send_update_response(
         except Exception:  # noqa: BLE001 - never replay a send with an unconfirmed outcome
             store.mark_unknown(update_id, index)
             return "quarantined"
-        message_id = (
-            result.get("message_id")
-            if isinstance(result, dict)
-            and isinstance(result.get("message_id"), int)
-            and not isinstance(result.get("message_id"), bool)
-            and result["message_id"] > 0
-            else None
-        )
-        store.mark_sent(update_id, index, message_id)
+        if (
+            not isinstance(result, dict)
+            or isinstance(result.get("message_id"), bool)
+            or not isinstance(result.get("message_id"), int)
+            or not 1 <= result["message_id"] <= 9_223_372_036_854_775_807
+        ):
+            store.mark_unknown(update_id, index)
+            return "quarantined"
+        store.mark_sent(update_id, index, result["message_id"])
     return "delivered"
