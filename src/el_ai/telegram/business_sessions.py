@@ -12,14 +12,12 @@ import hmac
 import json
 import os
 import re
-import secrets
 import stat
 import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
-from uuid import UUID
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -27,6 +25,7 @@ from el_ai.integrations.secrets import CredentialStore, SecretStoreError
 from el_ai.telegram.business_connections import (
     BUSINESS_CONTRACT_VERSION,
     BusinessActorContext,
+    BusinessConnectionStore,
 )
 
 BUSINESS_SESSION_STORE_VERSION = 1
@@ -36,8 +35,8 @@ BUSINESS_SESSION_RETENTION_SECONDS = 30 * 24 * 60 * 60
 MAX_BUSINESS_SESSIONS = 100
 MAX_BUSINESS_SESSION_MESSAGES = 20
 MAX_BUSINESS_MESSAGE_UTF16_UNITS = 4096
-MAX_BUSINESS_SESSION_PAYLOAD_BYTES = 128 * 1024
-MAX_BUSINESS_SESSION_FILE_BYTES = 8 * 1024 * 1024
+MAX_BUSINESS_SESSION_PAYLOAD_BYTES = 192 * 1024
+MAX_BUSINESS_SESSION_FILE_BYTES = 20 * 1024 * 1024
 _SESSION_KEY_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 _ALLOWED_ROLES = frozenset({"customer", "assistant"})
 
@@ -119,6 +118,7 @@ class BusinessConversationStore:
         self,
         path: Path,
         encryption_key: bytes,
+        connection_store: BusinessConnectionStore,
         *,
         retention_seconds: int = BUSINESS_SESSION_RETENTION_SECONDS,
         max_sessions: int = MAX_BUSINESS_SESSIONS,
@@ -145,7 +145,10 @@ class BusinessConversationStore:
         ):
             raise ValueError("Business session history limit is invalid")
 
+        if not isinstance(connection_store, BusinessConnectionStore):
+            raise TypeError("A BusinessConnectionStore is required")
         self._path = Path(path)
+        self._connection_store = connection_store
         self._aesgcm = AESGCM(encryption_key)
         self._index_key = hmac.new(
             encryption_key,
@@ -226,6 +229,7 @@ class BusinessConversationStore:
         sending; this local store is not the authorization authority.
         """
         identity = self._validate_actor(actor)
+        self._assert_current_connection(actor, identity)
         if role not in _ALLOWED_ROLES:
             raise ValueError("Business session message role is invalid")
         if role == "assistant" and not actor.can_reply:
@@ -300,6 +304,7 @@ class BusinessConversationStore:
         now: int,
     ) -> tuple[BusinessSessionMessage, ...]:
         identity = self._validate_actor(actor)
+        self._assert_current_connection(actor, identity)
         if isinstance(now, bool) or not isinstance(now, int) or now <= 0:
             raise ValueError("Business session timestamp is invalid")
 
@@ -329,6 +334,7 @@ class BusinessConversationStore:
 
     def delete_session(self, actor: BusinessActorContext) -> bool:
         identity = self._validate_actor(actor)
+        self._assert_current_connection(actor, identity)
         with self._lock:
             sessions = self._ensure_loaded()
             session_key = self._session_key(identity["connection_id"], identity["chat_id"])
@@ -554,6 +560,24 @@ class BusinessConversationStore:
                 raise BusinessSessionAuthorizationError(
                     "Business session identity does not match the current actor"
                 )
+
+    def _assert_current_connection(
+        self,
+        actor: BusinessActorContext,
+        identity: dict[str, object],
+    ) -> None:
+        connection = self._connection_store.get(actor.connection_id)
+        if (
+            connection is None
+            or connection.business_user_id != identity["business_user_id"]
+            or not connection.is_enabled
+            or not connection.can_read_messages
+            or actor.customer_user_id == connection.business_user_id
+            or (actor.can_reply and not connection.can_reply)
+        ):
+            raise BusinessSessionAuthorizationError(
+                "Business connection or customer permissions are no longer valid"
+            )
 
     @staticmethod
     def _validate_actor(actor: BusinessActorContext) -> dict[str, object]:
