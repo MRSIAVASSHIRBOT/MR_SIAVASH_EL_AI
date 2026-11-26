@@ -39,8 +39,9 @@
   "runtime_status": {
     "business_reply_execution": "not_implemented",
     "business_event_processor": "implemented_tested_not_wired",
-    "business_runtime_handler": "not_integrated",
+    "business_runtime_handler": "wired_local_polling_processor",
     "persistent_connection_registry": "implemented_local_owner_bound_registry",
+    "telegram_business_subscription": "disabled_allowed_updates_message_only",
     "edge_webhook_delivery": "not_implemented",
     "production_activation": "not_authorized"
   }
