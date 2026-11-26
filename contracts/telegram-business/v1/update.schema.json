@@ -80,6 +80,7 @@
         "date": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
         "chat": { "$ref": "#/$defs/chat" },
         "sender": { "$ref": "#/$defs/sender" },
+        "is_from_business_account": { "type": "boolean" },
         "text": { "type": "string", "maxLength": 4096 },
         "caption": { "type": "string", "maxLength": 4096 },
         "media_kind": {
