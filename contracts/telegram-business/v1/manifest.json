@@ -38,6 +38,7 @@
   },
   "runtime_status": {
     "business_reply_execution": "not_implemented",
+    "business_event_processor": "implemented_tested_not_wired",
     "business_runtime_handler": "not_integrated",
     "persistent_connection_registry": "implemented_local_owner_bound_registry",
     "edge_webhook_delivery": "not_implemented",
