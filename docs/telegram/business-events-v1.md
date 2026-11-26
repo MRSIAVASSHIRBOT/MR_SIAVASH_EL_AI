@@ -4,7 +4,7 @@
 **Contract:** telegram-business-event.v1  
 **Owner:** MR_SIAVASH_EL_AI  
 **Source protocol:** Telegram Bot API 10.5, reviewed 2026-11-26  
-**Implementation status:** Parser and schema are implemented; Business execution and production delivery are not.
+**Implementation status:** Parser, JSON Schema, local connection registry and read-only customer actor resolution are implemented. Business reply execution, automatic model handling and production delivery are not.
 
 ## Scope
 
@@ -27,14 +27,14 @@ A Business connection identifies a business account controlled by the owner. A m
 
 - A Business customer is not a Hub owner.
 - A Business customer does not inherit owner commands, Hub pairing, Hub scopes, owner memory, device controls, or administration.
-- The connection must be known, enabled, and mapped to an owner-authorized Business capability configuration before a future responder handles messages.
-- A reply requires the current connection to be enabled and rights.can_reply == true. Missing rights are treated as false.
-- Connection updates must replace the cached rights/status snapshot. A disabled or unknown connection cannot reply.
+- The local registry accepts a connection only when its business account user ID is in the configured owner ID allowlist. Unknown connections are not resolved.
+- Resolving a customer actor requires an enabled connection and rights.can_read_messages == true. A reply additionally requires the current rights.can_reply == true. Missing rights are treated as false.
+- Connection updates replace the complete rights/status snapshot. Duplicate or out-of-order Update IDs are ignored; a disabled or unknown connection cannot produce a customer actor.
 - Per-customer conversation state must be isolated by connection and chat. Do not mix chats, connections or owner sessions.
 
 ## Data minimization
 
-The parser returns only a small normalized projection. It does not pass through raw Telegram objects, usernames, names, full profile fields, file IDs or unique file IDs. For media, only a bounded media_kind classification is carried; this version does not download or forward media.
+The parser returns only a small normalized projection. It does not pass through raw Telegram objects, usernames, names, full profile fields, file IDs or unique file IDs. It retains the optional is_from_business_account direction flag so outgoing messages from the business account are not treated as customer requests. For media, only a bounded media_kind classification is carried; this version does not download or forward media. The local registry stores connection metadata and known rights in a bounded JSON file using atomic replacement and owner-only file permissions on POSIX systems; no API tokens or session credentials are stored there.
 
 Message text and captions are bounded by UTF-16 length. Business chats must be private chats. Deleted message IDs are bounded and deduplicated.
 
@@ -48,7 +48,7 @@ Malformed Business events retain the Telegram update_id and a stable ignored_rea
 
 This parser/schema does not:
 - reply to a Business customer;
-- store connection state persistently;
+- activate automatic Business event consumption from Telegram;
 - call getBusinessConnection;
 - create a customer-facing Agent session;
 - call the public Website Gateway or private Hub;
@@ -58,14 +58,14 @@ This parser/schema does not:
 
 ## Next acceptance gates
 
-1. Add a persistent, encrypted Business connection registry with status/rights reconciliation and revocation tests.
-2. Add a separate Business actor context and per-connection/per-chat conversation store.
-3. Define bounded attachment references and a media-processing policy.
-4. Extend the edge queue with a distinct Business event envelope and idempotency key.
-5. Add worker-consumer tests proving Business messages cannot invoke owner-only commands or Hub scopes.
-6. Add exact-connection reply adapters requiring enabled state and can_reply.
-7. Verify connection changes, new/edit/delete messages, text, captions, and each supported media type on a non-production Business account.
-8. Only after the full acceptance matrix passes, plan a separately approved production rollout.
+1. Integrate the parser and local registry into a separate Business event handler without enabling Telegram Business subscriptions yet.
+2. Add per-connection/per-chat isolated customer session state and explicit owner-configured Business capabilities; keep the default capability set empty.
+3. Define bounded attachment references and a reviewed media-processing policy.
+4. Extend the edge queue with a distinct Business event envelope, durable idempotency and revocation-safe delivery.
+5. Add worker-consumer tests proving Business customers cannot invoke owner commands or Hub scopes.
+6. Add exact-connection reply adapters that re-check enabled state and can_reply immediately before sending.
+7. Verify connection changes, new/edit/delete messages, text, captions and supported media types on a non-production Business account.
+8. Only after the complete acceptance matrix passes, plan a separately approved production rollout.
 
 Telegram references reviewed:
 - https://core.telegram.org/bots/api
