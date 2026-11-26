@@ -334,7 +334,9 @@ class BusinessConversationStore:
 
     def delete_session(self, actor: BusinessActorContext) -> bool:
         identity = self._validate_actor(actor)
-        self._assert_current_connection(actor, identity)
+        # Deletion remains available after a Business connection is disabled or
+        # read permission is revoked, provided its owner binding is still known.
+        self._assert_owner_binding(actor, identity)
         with self._lock:
             sessions = self._ensure_loaded()
             session_key = self._session_key(identity["connection_id"], identity["chat_id"])
@@ -536,14 +538,21 @@ class BusinessConversationStore:
                 not isinstance(item, dict)
                 or set(item) != {"message_id", "role", "content", "created_at"}
                 or not _positive_int(item.get("message_id"))
-                or item.get("role") not in _ALLOWED_ROLES
+                or not isinstance(item.get("role"), str)
+                or item["role"] not in _ALLOWED_ROLES
                 or not isinstance(item.get("content"), str)
                 or not item["content"]
                 or not _positive_int(item.get("created_at"))
-                or len(item["content"].encode("utf-16-le")) // 2
-                > MAX_BUSINESS_MESSAGE_UTF16_UNITS
             ):
                 raise BusinessSessionError("Decrypted Business session message is invalid")
+            try:
+                text_units = len(item["content"].encode("utf-16-le")) // 2
+            except UnicodeEncodeError as exc:
+                raise BusinessSessionError(
+                    "Decrypted Business session message contains invalid Unicode"
+                ) from exc
+            if text_units > MAX_BUSINESS_MESSAGE_UTF16_UNITS:
+                raise BusinessSessionError("Decrypted Business session message is too long")
 
     def _assert_identity(
         self,
@@ -561,7 +570,7 @@ class BusinessConversationStore:
                     "Business session identity does not match the current actor"
                 )
 
-    def _assert_current_connection(
+    def _assert_owner_binding(
         self,
         actor: BusinessActorContext,
         identity: dict[str, object],
@@ -570,9 +579,22 @@ class BusinessConversationStore:
         if (
             connection is None
             or connection.business_user_id != identity["business_user_id"]
-            or not connection.is_enabled
-            or not connection.can_read_messages
             or actor.customer_user_id == connection.business_user_id
+        ):
+            raise BusinessSessionAuthorizationError(
+                "Business session is not bound to the stored owner identity"
+            )
+
+    def _assert_current_connection(
+        self,
+        actor: BusinessActorContext,
+        identity: dict[str, object],
+    ) -> None:
+        self._assert_owner_binding(actor, identity)
+        connection = self._connection_store.get(actor.connection_id)
+        if (
+            not connection.is_enabled
+            or not connection.can_read_messages
             or (actor.can_reply and not connection.can_reply)
         ):
             raise BusinessSessionAuthorizationError(
