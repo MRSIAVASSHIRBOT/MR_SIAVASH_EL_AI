@@ -259,12 +259,20 @@ class BusinessConnectionStore:
         if not isinstance(connection_id, str) or not connection_id or not isinstance(message, dict):
             return None
 
+        allowed_message_fields = {
+            "message_id", "date", "chat", "sender", "text", "caption",
+            "media_kind", "is_from_business_account",
+        }
+        if set(message) - allowed_message_fields:
+            return None
         chat = message.get("chat")
         sender = message.get("sender")
         message_id = message.get("message_id")
+        message_date = message.get("date")
         is_from_business = message.get("is_from_business_account", False)
         if (
-            not isinstance(chat, dict)
+            not _positive_int(message_date)
+            or not isinstance(chat, dict)
             or set(chat) != {"id", "type"}
             or chat.get("type") != "private"
             or not _positive_int(chat.get("id"), MAX_TELEGRAM_SAFE_INTEGER)
