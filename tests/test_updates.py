@@ -49,6 +49,14 @@ def test_parser_preserves_acknowledgeable_unsupported_update_ids():
     assert parsed.event_type == "unsupported"
 
 
+def test_explicit_null_regular_message_keeps_legacy_unsupported_behavior():
+    parsed = parse_telegram_update({"update_id": 17, "message": None})
+    assert parsed.update_id == 17
+    assert parsed.message is None
+    assert parsed.ignored_reason == "unsupported_update"
+    assert parsed.event_type == "unsupported"
+
+
 @pytest.mark.parametrize(
     "message",
     [
