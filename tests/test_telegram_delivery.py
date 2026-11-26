@@ -146,3 +146,53 @@ def test_send_update_response_quarantines_partial_chunk_delivery(tmp_path):
     assert store.batch_state(21) == "quarantined"
     assert store.chunk_states(21)[0] == ("sent", 701)
     assert store.chunk_states(21)[1][0] == "unknown"
+
+def test_delivery_store_does_not_persist_raw_chat_id(tmp_path):
+    store = _store(tmp_path)
+    store.prepare_update(15, 987654321, ["safe"])
+    import sqlite3
+    with sqlite3.connect(tmp_path / "telegram-delivery.sqlite3") as db:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(delivery_batches)")}
+    assert "chat_id_digest" in columns
+    assert "chat_id" not in columns
+
+
+def test_send_update_response_resumes_only_chunks_known_not_to_have_been_sent(tmp_path):
+    from el_ai.telegram.api import split_telegram_message
+
+    store = _store(tmp_path)
+    response = "x" * 5000
+    chunks = split_telegram_message(response)
+    store.prepare_update(22, 123, chunks)
+    assert store.begin_chunk(22, 0) is True
+    store.mark_sent(22, 0, 800)
+
+    class FakeAPI:
+        def __init__(self):
+            self.sent = []
+
+        async def send_message(self, chat_id, text):
+            self.sent.append((chat_id, text))
+            return {"message_id": 801}
+
+    api = FakeAPI()
+    result = asyncio.run(send_update_response(
+        api, store, update_id=22, chat_id=123, response=response
+    ))
+    assert result == "delivered"
+    assert api.sent == [(123, chunks[1])]
+    assert store.chunk_states(22) == (("sent", 800), ("sent", 801))
+
+
+def test_send_update_response_quarantines_success_without_message_identifier(tmp_path):
+    class FakeAPI:
+        async def send_message(self, chat_id, text):
+            return {"ok": True}
+
+    store = _store(tmp_path)
+    result = asyncio.run(send_update_response(
+        FakeAPI(), store, update_id=23, chat_id=123, response="hello"
+    ))
+    assert result == "quarantined"
+    assert store.batch_state(23) == "quarantined"
+    assert store.chunk_states(23) == (("unknown", None),)
