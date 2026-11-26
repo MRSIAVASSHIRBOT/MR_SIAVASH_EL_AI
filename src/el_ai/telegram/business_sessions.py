@@ -25,6 +25,7 @@ from el_ai.integrations.secrets import CredentialStore, SecretStoreError
 from el_ai.telegram.business_connections import (
     BUSINESS_CONTRACT_VERSION,
     BusinessActorContext,
+    BusinessConnection,
     BusinessConnectionStore,
 )
 
