@@ -452,6 +452,32 @@ def test_business_session_prune_expired_removes_only_old_sessions(tmp_path):
     assert store.read_history(actor_b, now=161)[0].content == "new"
 
 
+def test_business_session_delete_rejects_a_different_customer_identity(tmp_path):
+    _registry, actor, store = make_store(tmp_path)
+    store.append_message(
+        actor,
+        role="customer",
+        message_id=actor.message_id,
+        content="private",
+        now=100,
+    )
+    forged_actor = type(actor)(
+        contract_version=actor.contract_version,
+        actor_type=actor.actor_type,
+        connection_id=actor.connection_id,
+        business_user_id=actor.business_user_id,
+        customer_user_id=999,
+        chat_id=actor.chat_id,
+        message_id=actor.message_id,
+        can_reply=actor.can_reply,
+        capabilities=(),
+    )
+
+    with pytest.raises(BusinessSessionAuthorizationError):
+        store.delete_session(forged_actor)
+    assert store.read_history(actor, now=101)[0].content == "private"
+
+
 def test_business_session_delete_is_idempotent(tmp_path):
     _registry, actor, store = make_store(tmp_path)
     assert not store.delete_session(actor)
