@@ -1,0 +1,43 @@
+
+{
+  "contract_version": "telegram-business-event.v1",
+  "owner": "MR_SIAVASH_EL_AI",
+  "status": "implemented_parser_contract",
+  "source_protocol": "Telegram Bot API Update",
+  "supported_event_types": [
+    "business_connection",
+    "business_message",
+    "edited_business_message",
+    "deleted_business_messages"
+  ],
+  "actor_model": {
+    "business_account": "resolved from a previously validated business_connection_id mapping",
+    "customer": "sender identity from the normalized business message",
+    "owner_privileges_inherited": false,
+    "hub_scopes_inherited": false
+  },
+  "rights_policy": {
+    "reply_requires": "can_reply",
+    "connection_must_be_enabled": true,
+    "missing_rights_default": false,
+    "unknown_rights": "ignored_until_explicitly_supported"
+  },
+  "data_minimization": {
+    "raw_telegram_update_forwarded": false,
+    "file_id_forwarded": false,
+    "file_unique_id_forwarded": false,
+    "media_downloaded_by_parser": false,
+    "full_user_profile_forwarded": false
+  },
+  "compatibility": {
+    "regular_message_parser_compatibility": "unchanged",
+    "unsupported_update_behavior": "preserve_update_id_and_return_ignored_reason",
+    "breaking_change_policy": "new_major_contract_version"
+  },
+  "runtime_status": {
+    "business_reply_execution": "not_implemented",
+    "persistent_connection_registry": "not_implemented",
+    "edge_webhook_delivery": "not_implemented",
+    "production_activation": "not_authorized"
+  }
+}
