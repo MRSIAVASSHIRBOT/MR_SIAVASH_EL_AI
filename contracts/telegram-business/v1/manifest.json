@@ -2,7 +2,7 @@
 {
   "contract_version": "telegram-business-event.v1",
   "owner": "MR_SIAVASH_EL_AI",
-  "status": "implemented_parser_contract",
+  "status": "implemented_parser_and_local_registry",
   "source_protocol": "Telegram Bot API Update",
   "supported_event_types": [
     "business_connection",
@@ -14,9 +14,11 @@
     "business_account": "resolved from a previously validated business_connection_id mapping",
     "customer": "sender identity from the normalized business message",
     "owner_privileges_inherited": false,
-    "hub_scopes_inherited": false
+    "hub_scopes_inherited": false,
+    "default_business_capabilities": []
   },
   "rights_policy": {
+    "message_read_requires": "can_read_messages",
     "reply_requires": "can_reply",
     "connection_must_be_enabled": true,
     "missing_rights_default": false,
@@ -36,7 +38,8 @@
   },
   "runtime_status": {
     "business_reply_execution": "not_implemented",
-    "persistent_connection_registry": "not_implemented",
+    "business_runtime_handler": "not_integrated",
+    "persistent_connection_registry": "implemented_local_owner_bound_registry",
     "edge_webhook_delivery": "not_implemented",
     "production_activation": "not_authorized"
   }

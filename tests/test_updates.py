@@ -115,6 +115,21 @@ def _business_message(**overrides):
     return value
 
 
+def test_business_connection_null_rights_are_treated_as_no_grants():
+    parsed = parse_telegram_update({
+        "update_id": 112,
+        "business_connection": {
+            "id": "connection-123",
+            "user": {"id": 200},
+            "user_chat_id": 200,
+            "date": 1_800_000_000,
+            "is_enabled": True,
+            "rights": None,
+        },
+    })
+    assert parsed.business_event["rights"] == {}
+
+
 def test_business_connection_is_normalized_with_only_known_rights():
     parsed = parse_telegram_update({
         "update_id": 100,
@@ -235,6 +250,23 @@ def test_business_media_is_classified_without_exposing_file_ids():
 def test_invalid_business_message_is_not_forwarded(message):
     parsed = parse_telegram_update({"update_id": 105, "business_message": message})
     assert parsed.event_type == "business_message"
+    assert parsed.business_event is None
+    assert parsed.ignored_reason == "invalid_business_message"
+
+
+def test_business_message_preserves_business_account_direction_flag():
+    parsed = parse_telegram_update({
+        "update_id": 110,
+        "business_message": _business_message(is_from_business_account=True),
+    })
+    assert parsed.business_event["message"]["is_from_business_account"] is True
+
+
+def test_business_message_rejects_non_boolean_business_account_direction_flag():
+    parsed = parse_telegram_update({
+        "update_id": 111,
+        "business_message": _business_message(is_from_business_account="true"),
+    })
     assert parsed.business_event is None
     assert parsed.ignored_reason == "invalid_business_message"
 

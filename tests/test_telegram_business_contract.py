@@ -26,6 +26,10 @@ def test_telegram_business_contract_keeps_owner_authority_separate():
     assert manifest["actor_model"]["hub_scopes_inherited"] is False
     assert manifest["rights_policy"]["reply_requires"] == "can_reply"
     assert manifest["rights_policy"]["connection_must_be_enabled"] is True
+    assert manifest["rights_policy"]["message_read_requires"] == "can_read_messages"
+    assert manifest["actor_model"]["default_business_capabilities"] == []
+    assert manifest["runtime_status"]["persistent_connection_registry"] == "implemented_local_owner_bound_registry"
+    assert manifest["runtime_status"]["business_runtime_handler"] == "not_integrated"
     assert manifest["runtime_status"]["business_reply_execution"] == "not_implemented"
 
 
@@ -47,3 +51,4 @@ def test_telegram_business_json_schema_is_versioned_and_bounded():
     ] == 1000
     assert "file_id" not in json.dumps(schema)
     assert "file_unique_id" not in json.dumps(schema)
+    assert schema["$defs"]["message"]["properties"]["is_from_business_account"] == {"type": "boolean"}
