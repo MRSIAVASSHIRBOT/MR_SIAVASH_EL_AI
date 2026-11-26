@@ -67,6 +67,17 @@ def test_processor_persists_connection_update_for_configured_owner(tmp_path):
     assert store.get("business-123") == result.connection
 
 
+def test_processor_accepts_zero_valued_telegram_update_id(tmp_path):
+    store = BusinessConnectionStore(tmp_path / "business.json")
+    processor = BusinessEventProcessor(store, frozenset({123}))
+
+    result = processor.process(connection_update(0), now=1_800_000_101)
+
+    assert result.status == "connection_enabled"
+    assert result.connection is not None
+    assert result.connection.last_update_id == 0
+
+
 def test_processor_persists_disabled_connection_and_does_not_delete_it(tmp_path):
     store = BusinessConnectionStore(tmp_path / "business.json")
     processor = BusinessEventProcessor(store, frozenset({123}))
@@ -236,3 +247,4 @@ def test_processor_does_not_acknowledge_storage_failures(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "_save", fail_save)
     with pytest.raises(RuntimeError, match="simulated disk failure"):
         processor.process(connection_update(10), now=1_800_000_101)
+    assert store.get("business-123") is None
