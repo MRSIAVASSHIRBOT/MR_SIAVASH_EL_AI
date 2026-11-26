@@ -24,6 +24,7 @@ from el_ai.observability import RuntimeMetrics
 from el_ai.telegram.access import AccessController
 from el_ai.telegram.business_connections import BusinessConnectionError, BusinessConnectionStore
 from el_ai.telegram.business_processor import BusinessEventProcessor
+from el_ai.telegram.updates import ParsedTelegramUpdate
 from el_ai.telegram.api import TelegramAPIError, TelegramBotAPI, split_telegram_message
 from el_ai.telegram.bridge import BridgeJob, TelegramBridgeClient
 from el_ai.telegram.bridge_worker import TelegramBridgeWorker
@@ -89,6 +90,16 @@ def _advance_update_cursor(
     if next_offset is not None and next_offset != offset:
         cursor.save(next_offset)
     return next_offset
+
+
+def _process_business_update(
+    update: ParsedTelegramUpdate,
+    processor: BusinessEventProcessor,
+):
+    """Dispatch only the separately normalized Business event, never a regular message."""
+    if update.business_event is None:
+        return None
+    return processor.process(update)
 
 
 def _format_result(value: dict[str, object]) -> str:
@@ -1976,7 +1987,10 @@ async def run(settings: Settings) -> None:
                     update_id = parsed_update.update_id
                     if parsed_update.business_event is not None:
                         try:
-                            business_result = business_processor.process(parsed_update)
+                            business_result = _process_business_update(
+                                parsed_update,
+                                business_processor,
+                            )
                         except BusinessConnectionError:
                             LOGGER.warning(
                                 "Telegram Business state could not be stored; update cursor was not advanced"
