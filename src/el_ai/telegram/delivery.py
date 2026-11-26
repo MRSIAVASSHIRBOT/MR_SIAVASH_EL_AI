@@ -99,8 +99,21 @@ class DeliveryStore:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             if self._path.is_symlink():
                 raise DeliveryStoreError("Telegram delivery database must not be a symlink")
+            if os.name != "nt":
+                flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+                if hasattr(os, "O_NOFOLLOW"):
+                    flags |= os.O_NOFOLLOW
+                try:
+                    descriptor = os.open(self._path, flags, 0o600)
+                except FileExistsError:
+                    pass
+                else:
+                    os.close(descriptor)
             db = self._connect()
             try:
+                integrity = db.execute("PRAGMA quick_check").fetchone()[0]
+                if integrity != "ok":
+                    raise DeliveryStoreError("Telegram delivery database integrity check failed")
                 version = db.execute("PRAGMA user_version").fetchone()[0]
                 if version not in (0, 1):
                     raise DeliveryStoreError("Telegram delivery database version is unsupported")
@@ -136,6 +149,20 @@ class DeliveryStore:
                         ON delivery_batches(state, updated_at);
                     """
                 )
+                batches = {
+                    row[1] for row in db.execute("PRAGMA table_info(delivery_batches)")
+                }
+                chunks = {
+                    row[1] for row in db.execute("PRAGMA table_info(delivery_chunks)")
+                }
+                if not {
+                    "update_id", "chat_id_digest", "response_digest", "chunk_count",
+                    "state", "reason_code", "created_at", "updated_at",
+                }.issubset(batches) or not {
+                    "update_id", "chunk_index", "content_digest", "state",
+                    "attempt_count", "telegram_message_id", "updated_at",
+                }.issubset(chunks):
+                    raise DeliveryStoreError("Telegram delivery database schema is incomplete")
                 db.execute("PRAGMA user_version = 1")
             finally:
                 db.close()
