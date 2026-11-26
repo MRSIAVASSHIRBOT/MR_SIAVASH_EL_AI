@@ -106,3 +106,18 @@ The Telegram foundation, Hub pairing client, explicit opt-in and secret-redactio
 - Exact-main Python 3.11 and 3.12 tests, Workflow Security Audit, and OpenSSF Scorecard completed successfully (runs 44928644306, 44928644348, 44928644369). These are hosted CI results; no local test execution is claimed here.
 - No Telegram bot token is configured, no live Telegram connection or webhook registration is verified, and no production EL_AI deployment is claimed.
 
+
+
+## Local Telegram delivery state
+
+The local polling runtime now uses a private SQLite outbox for outbound response
+chunks. It stores digests and delivery metadata, never response contents. Confirmed
+chunks are not repeated if the same Telegram update is replayed. A chunk with an
+ambiguous remote outcome or an interrupted sending state is quarantined and is not
+automatically resent; the update cursor advances only after that quarantine is
+durably recorded.
+
+Telegram sendMessage exposes no provider idempotency key, so the guarantee is
+no automatic replay after ambiguity rather than exactly-once delivery. The
+Cloudflare Bridge transport remains a separate integration and is not covered by
+the local polling outbox.
