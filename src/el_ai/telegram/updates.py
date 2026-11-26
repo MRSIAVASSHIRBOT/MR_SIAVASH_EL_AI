@@ -187,16 +187,15 @@ def _normalize_business_message(
     }
 
     sender = value.get("from")
-    if sender is not None:
-        if not isinstance(sender, dict) or not _positive_integer(sender.get("id")):
+    if not isinstance(sender, dict) or not _positive_integer(sender.get("id")):
+        return None
+    normalized_sender: dict[str, object] = {"id": sender["id"]}
+    is_bot = sender.get("is_bot")
+    if is_bot is not None:
+        if not isinstance(is_bot, bool):
             return None
-        normalized_sender: dict[str, object] = {"id": sender["id"]}
-        is_bot = sender.get("is_bot")
-        if is_bot is not None:
-            if not isinstance(is_bot, bool):
-                return None
-            normalized_sender["is_bot"] = is_bot
-        normalized_message["sender"] = normalized_sender
+        normalized_sender["is_bot"] = is_bot
+    normalized_message["sender"] = normalized_sender
 
     text = value.get("text")
     caption = value.get("caption")
