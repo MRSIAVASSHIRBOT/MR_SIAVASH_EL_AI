@@ -210,9 +210,8 @@ async def test_send_video_uses_bounded_multipart_upload_and_sanitizes_failures()
         transport=httpx.MockTransport(handler),
     )
     result = await api.send_video(
-            900, video,
+        900,
         mp4,
-        filename="render-123.mp4",
         caption="رندر محلی",
     )
     assert result["message_id"] == 88
