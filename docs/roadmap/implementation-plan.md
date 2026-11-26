@@ -118,6 +118,7 @@ automatically resent; the update cursor advances only after that quarantine is
 durably recorded.
 
 Telegram sendMessage exposes no provider idempotency key, so the guarantee is
-no automatic replay after ambiguity rather than exactly-once delivery. The
-Cloudflare Bridge transport remains a separate integration and is not covered by
-the local polling outbox.
+no automatic replay after ambiguity rather than exactly-once delivery. This first
+increment covers inbound-update replies in local polling; background task-watch
+and plan notifications remain on their separate best-effort path. The Cloudflare
+Bridge transport is separate and is not covered by the local polling outbox.
