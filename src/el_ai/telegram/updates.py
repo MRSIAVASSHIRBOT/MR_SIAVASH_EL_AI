@@ -316,6 +316,8 @@ def parse_telegram_update(value: object) -> ParsedTelegramUpdate:
 
     field_name = present_fields[0]
     if field_name == "message":
+        if value.get(field_name) is None:
+            return ParsedTelegramUpdate(update_id, None, "unsupported_update")
         normalized, ignored_reason = _normalize_regular_message(value.get(field_name))
         if normalized is None:
             return ParsedTelegramUpdate(
