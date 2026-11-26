@@ -22,6 +22,8 @@ from el_ai.integrations.secrets import KeyringCredentialStore, build_credential_
 from el_ai.integrations.site_gateway import SiteGatewayClient, SiteGatewayError
 from el_ai.observability import RuntimeMetrics
 from el_ai.telegram.access import AccessController
+from el_ai.telegram.business_connections import BusinessConnectionError, BusinessConnectionStore
+from el_ai.telegram.business_processor import BusinessEventProcessor
 from el_ai.telegram.api import TelegramAPIError, TelegramBotAPI, split_telegram_message
 from el_ai.telegram.bridge import BridgeJob, TelegramBridgeClient
 from el_ai.telegram.bridge_worker import TelegramBridgeWorker
@@ -1909,6 +1911,20 @@ async def run(settings: Settings) -> None:
     except TaskPlanError as exc:
         raise SystemExit("Stored Telegram task-plan state is invalid or inaccessible") from exc
 
+    business_connections = BusinessConnectionStore(
+        settings.state_dir / "business-connections.json"
+    )
+    try:
+        business_connections.load()
+    except BusinessConnectionError as exc:
+        raise SystemExit(
+            "Stored Telegram Business connection state is invalid or inaccessible"
+        ) from exc
+    business_processor = BusinessEventProcessor(
+        business_connections,
+        settings.owner_ids,
+    )
+
     api = TelegramBotAPI(
         settings.telegram_bot_token,
         timeout_seconds=settings.request_timeout_seconds,
@@ -1958,6 +1974,26 @@ async def run(settings: Settings) -> None:
                             "Telegram returned an invalid update envelope"
                         ) from None
                     update_id = parsed_update.update_id
+                    if parsed_update.business_event is not None:
+                        try:
+                            business_result = business_processor.process(parsed_update)
+                        except BusinessConnectionError:
+                            LOGGER.warning(
+                                "Telegram Business state could not be stored; update cursor was not advanced"
+                            )
+                            raise TelegramAPIError(
+                                "Telegram Business state could not be stored"
+                            ) from None
+                        if business_result.status in {"ignored", "rejected"}:
+                            metrics.record_ignored_update()
+                        LOGGER.info(
+                            "Telegram Business update processed: event=%s outcome=%s",
+                            business_result.event_type,
+                            business_result.status,
+                        )
+                        offset = _advance_update_cursor(cursor, offset, update_id)
+                        continue
+
                     message = parsed_update.message
                     if message is None:
                         metrics.record_ignored_update()
