@@ -322,7 +322,7 @@ class BusinessConnectionStore:
         self._connections = connections
         try:
             self._save()
-        except BusinessConnectionError:
+        except Exception:
             self._connections = previous
             raise
 
