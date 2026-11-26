@@ -136,9 +136,9 @@ A Worker deployment and a passing `/ready` check are infrastructure evidence onl
 ## Local polling delivery recovery
 
 Local polling stores outbound response progress in a private SQLite outbox at
-`telegram-delivery.sqlite3` under the EL_AI state directory. Only update/chat IDs,
-chunk SHA-256 digests, delivery states, attempt counts and Telegram message IDs are
-stored; response text and credentials are never written to this database.
+`telegram-delivery.sqlite3` under the EL_AI state directory. Only update IDs, a digest of the chat ID, chunk SHA-256 digests, delivery states,
+attempt counts and Telegram message IDs are stored; raw chat IDs, response text
+and credentials are never written to this database.
 
 Each response chunk is durably marked as sending before its Telegram request. A
 confirmed API response marks that chunk sent. If the request times out, fails, or
@@ -157,3 +157,8 @@ unavailable or incompatible.
 This outbox applies only to the local getUpdates polling path. The Cloudflare
 Bridge transport is a separate transport and retains its own queue/acknowledgement
 contract; this local outbox does not claim to protect that path.
+
+The first increment covers replies to inbound updates in local polling. Background
+task-watch and dependency-plan notifications still use their separate best-effort
+notification path; they are not covered by this outbox and must not be described as
+exactly-once or ambiguity-safe.
