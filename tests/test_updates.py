@@ -221,6 +221,7 @@ def test_business_media_is_classified_without_exposing_file_ids():
         _business_message(text=42),
         _business_message(text="both", caption="invalid"),
         _business_message(**{"from": {"id": True}}),
+        _business_message(**{"from": None}),
     ],
 )
 def test_invalid_business_message_is_not_forwarded(message):
