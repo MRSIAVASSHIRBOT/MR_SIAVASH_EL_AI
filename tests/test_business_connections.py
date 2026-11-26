@@ -5,7 +5,6 @@ import stat
 import pytest
 
 from el_ai.telegram.business_connections import (
-    MAX_BUSINESS_CONNECTIONS,
     BusinessConnectionAuthorizationError,
     BusinessConnectionError,
     BusinessConnectionStore,
@@ -512,3 +511,33 @@ def test_parser_direction_flag_prevents_business_outbound_message_from_becoming_
     })
     assert parsed.business_event is not None
     assert store.resolve_customer_actor(parsed.business_event) is None
+
+
+def test_actor_resolution_rejects_unrecognized_message_fields(tmp_path):
+    store = BusinessConnectionStore(tmp_path / "business.json")
+    store.update_from_event(
+        connection_event(),
+        owner_ids=frozenset({123}),
+        update_id=1,
+        now=100,
+    )
+    event = business_message()
+    event["message"]["username"] = "not-normalized"
+    assert store.resolve_customer_actor(event) is None
+
+
+def test_actor_resolution_requires_message_date_and_rejects_boolean_date(tmp_path):
+    store = BusinessConnectionStore(tmp_path / "business.json")
+    store.update_from_event(
+        connection_event(),
+        owner_ids=frozenset({123}),
+        update_id=1,
+        now=100,
+    )
+    missing_date = business_message()
+    missing_date["message"].pop("date")
+    assert store.resolve_customer_actor(missing_date) is None
+
+    boolean_date = business_message()
+    boolean_date["message"]["date"] = True
+    assert store.resolve_customer_actor(boolean_date) is None
