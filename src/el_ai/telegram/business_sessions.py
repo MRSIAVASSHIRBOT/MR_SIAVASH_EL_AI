@@ -576,7 +576,7 @@ class BusinessConversationStore:
         self,
         actor: BusinessActorContext,
         identity: dict[str, object],
-    ):
+    ) -> BusinessConnection:
         connection = self._connection_store.get(actor.connection_id)
         if (
             connection is None
@@ -592,7 +592,7 @@ class BusinessConversationStore:
         self,
         actor: BusinessActorContext,
         identity: dict[str, object],
-    ):
+    ) -> BusinessConnection:
         connection = self._assert_owner_binding(actor, identity)
         if not connection.is_enabled or not connection.can_read_messages:
             raise BusinessSessionAuthorizationError(
