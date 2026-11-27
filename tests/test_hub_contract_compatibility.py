@@ -35,12 +35,12 @@ def _concrete_path(template: str) -> str:
     return path
 
 
-def test_pinned_hub_contract_is_the_approved_v1_manifest() -> None:
+def test_pinned_hub_contract_is_a_proposed_additive_v1_1_manifest() -> None:
     manifest = _contract()
 
     assert manifest["contract_id"] == "mr-siavash-hybrid-integration"
-    assert manifest["contract_version"] == "1.0.0"
-    assert manifest["status"] == "approved"
+    assert manifest["contract_version"] == "1.1.0"
+    assert manifest["status"] == "proposed"
 
 
 def test_all_paired_bearer_routes_have_declared_scopes_and_safe_log_templates() -> None:
@@ -72,6 +72,12 @@ def test_static_hub_route_templates_exist_in_the_contract() -> None:
 
     # Pairing exchange and refresh routes intentionally use their own auth modes.
     assert _STATIC_HUB_ROUTES <= contract_paths
+    tools_endpoint = next(
+        endpoint for endpoint in endpoints
+        if endpoint["path"] == "/integrations/telegram/tools"
+    )
+    assert tools_endpoint["method"] == "GET"
+    assert tools_endpoint["required_scope"] == "tools:read"
 
 
 def test_canonical_request_observability_contract_includes_bounded_duration():

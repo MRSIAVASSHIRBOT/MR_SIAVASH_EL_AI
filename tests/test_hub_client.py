@@ -77,6 +77,48 @@ async def test_pairing_stores_credentials_and_status_uses_bound_identity():
 
 
 @pytest.mark.asyncio
+async def test_tool_catalog_uses_the_explicit_read_only_scope_endpoint():
+    store = MemoryStore()
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/exchange"):
+            return httpx.Response(200, json={
+                "access_token": "access-secret",
+                "refresh_token": "refresh-secret",
+                "client_id": "client-tools",
+                "expires_in": 900,
+                "refresh_expires_in": 86400,
+                "scopes": ["tools:read"],
+            })
+        return httpx.Response(200, json={
+            "contract_version": "telegram_tool_catalog.v1",
+            "tools": [],
+            "count": 0,
+            "execution_authorized": False,
+        })
+
+    client = HubClient(
+        "http://127.0.0.1:8000",
+        "client-tools",
+        store,
+        transport=httpx.MockTransport(handler),
+    )
+    await client.pair("one-time-pairing-code", 123456)
+    catalog = await client.list_tools(123456)
+
+    assert catalog["contract_version"] == "telegram_tool_catalog.v1"
+    assert catalog["execution_authorized"] is False
+    request = requests[1]
+    assert request.method == "GET"
+    assert request.url.path == "/integrations/telegram/tools"
+    assert request.headers["Authorization"] == "Bearer access-secret"
+    assert request.headers["X-Telegram-User-Id"] == "123456"
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_access_token_is_refreshed_before_expiry():
     store = MemoryStore()
     store.save("client-2", {

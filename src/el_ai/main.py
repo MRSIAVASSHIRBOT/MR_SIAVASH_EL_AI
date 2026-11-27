@@ -51,7 +51,7 @@ TASK_STATUSES = frozenset({
     "failed", "cancelled", "rejected",
 })
 OWNER_HUB_COMMANDS = frozenset({
-    "/pair", "/doctor", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskplanspauseall", "/taskplansresumeall", "/taskplanevaluate",
+    "/pair", "/doctor", "/hub", "/tools", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskplanspauseall", "/taskplansresumeall", "/taskplanevaluate",
     "/taskresult", "/taskcancel", "/taskhistory", "/taskwatch", "/taskunwatch",
     "/taskwatches", "/videoproviders", "/videoroute",
     "/videohistory", "/videostatus", "/videocancel",
@@ -63,7 +63,7 @@ OWNER_HUB_COMMANDS = frozenset({
 
 # This is intentionally narrower than OWNER_HUB_COMMANDS and must match the edge Worker.
 BRIDGE_OWNER_COMMANDS = frozenset({
-    "/doctor", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove",
+    "/doctor", "/hub", "/tools", "/tasks", "/memory", "/memoryentry", "/memoryapprove",
     "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress",
     "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus",
     "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskplanspauseall", "/taskplansresumeall", "/taskplanevaluate", "/taskresult",
@@ -435,7 +435,7 @@ async def _owner_hub_command(
             return "اتصال انجام نشد؛ کد ممکن است نامعتبر یا منقضی شده باشد. هیچ اطلاعات محرمانه‌ای ثبت نشده است."
 
     if command not in {
-        "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskplanspauseall", "/taskplansresumeall", "/taskplanevaluate", "/taskresult", "/taskcancel",
+        "/hub", "/tools", "/tasks", "/memory", "/memoryentry", "/memoryapprove", "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress", "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus", "/taskplanwatch", "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskplanspauseall", "/taskplansresumeall", "/taskplanevaluate", "/taskresult", "/taskcancel",
         "/taskhistory", "/taskwatch", "/taskunwatch", "/taskwatches",
         "/videoproviders", "/videoroute", "/videohistory", "/videostatus", "/videocancel",
         "/videodrafts", "/videorenders", "/videorendercheck", "/videorender", "/videorenderstatus",
@@ -477,6 +477,55 @@ async def _owner_hub_command(
     try:
         if command == "/hub":
             return _format_result(await hub.status(telegram_user_id))
+        if command == "/tools":
+            if argument:
+                return "این دستور بدون آرگومان اجرا می‌شود: /tools"
+            try:
+                catalog = await hub.list_tools(telegram_user_id)
+            except HubClientError as exc:
+                if exc.status_code == 403:
+                    return "مجوز tools:read برای این اتصال فعال نیست؛ مالک باید آن را جداگانه در پنل Hub اعطا کند."
+                raise
+            tools = catalog.get("tools")
+            if not isinstance(tools, list):
+                return "پاسخ کاتالوگ ابزار از Hub معتبر نیست."
+            lines = [
+                "کاتالوگ ابزارهای ثبت‌شده در Hub",
+                "فقط اطلاعات و سطح ریسک نمایش داده می‌شود؛ هیچ ابزاری با این دستور اجرا نمی‌شود.",
+            ]
+            shown = 0
+            for item in tools:
+                if not isinstance(item, dict):
+                    continue
+                name = item.get("name")
+                description = item.get("description")
+                risk = item.get("risk_class")
+                permissions = item.get("required_permissions")
+                external = item.get("external_side_effect")
+                replay = item.get("replay_safety")
+                if not isinstance(name, str) or not isinstance(description, str):
+                    continue
+                if not isinstance(risk, str) or not isinstance(permissions, list):
+                    continue
+                permission_text = ", ".join(
+                    value for value in permissions if isinstance(value, str)
+                ) or "بدون مجوز اضافی"
+                side_effect_text = "دارای اثر خارجی" if external is True else "بدون اثر خارجی"
+                replay_text = "ایمن برای تکرار" if replay == "retry_safe" else "نیازمند تطبیق پس از اجرا"
+                lines.append(
+                    f"\n{name} · ریسک: {risk}\n"
+                    f"{description[:120]}\n"
+                    f"مجوز: {permission_text[:80]} | {side_effect_text} | {replay_text}"
+                )
+                shown += 1
+                if shown >= 8:
+                    break
+            if shown == 0:
+                lines.append("\nدر حال حاضر ابزاری در کاتالوگ ثبت نشده است.")
+            if len(tools) > shown:
+                lines.append(f"\nنمایش {shown} ابزار از {len(tools)} ابزار.")
+            lines.append("\nاجرای ابزار، مجوزها و تأییدهای لازم مسیر جداگانه دارند.")
+            return "".join(lines)
         if command == "/tasks":
             parts = argument.split(maxsplit=1)
             status_filter = parts[0] if parts and parts[0] in TASK_STATUSES else None
@@ -1687,6 +1736,7 @@ OWNER_BOT_COMMANDS = (
     {"command": "pairinfo", "description": "شناسه اتصال امن Hub"},
     {"command": "pair", "description": "اتصال امن به Hub"},
     {"command": "hub", "description": "وضعیت اتصال Hub"},
+    {"command": "tools", "description": "کاتالوگ فقط‌خواندنی ابزارهای Hub"},
     {"command": "tasks", "description": "فهرست وظایف"},
     {"command": "memory", "description": "جست‌وجوی حافظه"},
     {"command": "memoryentry", "description": "مشاهده یک یادداشت حافظه"},

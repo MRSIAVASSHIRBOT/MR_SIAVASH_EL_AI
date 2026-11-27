@@ -19,7 +19,7 @@ const TELEGRAM_WEBHOOK_PATH = "/telegram/webhook";
 const CLIENT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const BRIDGE_OWNER_COMMANDS = new Set([
-  "/doctor", "/hub", "/tasks", "/memory", "/memoryentry", "/memoryapprove",
+  "/doctor", "/hub", "/tools", "/tasks", "/memory", "/memoryentry", "/memoryapprove",
   "/memorydream", "/memorycheck", "/task", "/taskstatus", "/taskprogress",
   "/taskplan", "/agentplan", "/taskplanrun", "/taskplans", "/taskplanstatus",
   "/taskplancancel", "/taskplanpause", "/taskplanresume", "/taskplanspauseall", "/taskplansresumeall", "/taskplanevaluate", "/taskresult",

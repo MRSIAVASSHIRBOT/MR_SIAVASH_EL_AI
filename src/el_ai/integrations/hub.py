@@ -31,6 +31,7 @@ _STATIC_HUB_ROUTES = frozenset({
     "/integrations/telegram/exchange",
     "/integrations/telegram/refresh",
     "/integrations/telegram/status",
+    "/integrations/telegram/tools",
     "/integrations/telegram/agent/plan-preview",
     "/integrations/telegram/tasks",
     "/integrations/telegram/memory/search",
@@ -556,6 +557,12 @@ class HubClient:
     async def status(self, telegram_user_id: int) -> dict[str, object]:
         return await self._authorized(
             "GET", "/integrations/telegram/status", telegram_user_id
+        )
+
+    async def list_tools(self, telegram_user_id: int) -> dict[str, object]:
+        """Read the non-secret Hub tool catalog through the explicit tools:read scope."""
+        return await self._authorized(
+            "GET", "/integrations/telegram/tools", telegram_user_id
         )
 
     async def get_task(self, telegram_user_id: int, task_id: str) -> dict[str, object]:

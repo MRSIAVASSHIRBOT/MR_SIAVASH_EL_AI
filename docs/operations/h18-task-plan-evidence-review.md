@@ -1,6 +1,6 @@
-# E8 — Task-plan evidence review
+# H18 — Task-plan evidence review
 
-Status: E8 is partial. Read-only task-result and criterion-to-step execution-coverage evidence are implemented; semantic goal evaluation and automatic correction are not implemented.
+Status: H18 is partial. Read-only task-result and criterion-to-step execution-coverage evidence are implemented; semantic goal evaluation and automatic correction are not implemented. This document is classified as H18 Evaluation & Verification in the ecosystem v6 roadmap; E8 is Tool & Skill Interface.
 
 ## Command
 
@@ -28,7 +28,7 @@ Plan summaries are `evidence_complete`, `needs_attention`, `insufficient_evidenc
 - The evaluator does not return result payloads, task descriptions, private context, or credentials.
 - It never creates, retries, cancels, resumes, or modifies a task or plan.
 - Each evaluation is a point-in-time snapshot; it is not persisted as an authoritative verdict.
-- A structurally valid result envelope proves that a result is available, not that its semantic content satisfies a goal. The report must never be presented as goal completion or acceptance-criteria success. Semantic evaluation against explicit, versioned acceptance criteria and independently verifiable evidence remains a future E8 capability.
+- A structurally valid result envelope proves that a result is available, not that its semantic content satisfies a goal. The report must never be presented as goal completion or acceptance-criteria success. Semantic evaluation against explicit, versioned acceptance criteria and independently verifiable evidence remains a future H18 capability.
 - Unknown or missing evidence must be reviewed; it must not trigger automatic retries or self-modification.
 
 ## Verification
