@@ -187,12 +187,12 @@ class TelegramBridgeWorker:
                 (handler_task, stop_task),
                 return_when=asyncio.FIRST_COMPLETED,
             )
-            # Shutdown wins even when the handler becomes ready in the same
-            # event-loop turn. Never acknowledge a lease after stop was requested.
-            if stop_task in done:
-                return _STOPPED
+            # A completed handler result is authoritative. If only shutdown is
+            # ready, cancel the handler and leave the lease unacknowledged.
             if handler_task in done:
                 return await handler_task
+            if stop_task in done:
+                return _STOPPED
             return _STOPPED
         finally:
             for task in (handler_task, stop_task):
