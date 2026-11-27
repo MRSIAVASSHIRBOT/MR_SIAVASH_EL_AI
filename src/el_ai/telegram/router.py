@@ -39,6 +39,7 @@ class MessageRouter:
                 "\n/pairinfo — شناسه اتصال Hub"
                 "\n/pair CODE — اتصال امن به Hub"
                 "\n/hub — وضعیت اتصال"
+                "\n/tools — کاتالوگ فقط‌خواندنی ابزارهای ثبت‌شده در Hub"
                 "\n/tasks [STATUS] [CURSOR] — فهرست صفحه‌بندی‌شده وظایف این ربات"
                 "\n/memory QUERY — جست‌وجوی حافظه"
                 "\n/memoryentry MEMORY_ID — مشاهده یک یادداشت پیش از تأیید"
