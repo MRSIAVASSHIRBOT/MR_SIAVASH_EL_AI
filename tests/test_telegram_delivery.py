@@ -4,7 +4,7 @@ import stat
 
 import pytest
 
-from el_ai.telegram.api import TelegramAPIError
+from el_ai.telegram.api import TelegramAPIError, split_telegram_message
 from el_ai.telegram.delivery import DeliveryStore, DeliveryStoreError, send_update_response
 
 
@@ -196,3 +196,81 @@ def test_send_update_response_quarantines_success_without_message_identifier(tmp
     assert result == "quarantined"
     assert store.batch_state(23) == "quarantined"
     assert store.chunk_states(23) == (("unknown", None),)
+
+
+
+def test_rate_limited_chunk_returns_to_pending_and_resumes_without_resending_confirmed_chunks(
+    tmp_path,
+):
+    response = "x" * 5000
+    chunks = split_telegram_message(response)
+    store = _store(tmp_path)
+
+    class FakeAPI:
+        def __init__(self):
+            self.calls = []
+            self.rate_limited = False
+
+        async def send_message(self, chat_id, text):
+            self.calls.append((chat_id, text))
+            if text == chunks[1] and not self.rate_limited:
+                self.rate_limited = True
+                raise TelegramAPIError(
+                    "Telegram API rate limit exceeded",
+                    retry_after_seconds=3,
+                    definitely_not_sent=True,
+                )
+            return {"message_id": 900 + len(self.calls)}
+
+    api = FakeAPI()
+    with pytest.raises(TelegramAPIError) as error:
+        asyncio.run(send_update_response(
+            api, store, update_id=24, chat_id=123, response=response
+        ))
+
+    assert error.value.retry_after_seconds == 3
+    assert store.batch_state(24) == "in_progress"
+    assert store.chunk_states(24) == (("sent", 901), ("pending", None))
+
+    result = asyncio.run(send_update_response(
+        api, store, update_id=24, chat_id=123, response=response
+    ))
+
+    assert result == "delivered"
+    assert api.calls == [
+        (123, chunks[0]),
+        (123, chunks[1]),
+        (123, chunks[1]),
+    ]
+    assert store.chunk_states(24) == (("sent", 901), ("sent", 903))
+
+
+def test_rate_limited_first_chunk_remains_pending_for_safe_retry(tmp_path):
+    store = _store(tmp_path)
+
+    class FakeAPI:
+        def __init__(self):
+            self.calls = 0
+
+        async def send_message(self, chat_id, text):
+            self.calls += 1
+            if self.calls == 1:
+                raise TelegramAPIError(
+                    "Telegram API rate limit exceeded",
+                    retry_after_seconds=2,
+                    definitely_not_sent=True,
+                )
+            return {"message_id": 990}
+
+    api = FakeAPI()
+    with pytest.raises(TelegramAPIError):
+        asyncio.run(send_update_response(
+            api, store, update_id=25, chat_id=123, response="hello"
+        ))
+    assert store.batch_state(25) == "pending"
+    assert store.chunk_states(25) == (("pending", None),)
+
+    assert asyncio.run(send_update_response(
+        api, store, update_id=25, chat_id=123, response="hello"
+    )) == "delivered"
+    assert api.calls == 2
