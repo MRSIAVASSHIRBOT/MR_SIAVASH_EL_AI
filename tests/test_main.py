@@ -408,6 +408,63 @@ def test_task_history_command_uses_a_valid_uuid_and_returns_events():
     assert "UUID" in invalid
 
 
+def test_tools_command_displays_only_catalog_metadata_and_never_executes_tools():
+    class FakeHub:
+        async def list_tools(self, telegram_user_id):
+            assert telegram_user_id == 123
+            return {
+                "contract_version": "telegram_tool_catalog.v1",
+                "execution_authorized": False,
+                "count": 1,
+                "tools": [
+                    {
+                        "name": "text.echo",
+                        "description": "Echo input without external effects.",
+                        "risk_class": "low",
+                        "required_permissions": [],
+                        "external_side_effect": False,
+                        "replay_safety": "retry_safe",
+                    }
+                ],
+            }
+
+    rendered = asyncio.run(_owner_hub_command(
+        "/tools", telegram_user_id=123, update_id=901,
+        hub=FakeHub(), settings=_settings(enabled=True)
+    ))
+    assert "text.echo" in rendered
+    assert "ریسک: low" in rendered
+    assert "هیچ ابزاری با این دستور اجرا نمی‌شود" in rendered
+    assert "اجرای ابزار، مجوزها و تأییدهای لازم مسیر جداگانه دارند" in rendered
+
+
+def test_tools_command_explains_missing_read_scope():
+    class FakeHub:
+        async def list_tools(self, *_args):
+            raise HubClientError("scope denied", status_code=403)
+
+    rendered = asyncio.run(_owner_hub_command(
+        "/tools", telegram_user_id=123, update_id=902,
+        hub=FakeHub(), settings=_settings(enabled=True)
+    ))
+    assert "tools:read" in rendered
+
+
+def test_tools_command_rejects_arguments_and_is_owner_bridge_allowlisted():
+    class FakeHub:
+        async def list_tools(self, *_args):
+            raise AssertionError("Tool catalog must not be called with arguments")
+
+    rendered = asyncio.run(_owner_hub_command(
+        "/tools unexpected", telegram_user_id=123, update_id=903,
+        hub=FakeHub(), settings=_settings(enabled=True)
+    ))
+    assert "/tools" in rendered
+    assert "/tools" in OWNER_HUB_COMMANDS
+    assert "/tools" in BRIDGE_OWNER_COMMANDS
+    assert any(item["command"] == "tools" for item in OWNER_BOT_COMMANDS)
+
+
 def test_owner_hub_dispatch_allowlist_covers_all_implemented_task_commands():
     assert {"/tasks", "/taskstatus", "/taskhistory", "/taskresult", "/taskcancel", "/memoryentry", "/memoryapprove"} <= OWNER_HUB_COMMANDS
 
