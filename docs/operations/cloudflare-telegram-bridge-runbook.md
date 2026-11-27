@@ -131,3 +131,34 @@ Mark each gate independently:
 ## Release status
 
 A Worker deployment and a passing `/ready` check are infrastructure evidence only. Production readiness requires verified webhook read-back and an end-to-end private owner message/reply test. Keep the release status **pending** until those gates have evidence.
+
+
+## Local polling delivery recovery
+
+Local polling stores outbound response progress in a private SQLite outbox at
+`telegram-delivery.sqlite3` under the EL_AI state directory. Only update IDs, a digest of the chat ID, chunk SHA-256 digests, delivery states,
+attempt counts and Telegram message IDs are stored; raw chat IDs, response text
+and credentials are never written to this database.
+
+Each response chunk is durably marked as sending before its Telegram request. A
+confirmed API response marks that chunk sent. If the request times out, fails, or
+the process stops before the result is durably recorded, that chunk becomes
+unknown/quarantined and is never automatically sent again. Already confirmed
+chunks are skipped on a safe resume; remaining pending chunks may continue only
+when no chunk has an ambiguous outcome. A changed response for the same update ID
+is quarantined instead of being sent.
+
+Telegram Bot API sendMessage has no provider-side idempotency key. This design
+therefore guarantees **no automatic replay after an ambiguous send**, not
+exactly-once delivery. A quarantined item requires manual reconciliation outside
+the automatic polling loop. Local polling stops safely when the state database is
+unavailable or incompatible.
+
+This outbox applies only to the local getUpdates polling path. The Cloudflare
+Bridge transport is a separate transport and retains its own queue/acknowledgement
+contract; this local outbox does not claim to protect that path.
+
+The first increment covers replies to inbound updates in local polling. Background
+task-watch and dependency-plan notifications still use their separate best-effort
+notification path; they are not covered by this outbox and must not be described as
+exactly-once or ambiguity-safe.
