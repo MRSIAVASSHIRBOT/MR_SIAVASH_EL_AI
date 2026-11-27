@@ -213,3 +213,49 @@ def test_cloudflare_bridge_supports_zero_cost_local_hub_profile(monkeypatch):
     assert settings.hub_api_base_url == "http://127.0.0.1:8000"
     assert settings.hub_allow_remote is False
     assert settings.hub_allow_render_private_network is False
+
+
+
+def test_telegram_business_updates_are_disabled_by_default(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abcdefghijklmnop")
+    monkeypatch.setenv("TELEGRAM_OWNER_IDS", "123")
+
+    settings = Settings.from_env()
+
+    assert settings.telegram_business_updates_enabled is False
+
+
+def test_telegram_business_updates_require_local_polling_and_an_owner(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abcdefghijklmnop")
+    monkeypatch.setenv("TELEGRAM_OWNER_IDS", "123")
+    monkeypatch.setenv("TELEGRAM_BUSINESS_UPDATES_ENABLED", "true")
+
+    settings = Settings.from_env()
+    assert settings.telegram_business_updates_enabled is True
+
+    monkeypatch.setenv("TELEGRAM_TRANSPORT", "cloudflare_bridge")
+    monkeypatch.setenv("TELEGRAM_BRIDGE_URL", "https://bridge.example.test")
+    monkeypatch.setenv("TELEGRAM_BRIDGE_SHARED_SECRET", "x" * 40)
+    monkeypatch.setenv("HUB_INTEGRATION_ENABLED", "true")
+    monkeypatch.setenv("HUB_API_BASE_URL", "https://hub.example.test")
+    monkeypatch.setenv("HUB_ALLOW_REMOTE", "true")
+    with pytest.raises(ConfigurationError, match="requires local_polling"):
+        Settings.from_env()
+
+
+def test_telegram_business_updates_require_configured_owner_ids(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abcdefghijklmnop")
+    monkeypatch.delenv("TELEGRAM_OWNER_IDS", raising=False)
+    monkeypatch.setenv("TELEGRAM_BUSINESS_UPDATES_ENABLED", "true")
+
+    with pytest.raises(ConfigurationError, match="TELEGRAM_OWNER_IDS"):
+        Settings.from_env()
+
+
+def test_telegram_business_updates_reject_invalid_boolean(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abcdefghijklmnop")
+    monkeypatch.setenv("TELEGRAM_OWNER_IDS", "123")
+    monkeypatch.setenv("TELEGRAM_BUSINESS_UPDATES_ENABLED", "sometimes")
+
+    with pytest.raises(ConfigurationError, match="TELEGRAM_BUSINESS_UPDATES_ENABLED"):
+        Settings.from_env()

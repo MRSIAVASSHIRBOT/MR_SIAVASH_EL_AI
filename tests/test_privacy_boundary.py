@@ -27,7 +27,14 @@ def test_owner_private_text_never_reaches_public_gateway(monkeypatch, tmp_path):
         async def set_my_commands(self, _commands, *, scope=None):
             return None
 
-        async def get_updates(self, *, offset=None, timeout=25):
+        async def get_updates(
+            self,
+            *,
+            offset=None,
+            timeout=25,
+            include_business_updates=False,
+        ):
+            assert include_business_updates is False
             self.poll_count += 1
             if self.poll_count == 1:
                 return [_update(1, 123, "private owner note")]
@@ -95,7 +102,14 @@ def test_owner_hub_results_and_task_context_never_reach_public_gateway(monkeypat
         async def set_my_commands(self, _commands, *, scope=None):
             return None
 
-        async def get_updates(self, *, offset=None, timeout=25):
+        async def get_updates(
+            self,
+            *,
+            offset=None,
+            timeout=25,
+            include_business_updates=False,
+        ):
+            assert include_business_updates is False
             self.poll_count += 1
             if self.poll_count == 1:
                 return [_update(1, 123, f"/taskresult {task_id}")]

@@ -13,6 +13,12 @@ MAX_TELEGRAM_DOCUMENT_BYTES = 48_000_000
 
 
 MAX_TELEGRAM_RETRY_AFTER_SECONDS = 7 * 24 * 60 * 60
+TELEGRAM_BUSINESS_UPDATE_TYPES = (
+    "business_connection",
+    "business_message",
+    "edited_business_message",
+    "deleted_business_messages",
+)
 
 
 class TelegramAPIError(RuntimeError):
@@ -143,11 +149,22 @@ class TelegramBotAPI:
             operation_error="Telegram API request failed",
         )
 
-    async def get_updates(self, *, offset: int | None, timeout: int) -> list[dict[str, Any]]:
+    async def get_updates(
+        self,
+        *,
+        offset: int | None,
+        timeout: int,
+        include_business_updates: bool = False,
+    ) -> list[dict[str, Any]]:
+        if type(include_business_updates) is not bool:
+            raise ValueError("Telegram Business update selection must be a boolean")
+        allowed_updates = ["message"]
+        if include_business_updates:
+            allowed_updates.extend(TELEGRAM_BUSINESS_UPDATE_TYPES)
         payload: dict[str, Any] = {
             "timeout": timeout,
             "limit": 100,
-            "allowed_updates": ["message"],
+            "allowed_updates": allowed_updates,
         }
         if offset is not None:
             payload["offset"] = offset

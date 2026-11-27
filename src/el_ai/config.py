@@ -178,6 +178,7 @@ class Settings:
     hub_allow_render_private_network: bool = False
     site_public_api_base_url: str = "https://mr-siavash-ai-gateway.mrsiavashirbot.workers.dev"
     site_public_web_base_url: str = "https://mrsiavasshirbot.github.io/MR_SIAVASH_AI"
+    telegram_business_updates_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -220,6 +221,15 @@ class Settings:
         if hub_enabled and hub_url is None:
             raise ConfigurationError("HUB_API_BASE_URL is required when Hub integration is enabled")
         owner_ids = _owner_ids(os.getenv("TELEGRAM_OWNER_IDS"))
+        business_updates_enabled = _boolean("TELEGRAM_BUSINESS_UPDATES_ENABLED", False)
+        if business_updates_enabled and transport != "local_polling":
+            raise ConfigurationError(
+                "TELEGRAM_BUSINESS_UPDATES_ENABLED requires local_polling transport"
+            )
+        if business_updates_enabled and not owner_ids:
+            raise ConfigurationError(
+                "TELEGRAM_OWNER_IDS is required when Telegram Business updates are enabled"
+            )
         if transport == "cloudflare_bridge":
             if not owner_ids:
                 raise ConfigurationError(
@@ -262,4 +272,5 @@ class Settings:
                 "https://mrsiavasshirbot.github.io/MR_SIAVASH_AI",
                 "SITE_PUBLIC_WEB_BASE_URL",
             ),
+            telegram_business_updates_enabled=business_updates_enabled,
         )

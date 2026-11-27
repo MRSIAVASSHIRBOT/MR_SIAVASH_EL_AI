@@ -35,3 +35,11 @@ Production deployment is not included in the bootstrap. Before webhook deploymen
 - Use `/taskwatches` to list the current owner's watches and `/taskunwatch TASK_ID` to stop one.
 - Watches are stored locally in `task-watches.json` with mode 0600 where supported; only task IDs, Telegram owner IDs and last-known statuses are stored.
 - Notifications are polled while the bot process is running. A restart resumes persisted watches; terminal tasks are removed after a successful notification. Delivery is best-effort and an ambiguous Telegram send can be repeated.
+
+
+
+## Telegram Business update subscription
+
+Business updates are disabled by default. The parser and isolated processor support connection lifecycle events and metadata-only customer context resolution, but they do not create customer conversations, invoke models, access Hub, download media or send customer replies.
+
+Keep `TELEGRAM_BUSINESS_UPDATES_ENABLED=false` until the negative authorization matrix and a dedicated non-production Business-account acceptance have passed. When deliberately enabled, this setting is supported only with `TELEGRAM_TRANSPORT=local_polling` and a non-empty `TELEGRAM_OWNER_IDS` allowlist. It adds only the four normalized Business update types to `getUpdates`; it does not enable reply or media capabilities. Production activation remains a separate release decision.
