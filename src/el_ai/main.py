@@ -514,11 +514,11 @@ async def _owner_hub_command(
                 replay_text = "ایمن برای تکرار" if replay == "retry_safe" else "نیازمند تطبیق پس از اجرا"
                 lines.append(
                     f"\n{name} · ریسک: {risk}\n"
-                    f"{description[:140]}\n"
-                    f"مجوز: {permission_text[:100]} | {side_effect_text} | {replay_text}"
+                    f"{description[:120]}\n"
+                    f"مجوز: {permission_text[:80]} | {side_effect_text} | {replay_text}"
                 )
                 shown += 1
-                if shown >= 10:
+                if shown >= 8:
                     break
             if shown == 0:
                 lines.append("\nدر حال حاضر ابزاری در کاتالوگ ثبت نشده است.")
