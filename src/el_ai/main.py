@@ -2037,7 +2037,11 @@ async def run(settings: Settings) -> None:
         LOGGER.info("Telegram polling started; environment=%s", settings.environment)
         while not stop.is_set():
             try:
-                updates = await api.get_updates(offset=offset, timeout=settings.poll_timeout_seconds)
+                updates = await api.get_updates(
+                    offset=offset,
+                    timeout=settings.poll_timeout_seconds,
+                    include_business_updates=settings.telegram_business_updates_enabled,
+                )
                 metrics.record_poll(len(updates))
                 backoff = 1
                 for raw_update in updates:

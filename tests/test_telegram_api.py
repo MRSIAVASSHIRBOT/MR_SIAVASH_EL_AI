@@ -25,7 +25,46 @@ async def test_get_updates_and_send_message_use_bot_api():
     assert calls[1][0].endswith("sendMessage")
     get_updates_payload = json.loads(calls[0][1])
     assert get_updates_payload["allowed_updates"] == ["message"]
-    assert "business_message" not in get_updates_payload["allowed_updates"]
+    await api.close()
+
+
+@pytest.mark.asyncio
+async def test_get_updates_subscribes_to_business_variants_only_when_opted_in():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.read()))
+        return httpx.Response(200, json={"ok": True, "result": []})
+
+    api = TelegramBotAPI(
+        "123:abcdefghijklmnop",
+        transport=httpx.MockTransport(handler),
+    )
+    await api.get_updates(
+        offset=None,
+        timeout=10,
+        include_business_updates=True,
+    )
+
+    assert calls[0]["allowed_updates"] == [
+        "message",
+        "business_connection",
+        "business_message",
+        "edited_business_message",
+        "deleted_business_messages",
+    ]
+    await api.close()
+
+
+@pytest.mark.asyncio
+async def test_get_updates_rejects_non_boolean_business_update_selection():
+    api = TelegramBotAPI("123:abcdefghijklmnop")
+    with pytest.raises(ValueError, match="must be a boolean"):
+        await api.get_updates(
+            offset=None,
+            timeout=10,
+            include_business_updates="true",
+        )
     await api.close()
 
 
