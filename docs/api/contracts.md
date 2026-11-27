@@ -10,7 +10,7 @@ The Hub owns Telegram client registration, scopes, token issuance, expiry, revoc
 - Hub stores only token hashes. Owner can list and revoke paired clients.
 - EL_AI stores raw credentials only in an OS-backed credential manager.
 - Every paired request includes the bearer access token and X-Telegram-User-Id.
-- Dedicated bot scopes are status:read, tasks:read, tasks:result, tasks:create, tasks:cancel, memory:search, video:read, and video:cancel. New scopes are never granted automatically to an existing client.
+- Dedicated bot scopes include status:read, tools:read, tasks:read, tasks:result, tasks:create, tasks:cancel, memory:search, video:read, and video:cancel. New scopes are never granted automatically to an existing client.
 - Agent execution and approval decisions are not in the initial scope set.
 
 ## Scoped endpoints
@@ -20,6 +20,7 @@ The Hub owns Telegram client registration, scopes, token issuance, expiry, revoc
 - POST /integrations/telegram/refresh: refresh an access token using the paired refresh credential.
 - GET /integrations/telegram/clients, PUT /integrations/telegram/clients/{client_id}/scopes, and POST /integrations/telegram/clients/{client_id}/revoke: owner management. Scope updates require an authenticated Hub owner and apply to the next paired request.
 - GET /integrations/telegram/status: requires status:read.
+- GET /integrations/telegram/tools: requires tools:read and returns a bounded `telegram_tool_catalog.v1` projection of registered tool metadata only; schemas and tool invocation are excluded.
 - GET /integrations/telegram/tasks: requires tasks:read and returns only tasks submitted by the exact paired client.
 - GET /integrations/telegram/tasks/{task_id}: requires tasks:read and returns one task only when that exact paired client submitted it; other clients receive the same 404 as an unknown task.
 - POST /integrations/telegram/tasks: requires tasks:create and an idempotency key; Hub PolicyEngine remains authoritative.
