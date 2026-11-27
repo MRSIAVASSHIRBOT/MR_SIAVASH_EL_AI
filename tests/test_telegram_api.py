@@ -44,6 +44,25 @@ async def test_provider_error_does_not_leak_response_body_or_token():
 
 
 @pytest.mark.asyncio
+async def test_send_message_rejects_invalid_chat_ids_before_network_io():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(200, json={"ok": True, "result": True})
+
+    api = TelegramBotAPI(
+        "123:abcdefghijklmnop",
+        transport=httpx.MockTransport(handler),
+    )
+    for chat_id in (True, False, 0, -1, "900", 1.5):
+        with pytest.raises(ValueError, match="chat ID"):
+            await api.send_message(chat_id, "hello")
+    assert calls == []
+    await api.close()
+
+
+@pytest.mark.asyncio
 async def test_send_message_enforces_telegram_utf16_limit():
     api = TelegramBotAPI("123:abcdefghijklmnop")
     with pytest.raises(ValueError, match="UTF-16"):
