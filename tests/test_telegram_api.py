@@ -306,3 +306,81 @@ async def test_send_document_rejects_invalid_or_unsafe_uploads():
     with pytest.raises(ValueError, match="caption"):
         await api.send_document(900, b"csv", filename="scene.csv", caption="😀" * 513)
     await api.close()
+
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_response_preserves_only_bounded_retry_after():
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429,
+            json={
+                "ok": False,
+                "error_code": 429,
+                "description": "private provider detail must not escape",
+                "parameters": {"retry_after": 17},
+            },
+        )
+
+    api = TelegramBotAPI(
+        "123:abcdefghijklmnop",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(TelegramAPIError) as error:
+        await api.call("getMe", {})
+
+    assert error.value.retry_after_seconds == 17
+    assert error.value.definitely_not_sent is True
+    assert "private provider detail" not in str(error.value)
+    assert "abcdefghijklmnop" not in str(error.value)
+    assert error.value.__context__ is None
+    await api.close()
+
+
+@pytest.mark.parametrize("retry_after", [True, False, 0, -1, "17", 604801, 17.5])
+@pytest.mark.asyncio
+async def test_rate_limit_response_ignores_invalid_retry_after_hints(retry_after):
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429,
+            json={
+                "ok": False,
+                "error_code": 429,
+                "parameters": {"retry_after": retry_after},
+            },
+        )
+
+    api = TelegramBotAPI(
+        "123:abcdefghijklmnop",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(TelegramAPIError) as error:
+        await api.call("getMe", {})
+
+    assert error.value.retry_after_seconds is None
+    assert error.value.definitely_not_sent is True
+    await api.close()
+
+
+@pytest.mark.asyncio
+async def test_api_error_code_429_is_recognized_even_with_success_http_status():
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "ok": False,
+                "error_code": 429,
+                "parameters": {"retry_after": 5},
+            },
+        )
+
+    api = TelegramBotAPI(
+        "123:abcdefghijklmnop",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(TelegramAPIError) as error:
+        await api.call("getMe", {})
+
+    assert error.value.retry_after_seconds == 5
+    assert error.value.definitely_not_sent is True
+    await api.close()

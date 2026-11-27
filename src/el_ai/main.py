@@ -95,6 +95,11 @@ def _advance_update_cursor(
     return next_offset
 
 
+def _telegram_retry_delay(error: TelegramAPIError, fallback_backoff: int) -> int:
+    """Prefer Telegram's explicit flood-control delay over generic backoff."""
+    return error.retry_after_seconds or fallback_backoff
+
+
 def _process_business_update(
     update: ParsedTelegramUpdate,
     processor: BusinessEventProcessor,
@@ -2191,12 +2196,16 @@ async def run(settings: Settings) -> None:
                             LOGGER.warning("Task-plan advancement notification failed or has unknown outcome")
                     last_task_watch_poll = time.monotonic()
                 metrics.emit(LOGGER)
-            except TelegramAPIError:
+            except TelegramAPIError as exc:
                 metrics.record_telegram_api_error()
                 metrics.emit(LOGGER)
-                LOGGER.warning("Telegram polling request failed; retrying with bounded backoff")
+                retry_delay = _telegram_retry_delay(exc, backoff)
+                LOGGER.warning(
+                    "Telegram polling request failed; retrying after %d seconds",
+                    retry_delay,
+                )
                 try:
-                    await asyncio.wait_for(stop.wait(), timeout=backoff)
+                    await asyncio.wait_for(stop.wait(), timeout=retry_delay)
                 except TimeoutError:
                     pass
                 backoff = min(backoff * 2, 30)

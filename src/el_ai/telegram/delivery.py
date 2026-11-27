@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator, Sequence
 
-from el_ai.telegram.api import split_telegram_message
+from el_ai.telegram.api import TelegramAPIError, split_telegram_message
 
 MAX_DELIVERY_CHUNKS = 128
 MAX_DELIVERY_BATCHES = 10_000
@@ -361,6 +361,34 @@ class DeliveryStore:
                 (now, update_id),
             )
 
+    def mark_pending_after_rejection(self, update_id: int, chunk_index: int) -> None:
+        """Return a chunk to pending only after an explicit provider rejection."""
+        if not self._initialized:
+            raise DeliveryStoreError("Telegram delivery store is not initialized")
+        now = time.time()
+        with self._transaction() as db:
+            updated = db.execute(
+                """
+                UPDATE delivery_chunks SET state='pending', updated_at=?
+                WHERE update_id=? AND chunk_index=? AND state='sending'
+                """,
+                (now, update_id, chunk_index),
+            )
+            if updated.rowcount != 1:
+                raise DeliveryStoreError("Telegram rejected chunk was not in sending state")
+            sent_count = db.execute(
+                "SELECT COUNT(*) FROM delivery_chunks WHERE update_id=? AND state='sent'",
+                (update_id,),
+            ).fetchone()[0]
+            batch_state = "in_progress" if sent_count else "pending"
+            db.execute(
+                """
+                UPDATE delivery_batches SET state=?, reason_code='telegram_rate_limited',
+                updated_at=? WHERE update_id=?
+                """,
+                (batch_state, now, update_id),
+            )
+
     def batch_state(self, update_id: int) -> str | None:
         if not self._initialized:
             raise DeliveryStoreError("Telegram delivery store is not initialized")
@@ -414,6 +442,14 @@ async def send_update_response(
             return "quarantined"
         try:
             result = await api.send_message(chat_id, chunk)
+        except TelegramAPIError as exc:
+            if exc.definitely_not_sent:
+                # A Bot API 429 is an explicit rejection, not an ambiguous send.
+                # Keep only this chunk pending; the poll cursor remains unadvanced.
+                store.mark_pending_after_rejection(update_id, index)
+                raise
+            store.mark_unknown(update_id, index)
+            return "quarantined"
         except Exception:  # noqa: BLE001 - never replay a send with an unconfirmed outcome
             store.mark_unknown(update_id, index)
             return "quarantined"

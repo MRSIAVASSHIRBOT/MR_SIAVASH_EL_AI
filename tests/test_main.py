@@ -26,6 +26,7 @@ from el_ai.main import (
     _poll_task_watches,
     _process_business_update,
     _send_response,
+    _telegram_retry_delay,
 )
 from el_ai.observability import RuntimeMetrics
 from el_ai.telegram.task_watch import TaskWatchStore
@@ -2320,3 +2321,16 @@ def test_main_business_dispatch_keeps_customer_event_separate_from_regular_messa
     assert customer_result.status == "customer_context_resolved"
     assert customer_result.actor.actor_type == "business_customer"
     assert customer_result.actor.capabilities == ()
+
+
+
+def test_polling_prefers_valid_telegram_retry_after_and_keeps_bounded_fallback():
+    assert _telegram_retry_delay(
+        TelegramAPIError(
+            "rate limited",
+            retry_after_seconds=13,
+            definitely_not_sent=True,
+        ),
+        4,
+    ) == 13
+    assert _telegram_retry_delay(TelegramAPIError("temporary failure"), 4) == 4

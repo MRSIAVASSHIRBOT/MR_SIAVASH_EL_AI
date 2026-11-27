@@ -12,8 +12,56 @@ MAX_TELEGRAM_VIDEO_BYTES = 48_000_000
 MAX_TELEGRAM_DOCUMENT_BYTES = 48_000_000
 
 
+MAX_TELEGRAM_RETRY_AFTER_SECONDS = 7 * 24 * 60 * 60
+
+
 class TelegramAPIError(RuntimeError):
     """Sanitized Telegram API failure; never contains token or response body."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after_seconds: int | None = None,
+        definitely_not_sent: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = (
+            retry_after_seconds
+            if type(retry_after_seconds) is int
+            and 1 <= retry_after_seconds <= MAX_TELEGRAM_RETRY_AFTER_SECONDS
+            else None
+        )
+        self.definitely_not_sent = definitely_not_sent is True
+
+
+def _decode_telegram_response(response: httpx.Response, *, operation_error: str) -> Any:
+    """Decode a Bot API response without retaining request URLs or response bodies."""
+    try:
+        data = response.json()
+    except ValueError:
+        data = None
+
+    error_code = data.get("error_code") if isinstance(data, dict) else None
+    rate_limited = response.status_code == 429 or (
+        type(error_code) is int and error_code == 429
+    )
+    if rate_limited:
+        parameters = data.get("parameters") if isinstance(data, dict) else None
+        retry_after = (
+            parameters.get("retry_after") if isinstance(parameters, dict) else None
+        )
+        raise TelegramAPIError(
+            "Telegram API rate limit exceeded",
+            retry_after_seconds=retry_after,
+            definitely_not_sent=True,
+        ) from None
+
+    if response.is_error:
+        raise TelegramAPIError(operation_error) from None
+    if not isinstance(data, dict) or data.get("ok") is not True:
+        raise TelegramAPIError("Telegram API rejected the request") from None
+    return data.get("result")
 
 
 def _utf16_length(value: str) -> int:
@@ -87,18 +135,13 @@ class TelegramBotAPI:
             raise ValueError("Invalid Telegram API method")
         try:
             response = await self._client.post(method, json=payload)
-            response.raise_for_status()
-            data = response.json()
-        except (httpx.HTTPError, ValueError):
+        except httpx.HTTPError:
             # HTTPX exceptions retain a request URL containing the bot token.
-            failed = True
-        else:
-            failed = False
-        if failed:
-            raise TelegramAPIError("Telegram API request failed")
-        if not isinstance(data, dict) or data.get("ok") is not True:
-            raise TelegramAPIError("Telegram API rejected the request")
-        return data.get("result")
+            raise TelegramAPIError("Telegram API request failed") from None
+        return _decode_telegram_response(
+            response,
+            operation_error="Telegram API request failed",
+        )
 
     async def get_updates(self, *, offset: int | None, timeout: int) -> list[dict[str, Any]]:
         payload: dict[str, Any] = {
@@ -206,14 +249,13 @@ class TelegramBotAPI:
                 files={"video": (filename, video, "video/mp4")},
                 timeout=httpx.Timeout(120),
             )
-            response.raise_for_status()
-            payload = response.json()
-        except (httpx.HTTPError, ValueError):
+        except httpx.HTTPError:
             # HTTPX exceptions retain a request URL containing the bot token.
             raise TelegramAPIError("Telegram video upload failed") from None
-        if not isinstance(payload, dict) or payload.get("ok") is not True:
-            raise TelegramAPIError("Telegram API rejected the video upload")
-        return payload.get("result")
+        return _decode_telegram_response(
+            response,
+            operation_error="Telegram video upload failed",
+        )
 
     async def send_document(
         self,
@@ -250,14 +292,13 @@ class TelegramBotAPI:
                 files={"document": (filename, document, "text/csv; charset=utf-8")},
                 timeout=httpx.Timeout(120),
             )
-            response.raise_for_status()
-            payload = response.json()
-        except (httpx.HTTPError, ValueError):
+        except httpx.HTTPError:
             # HTTPX exceptions retain a request URL containing the bot token.
             raise TelegramAPIError("Telegram document upload failed") from None
-        if not isinstance(payload, dict) or payload.get("ok") is not True:
-            raise TelegramAPIError("Telegram API rejected the document upload")
-        return payload.get("result")
+        return _decode_telegram_response(
+            response,
+            operation_error="Telegram document upload failed",
+        )
 
     async def close(self) -> None:
         await self._client.aclose()
