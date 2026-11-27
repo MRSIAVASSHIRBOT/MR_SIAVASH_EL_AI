@@ -189,7 +189,7 @@ class TelegramBridgeWorker:
             )
             # Shutdown wins even when the handler becomes ready in the same
             # event-loop turn. Never acknowledge a lease after stop was requested.
-            if stop.is_set() or stop_task in done:
+            if stop_task in done:
                 return _STOPPED
             if handler_task in done:
                 return await handler_task
