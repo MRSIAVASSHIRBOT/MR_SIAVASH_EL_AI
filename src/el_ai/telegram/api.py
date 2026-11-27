@@ -165,7 +165,9 @@ class TelegramBotAPI:
         return await self.call("setMyCommands", payload)
 
     async def send_message(self, chat_id: int, text: str) -> Any:
-        if not text or _utf16_length(text) > 4096:
+        if isinstance(chat_id, bool) or not isinstance(chat_id, int) or chat_id <= 0:
+            raise ValueError("Telegram chat ID must be a positive integer")
+        if not isinstance(text, str) or not text or _utf16_length(text) > 4096:
             raise ValueError("Telegram message must contain 1 to 4096 UTF-16 code units")
         return await self.call("sendMessage", {"chat_id": chat_id, "text": text})
 
