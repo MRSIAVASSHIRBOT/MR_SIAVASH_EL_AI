@@ -83,7 +83,7 @@
         "path": "/integrations/telegram/tools",
         "auth_mode": "paired_bearer",
         "required_scope": "tools:read",
-        "purpose": "Return bounded versioned tool metadata only; does not expose schemas or invoke tools."
+        "purpose": "Return a bounded, non-secret, versioned tool catalog; does not expose schemas or invoke tools."
       },
       {
         "method": "GET",
